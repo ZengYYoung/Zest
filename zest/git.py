@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -153,3 +154,11 @@ def read_blob(root: Path, entry: TreeEntry, max_bytes: int) -> bytes | None:
     if size > max_bytes:
         return None
     return _git(root, "cat-file", "blob", entry.object_id).stdout
+
+
+def verify_commit(root: Path, object_id: str) -> bool:
+    """Only accept full local commit IDs, not arbitrary revision expressions."""
+    if not re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", object_id):
+        return False
+    result = _git(root, "cat-file", "-t", object_id, allowed=(0, 1, 128))
+    return result.returncode == 0 and result.stdout.strip() == b"commit"

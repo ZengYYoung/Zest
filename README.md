@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已完成两个模块：**本地 Git 项目登记**和**只读项目概览**。当前可以登记仓库，并读取已提交版本中的依赖声明、文档位置和常见入口候选；Agent、RAG、自动修复等能力仍处于设计阶段。我们按小模块逐步确认、实现和提交。
+已完成三个模块：**本地 Git 项目登记**、**只读项目概览**和**带版本来源的文件读取**。当前可以登记仓库、生成基础概览，并按行读取已提交文本；Agent、RAG、自动修复等能力仍处于设计阶段。我们按小模块逐步确认、实现和提交。
 
 ## 已确认的方向
 
@@ -45,6 +45,9 @@ python3 -m zest project show <project-id>
 
 # 查看已登记项目的只读概览
 python3 -m zest project overview <project-id>
+
+# 读取指定文件的前 20 行
+python3 -m zest project read <project-id> README.md --end-line 20
 ```
 
 命令输出 JSON。`import` 返回项目 ID、规范化路径、分支、commit、采集时间和工作区状态。重复登记同一路径会更新记录，保留原项目 ID。
@@ -77,6 +80,35 @@ python3 -m zest --state-dir /absolute/path/to/zest-state project list
 文件来源包含 `path`、`commit`、`blob_id`。单个解析声明限制为 256 KiB；超限只记录位置。符号链接不跟随，`.env` 等非白名单文件内容不收集。元数据仍可能包含项目自行写入的敏感信息，后续向模型或外部服务传输前需要另行设计脱敏。
 
 这是确定性目录和声明概览，尚不分析业务逻辑、依赖调用关系，也不保证声明的命令能成功运行。未提交代码的理解和 monorepo 内层声明扫描仍待后续设计。
+
+## 按行读取文件
+
+```bash
+# 默认查询时的 HEAD；省略行号时最多返回前 200 行
+python3 -m zest project read <project-id> zest/cli.py
+
+# 读取一个行号范围
+python3 -m zest project read <project-id> zest/cli.py --start-line 10 --end-line 30
+
+# 固定到概览返回的完整 commit ID，避免后续 HEAD 变化影响引用
+python3 -m zest project read <project-id> README.md --commit <full-commit-id> --end-line 20
+```
+
+`path` 必须是规范的仓库相对路径。`--commit` 仅接受本地存在的完整 40/64 位 commit ID，不接受分支名、缩写或 Git 表达式；省略时选择当前 HEAD。未提交内容不读取，已登记记录不自动刷新。
+
+返回 JSON 包括：
+
+- `evidence`：路径、commit、blob ID、实际开始/结束行。
+- `lines`：每行的 1 起始行号和文本；行号按 LF 分隔，CRLF 的行文本去除行末 CR。
+- `content`：选定片段，保留原始换行；`content_sha256` 对应完整文件原始字节，`excerpt_sha256` 对应片段原始字节。
+- `total_lines`、`more_before`、`more_after`：总行数和片段前后是否还有内容。
+- `warnings`：脏工作区被排除、登记过时、指定版本不是当前 HEAD 等提示。
+
+每个文件最多 256 KiB，每次最多 200 行，路径最多 32 层。结束行超过文件末尾会收缩；开始行越界报错；空文件返回空内容和空行列表，引用行号为 `null`。
+
+当前只允许常见源码、文档和文本配置类型。绝对路径、点目录、控制字符、常见生成目录和凭据目录会被拒绝；不跟随符号链接或进入子模块，不读取 `.env*`、常见密钥文件、二进制和非 UTF-8 文件。检测到部分已知凭据模式时，整次读取被拒绝，错误不包含凭据值。这些规则不保证发现所有秘密，也不替代后续向模型传输前的权限与脱敏设计。
+
+正文仅作为本地数据返回，不执行、不解释为新指令，也不自动发送给模型或外部服务。
 
 ## 测试
 

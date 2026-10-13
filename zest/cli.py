@@ -1,4 +1,4 @@
-"""CLI for local Git project registration and committed project overviews."""
+"""CLI for local project registration and versioned read-only evidence."""
 
 import argparse
 import json
@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from .git import RepositoryError, inspect_repository
+from .files import FileReadError, read_project_file
 from .overview import build_overview
 from .storage import ProjectRegistry, StorageError
 
@@ -24,6 +25,12 @@ def _parser() -> argparse.ArgumentParser:
     shown.add_argument("project_id", help="登记生成的项目 ID")
     overview = actions.add_parser("overview", help="读取已登记项目当前 commit 的只读概览")
     overview.add_argument("project_id", help="登记生成的项目 ID")
+    reader = actions.add_parser("read", help="读取已提交文本文件并返回行号和版本来源")
+    reader.add_argument("project_id", help="登记生成的项目 ID")
+    reader.add_argument("path", help="仓库相对文件路径")
+    reader.add_argument("--commit", help="完整 commit ID；省略时使用查询时的 HEAD")
+    reader.add_argument("--start-line", type=int, default=1, help="开始行，默认 1")
+    reader.add_argument("--end-line", type=int, help="结束行；省略时最多返回 200 行")
     return parser
 
 
@@ -44,10 +51,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             if args.action == "overview":
                 result = build_overview(result)
+            elif args.action == "read":
+                result = read_project_file(result, args.path, commit=args.commit,
+                                           start_line=args.start_line, end_line=args.end_line)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
-    except (RepositoryError, StorageError, OSError) as exc:
-        code = "repository_error" if isinstance(exc, RepositoryError) else "state_error"
+    except (FileReadError, RepositoryError, StorageError, OSError) as exc:
+        if isinstance(exc, FileReadError):
+            code = exc.code
+        else:
+            code = "repository_error" if isinstance(exc, RepositoryError) else "state_error"
         message = str(exc) if not isinstance(exc, OSError) else "无法访问本地状态路径。"
         print(json.dumps({"error": {"code": code, "message": message}}, ensure_ascii=True), file=sys.stderr)
         return 1
