@@ -193,6 +193,19 @@ uv run --extra ai zest task create <project-id> "如何处理超时？" --retrie
 
 索引保存在被忽略的 `.zest/index.sqlite3`，包含项目文本，须按私有数据处理。问答使用排序结果的路径/行号重新读取 Git 来源，仍需要明确批准后才能发送模型。没有向量数据库服务、语义模型或大仓库性能保证。
 
+## 本地只读 MCP
+
+```bash
+uv sync --extra ai --extra mcp
+uv run --extra ai --extra mcp zest mcp serve <project-id>
+```
+
+服务仅使用 stdio，绑定一个已登记项目，暴露 project_overview、read_file、keyword_search、indexed_search、confirmed_knowledge 五个只读工具。工具不能指定另一仓库、运行 Shell、修改文件或批准任务。路径、版本和内容规则复用已有模块。
+
+工具结果统一为 `{ok: true, data: ...}` 或 `{ok: false, error: ...}`；annotations 是提示而不是权限系统。已验证 FastMCP 内存客户端、stdio 子进程，以及 LangChain MCPAdapter 的工具发现与调用。LangChain MCP namespace 当前为 beta，依赖由 uv.lock 锁定。
+
+外部 MCP 客户端可将 `.venv/bin/python` 的绝对路径作为 command，args 使用 `-m zest --state-dir <绝对状态目录> mcp serve <project-id>`。不要把密钥放进 MCP 客户端配置；这个只读服务不需要模型密钥。
+
 ## 开发日志
 
 每个小模块包含对应实现、验证、文档和日志，并创建一次 Git 提交。开发记录见 [开发日志](docs/DEVLOG.md)。

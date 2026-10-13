@@ -84,6 +84,10 @@ def _parser() -> argparse.ArgumentParser:
     index_search.add_argument("query")
     index_search.add_argument("--commit")
     index_search.add_argument("--limit", type=int, default=5)
+    mcp = commands.add_parser("mcp", help="绑定单一项目的只读 MCP 服务")
+    mcp_actions = mcp.add_subparsers(dest="action", required=True)
+    serve = mcp_actions.add_parser("serve")
+    serve.add_argument("project_id")
     return parser
 
 
@@ -91,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "mcp":
+            from .mcp_server import create_server
+            create_server(args.project_id, args.state_dir).run(transport="stdio", show_banner=False)
+            return 0
         if args.command == "index":
             from .index import RetrievalIndex
             project = registry.get_project(args.project_id)

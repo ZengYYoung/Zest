@@ -20,6 +20,10 @@ ai = [
     "langgraph-checkpoint-sqlite>=3.1.2",
     "python-dotenv>=1.2.4",
 ]
+mcp = [
+    "fastmcp>=4.1.0",
+    "langchain[mcp]>=1.4.5",
+]
 
 [tool.setuptools.packages.find]
 include = ["zest*"]
