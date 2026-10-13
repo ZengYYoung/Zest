@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已完成第一个模块：**本地 Git 项目登记**。当前可以只读采集仓库状态并保存、查询项目登记记录；Agent、RAG、自动修复等能力仍处于设计阶段。我们按小模块逐步确认、实现和提交。
+已完成两个模块：**本地 Git 项目登记**和**只读项目概览**。当前可以登记仓库，并读取已提交版本中的依赖声明、文档位置和常见入口候选；Agent、RAG、自动修复等能力仍处于设计阶段。我们按小模块逐步确认、实现和提交。
 
 ## 已确认的方向
 
@@ -42,6 +42,9 @@ python3 -m zest project import .
 # 查询登记记录
 python3 -m zest project list
 python3 -m zest project show <project-id>
+
+# 查看已登记项目的只读概览
+python3 -m zest project overview <project-id>
 ```
 
 命令输出 JSON。`import` 返回项目 ID、规范化路径、分支、commit、采集时间和工作区状态。重复登记同一路径会更新记录，保留原项目 ID。
@@ -56,6 +59,24 @@ python3 -m zest --state-dir /absolute/path/to/zest-state project list
 `list` 和 `show` 返回上次登记时的状态，不会重新采集仓库；再次执行 `import` 可以更新。仓库不存在、不是 Git 工作区或提供了子目录时，命令返回非零退出码，并将 JSON 错误写入 stderr。
 
 本模块不复制或索引源码，不执行项目脚本，不获取远程仓库，也不改变目标仓库的文件、分支和索引。登记记录不是完整的文件内容快照；脏工作区只记录变更状态与数量。`untracked_entries` 使用 Git 的普通状态统计，未跟踪目录可能作为一项，而不是逐文件计数。
+
+## 项目概览
+
+`overview` 在查询时采集当前 HEAD，并始终按这个 commit 读取 Git 对象，不读取暂存区、工作区或未跟踪文件。它不自动刷新登记记录；如果 HEAD 与上次登记不同，会返回 `registration_head_changed` 提示。
+
+当前输出包括：
+
+- `source`：本次选定的 commit，明确不包含未提交修改。
+- `root_directories`：根目录列表，排除常见依赖和生成目录，最多 50 项。
+- `manifests`：根目录中的依赖/构建声明。解析 `pyproject.toml` 的标准 `[project]` 信息和 `package.json`；其他已识别声明只记录位置。
+- `declared_commands`：Python console scripts 和 Node scripts 声明，作为信息返回，不执行。
+- `documents`：根目录 README，以及 `docs/`、`doc/` 直接子文件中的 Markdown、RST 和 TXT，每个文档目录最多 50 项，不读取文档正文或递归扫描。
+- `entrypoint_candidates`：少量常见入口文件候选，如 `main.py`、`src/index.ts` 和根目录包的 `__main__.py`，不表示已确认的业务入口。
+- `warnings`：未提交修改、登记过时、声明解析失败、大小/数量限制等信息。
+
+文件来源包含 `path`、`commit`、`blob_id`。单个解析声明限制为 256 KiB；超限只记录位置。符号链接不跟随，`.env` 等非白名单文件内容不收集。元数据仍可能包含项目自行写入的敏感信息，后续向模型或外部服务传输前需要另行设计脱敏。
+
+这是确定性目录和声明概览，尚不分析业务逻辑、依赖调用关系，也不保证声明的命令能成功运行。未提交代码的理解和 monorepo 内层声明扫描仍待后续设计。
 
 ## 测试
 

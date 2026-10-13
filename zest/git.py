@@ -28,7 +28,8 @@ class GitState:
 def git_environment() -> dict[str, str]:
     # Inherited Git overrides must not redirect inspection to another repository.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", LC_ALL="C")
+    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0",
+               GIT_NO_LAZY_FETCH="1", GIT_NO_REPLACE_OBJECTS="1", LC_ALL="C")
     return env
 
 
@@ -42,7 +43,7 @@ def _git(root: Path, *args: str, allowed: tuple[int, ...] = (0,)) -> subprocess.
     except FileNotFoundError as exc:
         raise RepositoryError("未找到 Git，请先安装 Git。") from exc
     except subprocess.TimeoutExpired as exc:
-        raise RepositoryError("Git 查询超时，项目尚未登记。") from exc
+        raise RepositoryError("Git 查询超时，请稍后重试。") from exc
     except OSError as exc:
         raise RepositoryError("无法执行 Git 查询，请检查路径和权限。") from exc
     if result.returncode not in allowed:
@@ -109,3 +110,46 @@ def inspect_repository(path: str | Path) -> GitState:
         unstaged_changes=unstaged, untracked_entries=untracked,
         observed_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+@dataclass(frozen=True)
+class TreeEntry:
+    path: str
+    mode: str
+    object_type: str
+    object_id: str
+
+    @property
+    def regular_file(self) -> bool:
+        return self.object_type == "blob" and self.mode in ("100644", "100755")
+
+
+def list_tree(root: Path, tree: str, paths: list[str] | None = None) -> list[TreeEntry]:
+    """List a committed tree, without reading filesystem paths or following links."""
+    args = ["ls-tree", "-z", "--full-tree", tree]
+    if paths is not None:
+        if not paths:
+            return []
+        args.extend(["--", *paths])
+    raw = _git(root, *args).stdout
+    if len(raw) > 2 * 1024 * 1024:
+        raise RepositoryError("Git 目录信息过大，超出当前概览支持范围。")
+    result = []
+    for row in raw.split(b"\0"):
+        if row:
+            header, path = row.split(b"\t", 1)
+            mode, object_type, object_id = header.decode("ascii").split(" ")
+            result.append(TreeEntry(os.fsdecode(path), mode, object_type, object_id))
+    if len(result) > 4096:
+        raise RepositoryError("Git 目录条目过多，超出当前概览支持范围。")
+    return result
+
+
+def read_blob(root: Path, entry: TreeEntry, max_bytes: int) -> bytes | None:
+    """Read a regular blob by object ID; never run textconv or checkout filters."""
+    if not entry.regular_file:
+        return None
+    size = int(_git(root, "cat-file", "-s", entry.object_id).stdout)
+    if size > max_bytes:
+        return None
+    return _git(root, "cat-file", "blob", entry.object_id).stdout

@@ -1,4 +1,4 @@
-"""CLI for the first Zest module: local Git project registration."""
+"""CLI for local Git project registration and committed project overviews."""
 
 import argparse
 import json
@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from .git import RepositoryError, inspect_repository
+from .overview import build_overview
 from .storage import ProjectRegistry, StorageError
 
 
@@ -21,6 +22,8 @@ def _parser() -> argparse.ArgumentParser:
     actions.add_parser("list", help="列出已登记项目，返回上次采集的状态")
     shown = actions.add_parser("show", help="查看登记记录，返回上次采集的状态")
     shown.add_argument("project_id", help="登记生成的项目 ID")
+    overview = actions.add_parser("overview", help="读取已登记项目当前 commit 的只读概览")
+    overview.add_argument("project_id", help="登记生成的项目 ID")
     return parser
 
 
@@ -39,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"error": {"code": "project_not_found", "message": "未找到该项目登记记录。"}},
                                  ensure_ascii=True), file=sys.stderr)
                 return 1
+            if args.action == "overview":
+                result = build_overview(result)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
     except (RepositoryError, StorageError, OSError) as exc:
