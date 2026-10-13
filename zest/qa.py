@@ -14,7 +14,7 @@ MAX_SOURCES = 8
 MAX_CONTEXT_CHARS = 24000
 
 
-def prepare_context(project: dict, question: str, *, keywords=None, files=None, state_dir=None) -> dict:
+def prepare_context(project: dict, question: str, *, keywords=None, files=None, state_dir=None, retrieval="keyword") -> dict:
     if not question.strip() or len(question) > 2000:
         raise FileReadError("invalid_question", "问题须为 1—2000 字符的非空文本。")
     if any(re.search(pattern, question.encode("utf-8")) for pattern in CREDENTIAL_PATTERNS):
@@ -73,6 +73,18 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
         result["sources"].append(source)
         size += added
 
+    if retrieval not in ("keyword", "lexical"):
+        raise FileReadError("invalid_retrieval", "不支持的检索方式。")
+    if retrieval == "lexical":
+        if state_dir is None:
+            raise FileReadError("index_missing", "词法检索需要指定索引状态目录。")
+        from .index import RetrievalIndex
+        ranked = RetrievalIndex(state_dir).search(project, question, commit=commit, limit=5)
+        for item in ranked["matches"]:
+            e = item["evidence"]
+            add(e["path"], e["start_line"], e["end_line"])
+        if ranked["metadata"]["skipped_counts"]:
+            result["warnings"].append({"code": "index_skipped_sources"})
     for path in [*files, "README.md", "pyproject.toml", "package.json"]:
         add(path)
     for keyword in keywords:

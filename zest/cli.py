@@ -45,6 +45,7 @@ def _parser() -> argparse.ArgumentParser:
     ask.add_argument("--file", action="append", default=[], help="优先读取指定文件，最多 5 个")
     ask.add_argument("--preview", action="store_true", help="只展示选定上下文，不调用模型")
     ask.add_argument("--allow-model", action="store_true", help="允许把问题和选定证据发送到配置的模型")
+    ask.add_argument("--retrieval", choices=("keyword", "lexical"), default="keyword")
     tasks = commands.add_parser("task", help="持久化问答任务及批准")
     task_actions = tasks.add_subparsers(dest="action", required=True)
     create = task_actions.add_parser("create", help="准备上下文并暂停等待批准")
@@ -52,6 +53,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("question")
     create.add_argument("--keyword", action="append", default=[])
     create.add_argument("--file", action="append", default=[])
+    create.add_argument("--retrieval", choices=("keyword", "lexical"), default="keyword")
     task_actions.add_parser("list")
     for name in ("show", "approve", "reject"):
         action = task_actions.add_parser(name)
@@ -73,6 +75,15 @@ def _parser() -> argparse.ArgumentParser:
         action.add_argument("note_id")
         if name == "invalidate":
             action.add_argument("--reason", required=True)
+    index = commands.add_parser("index", help="版本化词法检索索引")
+    index_actions = index.add_subparsers(dest="action", required=True)
+    index_build = index_actions.add_parser("build")
+    index_build.add_argument("project_id")
+    index_search = index_actions.add_parser("search")
+    index_search.add_argument("project_id")
+    index_search.add_argument("query")
+    index_search.add_argument("--commit")
+    index_search.add_argument("--limit", type=int, default=5)
     return parser
 
 
@@ -80,6 +91,16 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "index":
+            from .index import RetrievalIndex
+            project = registry.get_project(args.project_id)
+            if project is None:
+                raise FileReadError("project_not_found", "未找到该项目。")
+            index = RetrievalIndex(args.state_dir)
+            result = (index.build(project) if args.action == "build" else
+                      index.search(project, args.query, commit=args.commit, limit=args.limit))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
         if args.command == "knowledge":
             from .knowledge import KnowledgeStore
             store = KnowledgeStore(args.state_dir)
@@ -104,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 project = registry.get_project(args.project_id)
                 if project is None:
                     raise FileReadError("project_not_found", "未找到该项目。")
-                result = runner.create(project, args.question, keywords=args.keyword, files=args.file)
+                result = runner.create(project, args.question, keywords=args.keyword, files=args.file, retrieval=args.retrieval)
             elif args.action == "list":
                 result = runner.list_tasks()
             elif args.action == "show":
@@ -135,7 +156,8 @@ def main(argv: list[str] | None = None) -> int:
                                         limit=args.limit, case_sensitive=args.case_sensitive)
             elif args.action == "ask":
                 from .qa import answer_context, prepare_context
-                context = prepare_context(result, args.question, keywords=args.keyword, files=args.file, state_dir=args.state_dir)
+                context = prepare_context(result, args.question, keywords=args.keyword, files=args.file,
+                                          state_dir=args.state_dir, retrieval=args.retrieval)
                 result = context if args.preview else answer_context(context, allow_model=args.allow_model)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0

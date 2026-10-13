@@ -20,6 +20,7 @@ class TaskState(TypedDict, total=False):
     question: str
     keywords: list
     files: list
+    retrieval: str
     target: dict
     context: dict
     payload_sha256: str
@@ -106,7 +107,8 @@ class TaskRunner:
             def prepared(state):
                 try:
                     context = prepare_context(state["project"], state["question"],
-                                              keywords=state["keywords"], files=state["files"], state_dir=self.state_dir)
+                                              keywords=state["keywords"], files=state["files"], state_dir=self.state_dir,
+                                              retrieval=state.get("retrieval", "keyword"))
                     digest = approval_digest(context, state["target"])
                     return {"context": context, "payload_sha256": digest, "status": "awaiting_approval",
                             "events": [{"step": "prepared", "payload_sha256": digest}]}
@@ -172,7 +174,7 @@ class TaskRunner:
                 "error": state.get("error"), "events": state.get("events", []),
                 "next_steps": list(snapshot.next)}
 
-    def create(self, project, question, *, keywords=None, files=None):
+    def create(self, project, question, *, keywords=None, files=None, retrieval="keyword"):
         from langsmith import tracing_context
         task_id = str(uuid4())
         target = self._target()
@@ -180,7 +182,7 @@ class TaskRunner:
             conn.execute("INSERT INTO task_records VALUES (?, ?)", (task_id, datetime.now(timezone.utc).isoformat()))
             conn.commit()
             graph.invoke({"project": project, "question": question, "keywords": keywords or [],
-                          "files": files or [], "target": target, "status": "created"},
+                          "files": files or [], "retrieval": retrieval, "target": target, "status": "created"},
                          self._config(task_id), durability="sync")
             return self._view(conn, graph, task_id)
 

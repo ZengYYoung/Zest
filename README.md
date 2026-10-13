@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已完成项目登记、概览、文件读取、关键词检索、模型问答及 LangGraph 持久化批准流程。长期记忆和自动修复继续分模块实现。
+已具备项目登记、概览、证据读取、检索、问答、持久化批准和已审核知识。具体进度与验证记录见开发日志；完整维护及修复能力继续分模块实现。
 
 ## 已确认的方向
 
@@ -177,6 +177,21 @@ uv run --extra ai zest knowledge invalidate <note-id> --reason "已被新方案�
 新记录始终为 draft，确认后才进入问答。默认 scope=snapshot，仅适用于创建时的 commit；显式使用 `--scope project` 可以声明跨版本约束，包括尚无提交的新项目。类型支持 decision、constraint、maintenance。
 
 记录和状态事件保存在 `.zest/knowledge.sqlite3`；已失效记录不进入新问答，等待批准任务中引用的知识如果失效或变化也会阻止调用。当前不自动将聊天或模型推测写成确认事实，不自动解决冲突，不支持多人审批或正文覆盖编辑；纠错采用新草稿加旧记录失效。
+
+## 词法 RAG 索引
+
+```bash
+uv run --extra ai zest index build <project-id>
+uv run --extra ai zest index search <project-id> "超时重试"
+uv run --extra ai zest project ask <project-id> "如何处理超时？" --retrieval lexical --preview
+uv run --extra ai zest task create <project-id> "如何处理超时？" --retrieval lexical
+```
+
+索引只包含固定 commit 的允许文本，40 行分块、10 行重叠，保留来源与行号。使用英文标识符和中文二元字符词法 TF-IDF 向量、余弦相似度排序，是无需 Embedding 服务的 RAG 基线，不是模型语义 Embedding。[TF-IDF 参考](https://scikit-learn.org/stable/modules/feature_extraction.html#text-feature-extraction)
+
+最多考虑 200 个文件、4 MiB 文本、2000 块，单块最多 6000 字符，构建时长软预算 30 秒。跳过范围写入 metadata；预算失败不替换已有索引。更新 commit 后显式重建，不能把旧索引当成当前版本。查询历史索引可指定完整 commit。
+
+索引保存在被忽略的 `.zest/index.sqlite3`，包含项目文本，须按私有数据处理。问答使用排序结果的路径/行号重新读取 Git 来源，仍需要明确批准后才能发送模型。没有向量数据库服务、语义模型或大仓库性能保证。
 
 ## 开发日志
 
