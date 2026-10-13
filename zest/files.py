@@ -69,6 +69,24 @@ def _find_file(root: Path, commit: str, parts: list[str]):
     raise FileReadError("file_not_found", "指定 commit 中不存在该文件。")
 
 
+def load_text_blob(root: Path, entry) -> bytes:
+    """Shared size, encoding and credential checks for read/search consumers."""
+    if not entry.regular_file:
+        raise FileReadError("unsupported_file_type", "指定路径不是普通文件。")
+    raw = read_blob(root, entry, MAX_FILE_BYTES)
+    if raw is None:
+        raise FileReadError("file_too_large", "文件超过 256 KiB，超出当前读取范围。")
+    if b"\0" in raw:
+        raise FileReadError("binary_file", "文件包含二进制数据，未返回内容。")
+    try:
+        raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise FileReadError("unsupported_encoding", "当前只读取 UTF-8 文本文件。") from exc
+    if any(re.search(pattern, raw) for pattern in CREDENTIAL_PATTERNS):
+        raise FileReadError("sensitive_content", "文件包含已识别的凭据模式，未返回内容。")
+    return raw
+
+
 def read_project_file(project: dict, path: str, *, commit: str | None = None,
                       start_line: int = 1, end_line: int | None = None) -> dict:
     parts = _validate_path(path)
@@ -86,17 +104,7 @@ def read_project_file(project: dict, path: str, *, commit: str | None = None,
         raise FileReadError("invalid_commit", "请指定该仓库中存在的完整 commit ID；不接受分支名、缩写或其他 Git 表达式。")
 
     entry = _find_file(root, selected_commit, parts)
-    raw = read_blob(root, entry, MAX_FILE_BYTES)
-    if raw is None:
-        raise FileReadError("file_too_large", "文件超过 256 KiB，超出当前读取范围。")
-    if b"\0" in raw:
-        raise FileReadError("binary_file", "文件包含二进制数据，未返回内容。")
-    try:
-        raw.decode("utf-8")
-    except UnicodeError as exc:
-        raise FileReadError("unsupported_encoding", "当前只读取 UTF-8 文本文件。") from exc
-    if any(re.search(pattern, raw) for pattern in CREDENTIAL_PATTERNS):
-        raise FileReadError("sensitive_content", "文件包含已识别的凭据模式，未返回内容。")
+    raw = load_text_blob(root, entry)
 
     # Physical line numbers are defined by LF, not Unicode paragraph separators.
     physical_lines = raw.split(b"\n")

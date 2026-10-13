@@ -8,6 +8,7 @@ import sys
 from .git import RepositoryError, inspect_repository
 from .files import FileReadError, read_project_file
 from .overview import build_overview
+from .search import search_project
 from .storage import ProjectRegistry, StorageError
 
 
@@ -31,6 +32,12 @@ def _parser() -> argparse.ArgumentParser:
     reader.add_argument("--commit", help="完整 commit ID；省略时使用查询时的 HEAD")
     reader.add_argument("--start-line", type=int, default=1, help="开始行，默认 1")
     reader.add_argument("--end-line", type=int, help="结束行；省略时最多返回 200 行")
+    search = actions.add_parser("search", help="按关键词搜索已提交的允许文本文件")
+    search.add_argument("project_id")
+    search.add_argument("query", help="字面关键词，不作为正则表达式")
+    search.add_argument("--commit", help="完整 commit ID；省略时查询当前 HEAD")
+    search.add_argument("--limit", type=int, default=20, help="最多返回 1—100 个匹配行")
+    search.add_argument("--case-sensitive", action="store_true", help="区分大小写")
     return parser
 
 
@@ -54,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
             elif args.action == "read":
                 result = read_project_file(result, args.path, commit=args.commit,
                                            start_line=args.start_line, end_line=args.end_line)
+            elif args.action == "search":
+                result = search_project(result, args.query, commit=args.commit,
+                                        limit=args.limit, case_sensitive=args.case_sensitive)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
     except (FileReadError, RepositoryError, StorageError, OSError) as exc:
