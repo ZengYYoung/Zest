@@ -142,5 +142,8 @@ def answer_context(context: dict, *, allow_model: bool, model=None) -> dict:
 
 
 def model_payload(context: dict) -> dict:
-    return {"question": context["question"], "sources": context["sources"],
-            "limitations": sorted({item["code"] for item in context["warnings"]})}
+    payload = {"question": context["question"], "sources": context["sources"],
+               "limitations": sorted({item["code"] for item in context["warnings"]})}
+    if "execution_policy" in context:
+        payload["execution_policy"] = context["execution_policy"]
+    return payload

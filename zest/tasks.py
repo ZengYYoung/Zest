@@ -11,7 +11,7 @@ from typing import TypedDict
 from uuid import UUID, uuid4
 
 from .files import FileReadError
-from .models import ModelSettings
+from .models import DeepSeekModel, ModelSettings
 from .qa import answer_context, model_payload, prepare_context
 
 
@@ -21,6 +21,7 @@ class TaskState(TypedDict, total=False):
     keywords: list
     files: list
     retrieval: str
+    strategy: str
     target: dict
     context: dict
     payload_sha256: str
@@ -109,6 +110,10 @@ class TaskRunner:
                     context = prepare_context(state["project"], state["question"],
                                               keywords=state["keywords"], files=state["files"], state_dir=self.state_dir,
                                               retrieval=state.get("retrieval", "keyword"))
+                    strategy = state.get("strategy", "single")
+                    if strategy not in ("single", "multi"):
+                        raise FileReadError("invalid_strategy", "不支持的 Agent 策略。")
+                    context["execution_policy"] = {"strategy": strategy, "max_model_calls": 3 if strategy == "multi" else 1}
                     digest = approval_digest(context, state["target"])
                     return {"context": context, "payload_sha256": digest, "status": "awaiting_approval",
                             "events": [{"step": "prepared", "payload_sha256": digest}]}
@@ -128,7 +133,10 @@ class TaskRunner:
 
             def answered(state):
                 try:
-                    if self._target() != state["target"]:
+                    provider = self.model or DeepSeekModel(ModelSettings.from_env())
+                    settings = provider.settings
+                    target = {"provider": settings.provider, "model": settings.name, "base_url": settings.base_url}
+                    if target != state["target"]:
                         raise FileReadError("model_target_changed", "模型或接口已变化，需要重新创建任务并批准。")
                     from .knowledge import KnowledgeStore
                     for source in state["context"]["sources"]:
@@ -138,7 +146,12 @@ class TaskRunner:
                             if (note["status"] != "confirmed" or note["confirmed_at"] != evidence["confirmed_at"]
                                     or note["body"] != source["body"] or note["title"] != source["title"]):
                                 raise FileReadError("knowledge_changed", "已批准来源中的知识已变化或失效，需要重新准备任务。")
-                    result = answer_context(state["context"], allow_model=True, model=self.model)
+                    if state.get("strategy", "single") == "multi":
+                        from .agents import answer_multi_context
+                        result = answer_multi_context(state["context"], allow_model=True,
+                                                      state_dir=self.state_dir, model=provider)
+                    else:
+                        result = answer_context(state["context"], allow_model=True, model=provider)
                     return {"result": result, "status": "completed",
                             "events": [*state["events"], {"step": "completed"}]}
                 except FileReadError as exc:
@@ -174,7 +187,7 @@ class TaskRunner:
                 "error": state.get("error"), "events": state.get("events", []),
                 "next_steps": list(snapshot.next)}
 
-    def create(self, project, question, *, keywords=None, files=None, retrieval="keyword"):
+    def create(self, project, question, *, keywords=None, files=None, retrieval="keyword", strategy="single"):
         from langsmith import tracing_context
         task_id = str(uuid4())
         target = self._target()
@@ -182,7 +195,8 @@ class TaskRunner:
             conn.execute("INSERT INTO task_records VALUES (?, ?)", (task_id, datetime.now(timezone.utc).isoformat()))
             conn.commit()
             graph.invoke({"project": project, "question": question, "keywords": keywords or [],
-                          "files": files or [], "retrieval": retrieval, "target": target, "status": "created"},
+                          "files": files or [], "retrieval": retrieval, "strategy": strategy,
+                          "target": target, "status": "created"},
                          self._config(task_id), durability="sync")
             return self._view(conn, graph, task_id)
 

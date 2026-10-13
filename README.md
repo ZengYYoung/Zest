@@ -206,6 +206,17 @@ uv run --extra ai --extra mcp zest mcp serve <project-id>
 
 外部 MCP 客户端可将 `.venv/bin/python` 的绝对路径作为 command，args 使用 `-m zest --state-dir <绝对状态目录> mcp serve <project-id>`。不要把密钥放进 MCP 客户端配置；这个只读服务不需要模型密钥。
 
+## 专业 Agent 协作
+
+```bash
+uv run --extra ai --extra mcp zest project ask <project-id> "解释实现与约束" --file zest/cli.py --strategy multi --preview
+uv run --extra ai --extra mcp zest task create <project-id> "解释实现与约束" --file zest/cli.py --strategy multi
+```
+
+多 Agent 模式将批准来源分给文档/约束和代码分析两个专业 Agent，LangGraph 并行执行，再由协调 Agent 回到原始来源核对。先用本地 MCP 校验文件证据，并核对知识状态；不访问新增的未批准文件。最多 3 次模型调用，没有某类来源则跳过对应调用。策略和调用上限进入任务批准哈希。
+
+这是有界专业分工，不是任意自主执行。专家输出不成为新的事实来源，引用仍需程序校验；当前多 Agent 效果由离线夹具验证，没有新增外部项目数据传输或总体准确率声明。
+
 ## 开发日志
 
 每个小模块包含对应实现、验证、文档和日志，并创建一次 Git 提交。开发记录见 [开发日志](docs/DEVLOG.md)。
