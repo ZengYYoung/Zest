@@ -45,6 +45,19 @@ def _parser() -> argparse.ArgumentParser:
     ask.add_argument("--file", action="append", default=[], help="优先读取指定文件，最多 5 个")
     ask.add_argument("--preview", action="store_true", help="只展示选定上下文，不调用模型")
     ask.add_argument("--allow-model", action="store_true", help="允许把问题和选定证据发送到配置的模型")
+    tasks = commands.add_parser("task", help="持久化问答任务及批准")
+    task_actions = tasks.add_subparsers(dest="action", required=True)
+    create = task_actions.add_parser("create", help="准备上下文并暂停等待批准")
+    create.add_argument("project_id")
+    create.add_argument("question")
+    create.add_argument("--keyword", action="append", default=[])
+    create.add_argument("--file", action="append", default=[])
+    task_actions.add_parser("list")
+    for name in ("show", "approve", "reject"):
+        action = task_actions.add_parser(name)
+        action.add_argument("task_id")
+        if name == "approve":
+            action.add_argument("--payload-sha256", required=True)
     return parser
 
 
@@ -52,6 +65,23 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "task":
+            from .tasks import TaskRunner
+            runner = TaskRunner(args.state_dir)
+            if args.action == "create":
+                project = registry.get_project(args.project_id)
+                if project is None:
+                    raise FileReadError("project_not_found", "未找到该项目。")
+                result = runner.create(project, args.question, keywords=args.keyword, files=args.file)
+            elif args.action == "list":
+                result = runner.list_tasks()
+            elif args.action == "show":
+                result = runner.show(args.task_id)
+            else:
+                result = runner.decide(args.task_id, approved=args.action == "approve",
+                                       payload_sha256=getattr(args, "payload_sha256", None))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
         if args.action == "import":
             # Validate and inspect first: invalid input must not create state.
             result = registry.register(inspect_repository(args.path))
@@ -77,6 +107,10 @@ def main(argv: list[str] | None = None) -> int:
                 result = context if args.preview else answer_context(context, allow_model=args.allow_model)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
+    except ImportError:
+        print(json.dumps({"error": {"code": "ai_dependencies_missing", "message": "请先执行 uv sync --extra ai。"}},
+                         ensure_ascii=True), file=sys.stderr)
+        return 1
     except (FileReadError, RepositoryError, StorageError, OSError) as exc:
         if isinstance(exc, FileReadError):
             code = exc.code

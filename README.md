@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已完成项目登记、概览、文件读取、关键词检索及带证据的模型问答。长期记忆、任务编排和自动修复继续分模块实现。
+已完成项目登记、概览、文件读取、关键词检索、模型问答及 LangGraph 持久化批准流程。长期记忆和自动修复继续分模块实现。
 
 ## 已确认的方向
 
@@ -147,6 +147,22 @@ preview 只展示上下文，不读取模型密钥或调用模型。allow-model 
 答案是结构化 JSON，程序检查字段、来源 ID 和部分凭据模式。引用存在不等同于结论正确；无证据时不调用模型。不修改代码，关闭自动外部 tracing，不额外将本地绝对路径或密钥放入 Prompt。
 
 使用 [LangChain DeepSeek 集成](https://docs.langchain.com/oss/python/integrations/chat/deepseek) 和 [DeepSeek Chat API](https://api-docs.deepseek.com/api/create-chat-completion/)。保留用户指定模型名，另行记录供应商报告名。
+
+## 持久化问答任务
+
+```bash
+uv run --extra ai zest task create <project-id> "项目怎么启动？" --keyword main
+uv run --extra ai zest task show <task-id>
+uv run --extra ai zest task list
+uv run --extra ai zest task approve <task-id> --payload-sha256 <show返回的哈希>
+uv run --extra ai zest task reject <task-id>
+```
+
+create 读取配置并准备上下文，不调用模型，LangGraph 在批准节点暂停。show 展示固定来源和目标接口；批准的哈希绑定实际模型 payload 与接口。approve 会发送这个固定上下文，不重新采集代码；接口或模型变化会阻止调用。
+
+任务存于 `.zest/tasks.sqlite3`，使用 SQLite checkpointer 和同步 checkpoint，等待批准状态可跨进程恢复。同一任务在 macOS/Linux 使用进程文件锁，已结束任务不能重复批准。密钥不进入 checkpoint，列表不输出来源正文。
+
+当前是本地前台任务，没有后台 Worker、多人权限或自动重试。执行过程中崩溃可能留下 pending_execution，需要后续恢复机制；不承诺外部模型调用恰好一次，也不自动重放可能已经计费的请求。
 
 ## 开发日志
 

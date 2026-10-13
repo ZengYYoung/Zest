@@ -197,3 +197,26 @@ python3 -m unittest discover -s tests -v
 ### 下一项
 
 LangGraph 持久化任务：准备上下文、等待批准、恢复后调用模型，批准绑定具体上下文。
+
+## 2026-10-13 — M006：LangGraph 持久化任务与批准
+
+提交标题：`feat(tasks): add persistent LangGraph approval workflow`
+
+### 实现
+
+- 增加 task create/show/list/approve/reject，使用真实 StateGraph、interrupt、Command 和 SQLite checkpointer。
+- 准备证据后暂停；批准绑定实际 payload 哈希及接口/模型。重启后使用保存的上下文，不重新读取变化后的代码。
+- 保存阶段事件和结果，密钥不进入 checkpoint；同一任务使用 macOS/Linux 文件锁，完成后不能重复批准。
+- 校验损坏存储和无效 ID，失败保留明确状态；关闭自动外部 tracing。
+
+### 验证
+
+完整套件 **102 项通过（新增 11 项）**。覆盖暂停、跨进程实例恢复、哈希不匹配、拒绝、目标改变、重复批准、互斥锁、无密钥 checkpoint 和损坏数据库。
+
+模型执行使用明确的离线夹具，不将其结果当成真实模型效果。另在 Zest 自身创建了一个真实 LangGraph 任务并停在 awaiting_approval，未发送新的项目数据。
+
+### 限制与下一项
+
+当前为本地前台执行，不含后台队列或多人权限。等待批准可以恢复，但执行中崩溃可能留下 pending_execution；不自动重放未知是否已完成的模型调用，不承诺恰好一次。
+
+下一模块：可审核、可失效的长期项目知识记录。

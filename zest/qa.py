@@ -104,11 +104,15 @@ def answer_context(context: dict, *, allow_model: bool, model=None) -> dict:
                 "commit": context["commit"], "warnings": context["warnings"]}
     provider = model or DeepSeekModel(ModelSettings.from_env())
     # Only the bounded sources and question are sent; local absolute paths and keys are not prompt data.
-    response = provider.complete({"question": context["question"], "sources": context["sources"],
-                                  "limitations": sorted({item["code"] for item in context["warnings"]})})
+    response = provider.complete(model_payload(context))
     answer = validate_answer(response["text"], context["sources"])
     known = {source["id"]: source for source in context["sources"]}
     return {**answer, "commit": context["commit"], "model_called": True,
             "evidence": [known[item] for item in dict.fromkeys(answer["citations"])],
             "model": {key: value for key, value in response.items() if key != "text"},
             "warnings": context["warnings"]}
+
+
+def model_payload(context: dict) -> dict:
+    return {"question": context["question"], "sources": context["sources"],
+            "limitations": sorted({item["code"] for item in context["warnings"]})}
