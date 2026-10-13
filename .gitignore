@@ -30,6 +30,7 @@ build/
 .gradle/
 
 # Local runtime data
+.zest/
 *.log
 *.sqlite
 *.sqlite3
