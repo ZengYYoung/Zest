@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已具备项目登记、概览、证据读取、检索、问答、持久化批准和已审核知识。具体进度与验证记录见开发日志；完整维护及修复能力继续分模块实现。
+已具备项目创建/导入、概览、证据读取、词法 RAG、问答、持久化批准、已审核知识和只读 MCP 专业 Agent 协作。具体进度与验证记录见开发日志；完整维护及修复能力继续分模块实现。
 
 ## 已确认的方向
 
@@ -61,7 +61,18 @@ python3 -m zest --state-dir /absolute/path/to/zest-state project list
 
 `list` 和 `show` 返回上次登记时的状态，不会重新采集仓库；再次执行 `import` 可以更新。仓库不存在、不是 Git 工作区或提供了子目录时，命令返回非零退出码，并将 JSON 错误写入 stderr。
 
-本模块不复制或索引源码，不执行项目脚本，不获取远程仓库，也不改变目标仓库的文件、分支和索引。登记记录不是完整的文件内容快照；脏工作区只记录变更状态与数量。`untracked_entries` 使用 Git 的普通状态统计，未跟踪目录可能作为一项，而不是逐文件计数。
+`import` 不复制或索引源码，不执行项目脚本，不获取远程仓库，也不改变目标仓库的文件、分支和索引。登记记录不是完整的文件内容快照；脏工作区只记录变更状态与数量。`untracked_entries` 使用 Git 的普通状态统计，未跟踪目录可能作为一项，而不是逐文件计数。
+
+## 创建新项目
+
+```bash
+python3 -m zest project init /absolute/path/to/new-project --name "示例项目" --goal "管理故障诊断与处理"
+# 如果尚未配置 Git 作者，同时提供 --author-name 和 --author-email
+```
+
+父目录需要已经存在，目标目录必须全新；即使是空目录也拒绝覆盖。入口只生成 README 和 .gitignore，初始化 main 与一个 Git 提交，登记为 development；不预设业务语言或框架。作者使用已有 Git 配置或显式参数，新仓库局部保存作者，不改全局配置。创建过程忽略全局模板、过滤器、签名与 hooks，不执行项目代码或调用模型。
+
+返回 project 和 goal_note。目标以 project 范围的 draft 保存，可用 `knowledge confirm <note-id>` 确认后加入长期知识；README 明确这是用户声明的目标，功能尚未实现。后续 import 刷新保留模式和 ID，两种入口共用全部维护能力。创建发生部分失败时保留文件和 Git 状态，需检查后恢复，不自动删除或覆盖目录。本地创建不自动新建 GitHub 仓库、配置远程或推送。
 
 ## 项目概览
 
@@ -125,7 +136,7 @@ python3 -m zest project search <project-id> "main" --limit 10 --case-sensitive
 
 ## 测试
 
-包含 AI 集成契约测试时使用 `uv run --extra ai python -m unittest discover -s tests -q`。
+完整套件使用 `uv run --extra ai --extra mcp python -m unittest discover -s tests -q`。
 
 ```bash
 python3 -m unittest discover -s tests -v

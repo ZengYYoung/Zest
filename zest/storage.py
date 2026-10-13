@@ -38,15 +38,21 @@ class ProjectRegistry:
             if version not in (0, 1):
                 raise StorageError("本地状态版本不兼容，请使用匹配的 Zest 版本。")
             with conn:
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS projects (
                         id TEXT PRIMARY KEY,
                         root_path TEXT NOT NULL UNIQUE,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
-                        git_state TEXT NOT NULL
+                        git_state TEXT NOT NULL,
+                        mode TEXT NOT NULL DEFAULT 'import'
                     )
                 """)
+                # Additive v1 extension: old named INSERT/UPDATE statements remain valid.
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}
+                if "mode" not in columns:
+                    conn.execute("ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'import'")
                 conn.execute("PRAGMA user_version = 1")
             return conn
         except (OSError, sqlite3.Error, StorageError) as exc:
@@ -62,24 +68,28 @@ class ProjectRegistry:
             state = json.loads(row["git_state"])
         except (TypeError, json.JSONDecodeError) as exc:
             raise StorageError("本地项目记录损坏。") from exc
+        if row["mode"] not in ("import", "development"):
+            raise StorageError("本地项目模式损坏。")
         return {
-            "id": row["id"], "mode": "import", "root_path": row["root_path"],
+            "id": row["id"], "mode": row["mode"], "root_path": row["root_path"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
             "git": state,
         }
 
-    def register(self, state: GitState) -> dict:
+    def register(self, state: GitState, *, mode: str = "import") -> dict:
+        if mode not in ("import", "development"):
+            raise StorageError("项目模式不受支持。")
         now = datetime.now(timezone.utc).isoformat()
         try:
             with closing(self._connect()) as conn, conn:
                 conn.execute("""
-                    INSERT INTO projects (id, root_path, created_at, updated_at, git_state)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO projects (id, root_path, created_at, updated_at, git_state, mode)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(root_path) DO UPDATE SET
                         updated_at = excluded.updated_at,
                         git_state = excluded.git_state
                 """, (str(uuid4()), state.root_path, now, now,
-                      json.dumps(asdict(state), ensure_ascii=True)))
+                      json.dumps(asdict(state), ensure_ascii=True), mode))
                 row = conn.execute("SELECT * FROM projects WHERE root_path = ?", (state.root_path,)).fetchone()
                 return self._record(row)
         except sqlite3.Error as exc:

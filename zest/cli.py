@@ -21,6 +21,12 @@ def _parser() -> argparse.ArgumentParser:
     actions = projects.add_subparsers(dest="action", required=True)
     imported = actions.add_parser("import", help="只读采集 Git 状态并登记项目")
     imported.add_argument("path", type=Path, help="本地 Git 仓库根目录")
+    initialized = actions.add_parser("init", help="创建全新本地项目和 Git 基线")
+    initialized.add_argument("path", type=Path)
+    initialized.add_argument("--name", required=True)
+    initialized.add_argument("--goal", required=True)
+    initialized.add_argument("--author-name", help="与邮箱同时提供；省略时读取已有 Git 作者配置")
+    initialized.add_argument("--author-email")
     actions.add_parser("list", help="列出已登记项目，返回上次采集的状态")
     shown = actions.add_parser("show", help="查看登记记录，返回上次采集的状态")
     shown.add_argument("project_id", help="登记生成的项目 ID")
@@ -146,7 +152,11 @@ def main(argv: list[str] | None = None) -> int:
                                        payload_sha256=getattr(args, "payload_sha256", None))
             print(json.dumps(result, ensure_ascii=True, indent=2))
             return 0
-        if args.action == "import":
+        if args.action == "init":
+            from .development import create_project
+            result = create_project(args.path, args.name, args.goal, args.state_dir,
+                                    author_name=args.author_name, author_email=args.author_email)
+        elif args.action == "import":
             # Validate and inspect first: invalid input must not create state.
             result = registry.register(inspect_repository(args.path))
         elif args.action == "list":
