@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已完成项目登记、概览、带版本来源的文件读取和关键词检索。当前可以在已提交文本中定位证据；模型问答、长期记忆和自动修复仍在后续阶段。我们按小模块逐步实现和提交。
+已完成项目登记、概览、文件读取、关键词检索及带证据的模型问答。长期记忆、任务编排和自动修复继续分模块实现。
 
 ## 已确认的方向
 
@@ -125,11 +125,28 @@ python3 -m zest project search <project-id> "main" --limit 10 --case-sensitive
 
 ## 测试
 
+包含 AI 集成契约测试时使用 `uv run --extra ai python -m unittest discover -s tests -q`。
+
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
 测试在临时目录创建真实 Git 仓库，不依赖模型 API、数据库服务或网络。
+
+## 模型问答
+
+安装锁定依赖：`uv sync --extra ai`。模型配置见 `.env.example`，密钥写入本地 `.env`（Git 忽略），不写入代码、日志或命令参数。
+
+```bash
+uv run --extra ai zest project ask <project-id> "项目怎么启动？" --keyword main --preview
+uv run --extra ai zest project ask <project-id> "项目怎么启动？" --keyword main --allow-model
+```
+
+preview 只展示上下文，不读取模型密钥或调用模型。allow-model 明确允许将问题和片段发送到配置服务。支持最多 3 个 keyword 和 5 个 file 参数，固定 commit，最多 8 个来源和 24000 字符。
+
+答案是结构化 JSON，程序检查字段、来源 ID 和部分凭据模式。引用存在不等同于结论正确；无证据时不调用模型。不修改代码，关闭自动外部 tracing，不额外将本地绝对路径或密钥放入 Prompt。
+
+使用 [LangChain DeepSeek 集成](https://docs.langchain.com/oss/python/integrations/chat/deepseek) 和 [DeepSeek Chat API](https://api-docs.deepseek.com/api/create-chat-completion/)。保留用户指定模型名，另行记录供应商报告名。
 
 ## 开发日志
 

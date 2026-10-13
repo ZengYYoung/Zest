@@ -223,7 +223,7 @@ class ProjectsTest(unittest.TestCase):
     def test_newer_state_schema_is_rejected(self):
         registry = ProjectRegistry(self.state_dir)
         registry.register(inspect_repository(self.repo))
-        with sqlite3.connect(registry.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(registry.db_path)) as conn, conn:
             conn.execute("PRAGMA user_version = 2")
         with self.assertRaises(StorageError):
             registry.list_projects()

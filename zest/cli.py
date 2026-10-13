@@ -38,6 +38,13 @@ def _parser() -> argparse.ArgumentParser:
     search.add_argument("--commit", help="完整 commit ID；省略时查询当前 HEAD")
     search.add_argument("--limit", type=int, default=20, help="最多返回 1—100 个匹配行")
     search.add_argument("--case-sensitive", action="store_true", help="区分大小写")
+    ask = actions.add_parser("ask", help="基于检索证据回答项目问题")
+    ask.add_argument("project_id")
+    ask.add_argument("question")
+    ask.add_argument("--keyword", action="append", default=[], help="可重复，最多 3 个")
+    ask.add_argument("--file", action="append", default=[], help="优先读取指定文件，最多 5 个")
+    ask.add_argument("--preview", action="store_true", help="只展示选定上下文，不调用模型")
+    ask.add_argument("--allow-model", action="store_true", help="允许把问题和选定证据发送到配置的模型")
     return parser
 
 
@@ -64,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
             elif args.action == "search":
                 result = search_project(result, args.query, commit=args.commit,
                                         limit=args.limit, case_sensitive=args.case_sensitive)
+            elif args.action == "ask":
+                from .qa import answer_context, prepare_context
+                context = prepare_context(result, args.question, keywords=args.keyword, files=args.file)
+                result = context if args.preview else answer_context(context, allow_model=args.allow_model)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0
     except (FileReadError, RepositoryError, StorageError, OSError) as exc:
