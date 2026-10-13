@@ -106,7 +106,7 @@ class TaskRunner:
             def prepared(state):
                 try:
                     context = prepare_context(state["project"], state["question"],
-                                              keywords=state["keywords"], files=state["files"])
+                                              keywords=state["keywords"], files=state["files"], state_dir=self.state_dir)
                     digest = approval_digest(context, state["target"])
                     return {"context": context, "payload_sha256": digest, "status": "awaiting_approval",
                             "events": [{"step": "prepared", "payload_sha256": digest}]}
@@ -128,6 +128,14 @@ class TaskRunner:
                 try:
                     if self._target() != state["target"]:
                         raise FileReadError("model_target_changed", "模型或接口已变化，需要重新创建任务并批准。")
+                    from .knowledge import KnowledgeStore
+                    for source in state["context"]["sources"]:
+                        evidence = source["evidence"]
+                        if evidence.get("kind") == "confirmed_knowledge":
+                            note = KnowledgeStore(self.state_dir).get(evidence["knowledge_id"])
+                            if (note["status"] != "confirmed" or note["confirmed_at"] != evidence["confirmed_at"]
+                                    or note["body"] != source["body"] or note["title"] != source["title"]):
+                                raise FileReadError("knowledge_changed", "已批准来源中的知识已变化或失效，需要重新准备任务。")
                     result = answer_context(state["context"], allow_model=True, model=self.model)
                     return {"result": result, "status": "completed",
                             "events": [*state["events"], {"step": "completed"}]}

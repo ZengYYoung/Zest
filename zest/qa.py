@@ -14,7 +14,7 @@ MAX_SOURCES = 8
 MAX_CONTEXT_CHARS = 24000
 
 
-def prepare_context(project: dict, question: str, *, keywords=None, files=None) -> dict:
+def prepare_context(project: dict, question: str, *, keywords=None, files=None, state_dir=None) -> dict:
     if not question.strip() or len(question) > 2000:
         raise FileReadError("invalid_question", "问题须为 1—2000 字符的非空文本。")
     if any(re.search(pattern, question.encode("utf-8")) for pattern in CREDENTIAL_PATTERNS):
@@ -27,11 +27,27 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None) 
     commit = state.head_commit
     result = {"project_id": project["id"], "question": question, "commit": commit,
               "sources": [], "warnings": []}
+    seen = set()
+    size = 0
+
+    if state_dir is not None:
+        from .knowledge import KnowledgeStore
+        for note in KnowledgeStore(state_dir).for_context(project["id"], commit):
+            source = {"id": f"E{len(result['sources']) + 1}",
+                      "evidence": {"kind": "confirmed_knowledge", "knowledge_id": note["id"],
+                                   "scope": note["scope"], "observed_commit": note["observed_commit"],
+                                   "confirmed_at": note["confirmed_at"]},
+                      "title": note["title"], "body": note["body"]}
+            added = len(json.dumps(source, ensure_ascii=False))
+            if size + added <= MAX_CONTEXT_CHARS:
+                result["sources"].append(source)
+                size += added
+            else:
+                result["warnings"].append({"code": "knowledge_context_budget"})
+
     if not commit:
         result["warnings"].append({"code": "unborn_repository"})
         return result
-    seen = set()
-    size = 0
 
     def add(path, start=1, end=60):
         nonlocal size

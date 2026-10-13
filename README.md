@@ -164,6 +164,20 @@ create 读取配置并准备上下文，不调用模型，LangGraph 在批准节
 
 当前是本地前台任务，没有后台 Worker、多人权限或自动重试。执行过程中崩溃可能留下 pending_execution，需要后续恢复机制；不承诺外部模型调用恰好一次，也不自动重放可能已经计费的请求。
 
+## 长期项目知识
+
+```bash
+uv run --extra ai zest knowledge add <project-id> --title "取消订单约束" --body "取消时需要释放库存"
+uv run --extra ai zest knowledge list <project-id>
+uv run --extra ai zest knowledge show <note-id>
+uv run --extra ai zest knowledge confirm <note-id>
+uv run --extra ai zest knowledge invalidate <note-id> --reason "已被新方案替代"
+```
+
+新记录始终为 draft，确认后才进入问答。默认 scope=snapshot，仅适用于创建时的 commit；显式使用 `--scope project` 可以声明跨版本约束，包括尚无提交的新项目。类型支持 decision、constraint、maintenance。
+
+记录和状态事件保存在 `.zest/knowledge.sqlite3`；已失效记录不进入新问答，等待批准任务中引用的知识如果失效或变化也会阻止调用。当前不自动将聊天或模型推测写成确认事实，不自动解决冲突，不支持多人审批或正文覆盖编辑；纠错采用新草稿加旧记录失效。
+
 ## 开发日志
 
 每个小模块包含对应实现、验证、文档和日志，并创建一次 Git 提交。开发记录见 [开发日志](docs/DEVLOG.md)。

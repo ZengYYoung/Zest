@@ -58,6 +58,21 @@ def _parser() -> argparse.ArgumentParser:
         action.add_argument("task_id")
         if name == "approve":
             action.add_argument("--payload-sha256", required=True)
+    knowledge = commands.add_parser("knowledge", help="长期项目知识的草稿、确认和失效")
+    knowledge_actions = knowledge.add_subparsers(dest="action", required=True)
+    add = knowledge_actions.add_parser("add")
+    add.add_argument("project_id")
+    add.add_argument("--title", required=True)
+    add.add_argument("--body", required=True)
+    add.add_argument("--kind", choices=("decision", "constraint", "maintenance"), default="decision")
+    add.add_argument("--scope", choices=("snapshot", "project"), default="snapshot")
+    listed = knowledge_actions.add_parser("list")
+    listed.add_argument("project_id")
+    for name in ("show", "confirm", "invalidate"):
+        action = knowledge_actions.add_parser(name)
+        action.add_argument("note_id")
+        if name == "invalidate":
+            action.add_argument("--reason", required=True)
     return parser
 
 
@@ -65,6 +80,23 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "knowledge":
+            from .knowledge import KnowledgeStore
+            store = KnowledgeStore(args.state_dir)
+            if args.action in ("add", "list"):
+                project = registry.get_project(args.project_id)
+                if project is None:
+                    raise FileReadError("project_not_found", "未找到该项目。")
+                result = (store.add(project, args.title, args.body, kind=args.kind, scope=args.scope)
+                          if args.action == "add" else store.list_notes(args.project_id))
+            elif args.action == "show":
+                result = store.get(args.note_id)
+            elif args.action == "confirm":
+                result = store.confirm(args.note_id)
+            else:
+                result = store.invalidate(args.note_id, args.reason)
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
         if args.command == "task":
             from .tasks import TaskRunner
             runner = TaskRunner(args.state_dir)
@@ -103,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
                                         limit=args.limit, case_sensitive=args.case_sensitive)
             elif args.action == "ask":
                 from .qa import answer_context, prepare_context
-                context = prepare_context(result, args.question, keywords=args.keyword, files=args.file)
+                context = prepare_context(result, args.question, keywords=args.keyword, files=args.file, state_dir=args.state_dir)
                 result = context if args.preview else answer_context(context, allow_model=args.allow_model)
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 0

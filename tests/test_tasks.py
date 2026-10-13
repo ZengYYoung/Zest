@@ -122,6 +122,20 @@ class TasksTest(unittest.TestCase):
             runner.show("00000000-0000-0000-0000-000000000000")
         self.assertEqual(exc.exception.code, "task_storage_error")
 
+    def test_invalidated_knowledge_blocks_pending_approved_context(self):
+        from zest.knowledge import KnowledgeStore
+        project = self.project()
+        store = KnowledgeStore(self.state_dir)
+        note = store.add(project, "规则", "项目约束", scope="project")
+        store.confirm(note["id"])
+        runner = self.runner()
+        task = runner.create(project, "规则？")
+        store.invalidate(note["id"], "规则已替代")
+        result = runner.decide(task["task_id"], approved=True, payload_sha256=task["payload_sha256"])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "knowledge_changed")
+        self.assertEqual(runner.model.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()
