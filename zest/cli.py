@@ -108,6 +108,18 @@ def _parser() -> argparse.ArgumentParser:
         repair_action.add_argument("repair_id")
         if name == "approve":
             repair_action.add_argument("--plan-sha256", required=True)
+    verification = commands.add_parser("verification", help="在本地受限 Docker 中验证候选版本")
+    verification_actions = verification.add_subparsers(dest="action", required=True)
+    prepare_verification = verification_actions.add_parser("create")
+    prepare_verification.add_argument("repair_id")
+    prepare_verification.add_argument("--image", required=True, help="已安装且信任的本地 Python 测试镜像")
+    prepare_verification.add_argument("--timeout", type=int, default=30)
+    prepare_verification.add_argument("--docker-socket", type=Path)
+    for name in ("show", "approve", "reject"):
+        action = verification_actions.add_parser(name)
+        action.add_argument("verification_id")
+        if name == "approve":
+            action.add_argument("--plan-sha256", required=True)
     return parser
 
 
@@ -115,6 +127,18 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "verification":
+            from .verification import VerificationStore
+            store = VerificationStore(args.state_dir)
+            if args.action == "create":
+                result = store.create(args.repair_id, args.image, timeout=args.timeout, socket_path=args.docker_socket)
+            elif args.action == "show":
+                result = store.show(args.verification_id)
+            else:
+                result = store.decide(args.verification_id, approved=args.action == "approve",
+                                      plan_sha256=getattr(args, "plan_sha256", None))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
         if args.command == "repair":
             from .repairs import RepairStore, load_proposal
             store = RepairStore(args.state_dir)

@@ -250,6 +250,27 @@ python3 -m zest repair list <project-id>
 
 候选仍待验证，不能自动完成版本切换。执行崩溃保留 pending_execution 和私有 index，不自动重放；失败可能留下不可达对象或候选 ref，需要后续人工检查。状态检查禁用已配置的 clean/process/smudge filter；使用字节比较，过滤器转换项目可能因此显示差异。
 
+## 验证候选版本
+
+准备已经安装、经过信任审核且包含项目依赖的 Python 测试镜像。Zest 不自动 pull、不联网安装依赖，镜像标签在准备阶段解析并固定为完整 image ID。
+
+```bash
+python3 -m zest verification create <repair-id> --image <local-test-image> --timeout 30
+python3 -m zest verification show <verification-id>
+python3 -m zest verification approve <verification-id> --plan-sha256 <show返回的哈希>
+python3 -m zest verification reject <verification-id>
+```
+
+计划绑定修复方案、基础/候选 commit、两份完整文件清单和 SHA-256、镜像 ID、本地 Docker Unix socket、固定测试命令和资源策略。每次测试前检查候选 ref、父提交与变更范围，重新读取对应 Git 快照。仅支持 `python -m unittest discover -s tests -q`；从预览批准后才执行，不能提供任意宿主机命令。默认 socket 为 `~/.docker/run/docker.sock`，可用 `--docker-socket` 指定另一个本地 socket，禁止远程 Docker 地址。
+
+两版本分别执行并保存基线与候选结果；项目代码仅在容器内运行。禁网、非 root、只读根与快照、丢弃全部 capabilities、no-new-privileges，限制 1 CPU、256 MiB、64 进程与 64 MiB 临时目录；仅挂载导出的只读快照，不挂载 Git、密钥或 Docker socket，拒绝镜像额外声明的 volumes。启动前核对实际 Docker 配置，超时终止并删除该任务容器。[Docker 运行限制](https://docs.docker.com/engine/containers/run/)
+
+候选 exit=0 且至少报告 1 项测试、未 OOM、日志未超限、实际配置匹配且两次容器清理完成，才标记 passed；基线结果可通过或失败，但执行环境错误不能当作基线测试结果。passed 表示这套测试通过，不证明需求或测试本身完整正确，也不自动切换代码或部署。
+
+首版完整快照最多 500 个允许文本文件/8 MiB，单文件 256 KiB；出现不允许文件、链接、子模块、二进制或已知凭据时整体拒绝，不能悄悄跳过。标准锁文件已加入允许文件名。输出最多 64 KiB，并过滤已知凭据模式，保存于私有本地状态。执行崩溃保留 pending_execution，不自动重放；Docker 是受限测试环境，不替代生产多租户的完整安全隔离设计。
+
+真实 Docker 回归需显式启用：`ZEST_RUN_DOCKER_TESTS=1 uv run --extra ai --extra mcp python -m unittest discover -s tests -q`，并准备 `python:3.14-slim` 或通过 `ZEST_TEST_IMAGE` 提供已安装镜像。普通套件跳过 2 个 Docker 实测，其余使用标记为 offline_fixture 的执行夹具，不能当成真实验证证据。
+
 ## 开发日志
 
 每个小模块包含对应实现、验证、文档和日志，并创建一次 Git 提交。开发记录见 [开发日志](docs/DEVLOG.md)。

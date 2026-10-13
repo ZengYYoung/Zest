@@ -17,7 +17,8 @@ TEXT_SUFFIXES = {
     ".md", ".rst", ".txt", ".json", ".toml", ".yaml", ".yml", ".xml",
     ".ini", ".cfg", ".properties", ".gradle",
 }
-TEXT_NAMES = {"readme", "license", "dockerfile", "makefile", ".gitignore", ".gitattributes", ".editorconfig"}
+TEXT_NAMES = {"readme", "license", "dockerfile", "makefile", ".gitignore", ".gitattributes", ".editorconfig",
+              "uv.lock", "poetry.lock", "cargo.lock", "yarn.lock", "pnpm-lock.yaml"}
 BLOCKED_DIRECTORIES = EXCLUDED_DIRECTORIES | {".aws", ".ssh", ".kube", "secrets", "credentials"}
 CREDENTIAL_PATTERNS = (
     rb"gh[pousr]_[A-Za-z0-9]{20,}", rb"github_pat_[A-Za-z0-9_]{20,}",
