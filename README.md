@@ -228,6 +228,28 @@ uv run --extra ai --extra mcp zest task create <project-id> "解释实现与约�
 
 这是有界专业分工，不是任意自主执行。专家输出不成为新的事实来源，引用仍需程序校验；当前多 Agent 效果由离线夹具验证，没有新增外部项目数据传输或总体准确率声明。
 
+## 批准具体修改
+
+先通过 `project read` 取得原文件的 content_sha256，准备本地 JSON 方案：
+
+```json
+{"summary":"修复加法逻辑","changes":[{"path":"app.py","expected_sha256":"原文件SHA256","content":"def add(a, b):\n    return a + b\n"}]}
+```
+
+```bash
+python3 -m zest repair create <project-id> --plan /absolute/path/to/plan.json
+python3 -m zest repair show <repair-id>
+python3 -m zest repair approve <repair-id> --plan-sha256 <show返回的哈希>
+python3 -m zest repair reject <repair-id>
+python3 -m zest repair list <project-id>
+```
+
+方案绑定基础 commit、项目、完整新正文、原文件哈希和权限策略。show 返回完整内容及 diff；批准前必须匹配哈希并重新检查干净工作区和基础版本。状态目录应置于仓库外或被 Git 忽略，否则本地状态文件会导致工作区不干净。
+
+当前修复执行器仅应用确定的批准方案，不调用模型生成新修改。最多替换 5 个既有普通文本文件，每文件新旧内容各最多 64 KiB、总计 256 KiB；不能增删文件、跟随链接、改 `.env` 或运行命令。使用独立 Git index 和原始 blob 写入生成 candidate_commit，保存于 `refs/zest/candidates/<repair-id>`，原工作区、index、分支和 HEAD 保持不变。这是文件变更隔离，不是执行沙箱。[Git index 原理](https://git-scm.com/docs/git-update-index)、[候选提交](https://git-scm.com/docs/git-commit-tree)
+
+候选仍待验证，不能自动完成版本切换。执行崩溃保留 pending_execution 和私有 index，不自动重放；失败可能留下不可达对象或候选 ref，需要后续人工检查。状态检查禁用已配置的 clean/process/smudge filter；使用字节比较，过滤器转换项目可能因此显示差异。
+
 ## 开发日志
 
 每个小模块包含对应实现、验证、文档和日志，并创建一次 Git 提交。开发记录见 [开发日志](docs/DEVLOG.md)。

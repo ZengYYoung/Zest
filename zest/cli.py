@@ -96,6 +96,18 @@ def _parser() -> argparse.ArgumentParser:
     mcp_actions = mcp.add_subparsers(dest="action", required=True)
     serve = mcp_actions.add_parser("serve")
     serve.add_argument("project_id")
+    repairs = commands.add_parser("repair", help="审核具体变更并生成隔离 Git 候选版本")
+    repair_actions = repairs.add_subparsers(dest="action", required=True)
+    proposal = repair_actions.add_parser("create")
+    proposal.add_argument("project_id")
+    proposal.add_argument("--plan", type=Path, required=True, help="本地 JSON 方案文件")
+    listed_repairs = repair_actions.add_parser("list")
+    listed_repairs.add_argument("project_id")
+    for name in ("show", "approve", "reject"):
+        repair_action = repair_actions.add_parser(name)
+        repair_action.add_argument("repair_id")
+        if name == "approve":
+            repair_action.add_argument("--plan-sha256", required=True)
     return parser
 
 
@@ -103,6 +115,22 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "repair":
+            from .repairs import RepairStore, load_proposal
+            store = RepairStore(args.state_dir)
+            if args.action in ("create", "list"):
+                project = registry.get_project(args.project_id)
+                if project is None:
+                    raise FileReadError("project_not_found", "未找到该项目。")
+                result = (store.create(project, load_proposal(args.plan)) if args.action == "create"
+                          else store.list_repairs(args.project_id))
+            elif args.action == "show":
+                result = store.show(args.repair_id)
+            else:
+                result = store.decide(args.repair_id, approved=args.action == "approve",
+                                      plan_sha256=getattr(args, "plan_sha256", None))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
         if args.command == "mcp":
             from .mcp_server import create_server
             create_server(args.project_id, args.state_dir).run(transport="stdio", show_banner=False)

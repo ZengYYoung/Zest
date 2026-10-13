@@ -149,6 +149,20 @@ class ProjectsTest(unittest.TestCase):
         self.assertEqual((self.repo / "app.py").read_bytes(), before_file)
         self.assertFalse((self.repo / ".git" / "index.lock").exists())
 
+    def test_status_does_not_execute_clean_or_process_filters(self):
+        (self.repo / ".gitattributes").write_text("*.py filter=unsafe\n")
+        self.populated()
+        marker = self.root / "filter-ran"
+        command = f'touch "{marker}"; cat'
+        self.git("config", "filter.unsafe.clean", command)
+        self.git("config", "filter.unsafe.process", command)
+        self.git("config", "filter.unsafe.required", "true")
+        # Change only the timestamp to force a working-content comparison.
+        file = self.repo / "app.py"
+        os.utime(file, (file.stat().st_atime + 10, file.stat().st_mtime + 10))
+        self.assertFalse(inspect_repository(self.repo).dirty)
+        self.assertFalse(marker.exists())
+
     def test_linked_git_worktree_is_supported(self):
         self.populated()
         worktree = self.root / "linked"

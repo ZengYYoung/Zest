@@ -35,10 +35,21 @@ def git_environment() -> dict[str, str]:
 
 
 def _git(root: Path, *args: str, allowed: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess:
+    overrides = []
+    if args and args[0] == "status":
+        # Status may compare working bytes through clean/process filters. Disable
+        # configured drivers before sampling; reading config itself executes no filter.
+        configured = _git(root, "config", "--null", "--name-only", "--get-regexp",
+                          r"^filter\..*\.(clean|smudge|process|required)$", allowed=(0, 1))
+        drivers = {os.fsdecode(key).rsplit(".", 1)[0] for key in configured.stdout.split(b"\0") if key}
+        for driver in sorted(drivers):
+            for field in ("clean", "smudge", "process"):
+                overrides.extend(["-c", f"{driver}.{field}="])
+            overrides.extend(["-c", f"{driver}.required=false"])
     try:
         result = subprocess.run(
             ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
-             "-C", str(root), *args],
+             *overrides, "-C", str(root), *args],
             env=git_environment(), capture_output=True, timeout=10, check=False,
         )
     except FileNotFoundError as exc:
