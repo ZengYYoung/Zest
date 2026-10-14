@@ -437,4 +437,4 @@ npm run build
 
 每个小模块包含对应实现、验证、文档和日志，并创建一次 Git 提交。开发记录见 [开发日志](docs/DEVLOG.md)。
 
-首轮认知的真实效果尚未验收；下一步的样本选择、人工参考、评分与执行前检查见 [小规模认知验收准备](docs/COGNITION_ACCEPTANCE.md)。该准备方案不包含真实模型外发许可。
+首个小规模真实认知验收已完成但未通过：响应字段契约与证据上下文收束问题导致没有经核对成果，见 [验收结果](docs/COGNITION_ACCEPTANCE_RESULTS.md)。样本选择、人工参考、评分与执行前检查见 [认知验收方案](docs/COGNITION_ACCEPTANCE.md)，后续复测仍需具体外发批准。
