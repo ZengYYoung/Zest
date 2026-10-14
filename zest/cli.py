@@ -25,6 +25,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-dir", type=Path, default=Path.cwd() / ".zest",
                         help="Zest 状态目录，默认当前目录下的 .zest")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("ui", help="进入交互式项目问答工作台，展示真实阶段与请求预览")
     doctor = commands.add_parser("doctor", help="只读检查本地环境，不调用模型或执行项目代码")
     doctor.add_argument("--docker", action="store_true", help="读取本地 Docker 服务版本")
     doctor.add_argument("--image", help="核对已安装测试镜像并返回固定 ID，不自动下载")
@@ -175,6 +176,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "ui":
+            from .terminal import launch_workspace
+            launch_workspace(args.state_dir)
+            return 0
         if args.command == "web":
             from .web import serve
             serve(args.state_dir, port=args.port)

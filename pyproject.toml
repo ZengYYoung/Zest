@@ -29,6 +29,9 @@ web = [
     "python-dotenv>=1.2.4",
     "uvicorn>=0.54.0",
 ]
+tui = [
+    "textual>=8.2.8",
+]
 
 [tool.setuptools.packages.find]
 include = ["zest*"]
