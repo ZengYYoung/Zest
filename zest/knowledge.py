@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 import re
 import sqlite3
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from .files import CREDENTIAL_PATTERNS, FileReadError
-from .git import inspect_repository, selected_commit
+from .git import inspect_repository, selected_commit, verify_commit
 
 
 def _text(value, limit):
@@ -65,16 +65,33 @@ class KnowledgeStore:
             "SELECT action,created_at FROM note_events WHERE note_id=? ORDER BY id", (note_id,))]
         return record
 
-    def add(self, project, title, body, *, kind="decision", scope="snapshot"):
+    def add(self, project, title, body, *, kind="decision", scope="snapshot", note_id=None, observed_commit=None):
         _text(title, 200)
         _text(body, 8000)
         if kind not in ("decision", "constraint", "maintenance") or scope not in ("snapshot", "project"):
             raise FileReadError("invalid_knowledge_scope", "知识类型或适用范围不受支持。")
-        commit = selected_commit(project, inspect_repository(project["root_path"]))
+        state = inspect_repository(project["root_path"])
+        commit = selected_commit(project, state)
+        if observed_commit is not None:
+            if not isinstance(observed_commit, str) or not verify_commit(Path(state.root_path), observed_commit):
+                raise FileReadError("invalid_commit", "历史知识版本必须是本项目的完整 commit。")
+            commit = observed_commit
         if scope == "snapshot" and commit is None:
             raise FileReadError("knowledge_snapshot_required", "版本知识需要至少一个已提交版本。")
-        note_id, now = str(uuid4()), datetime.now(timezone.utc).isoformat()
+        if note_id is not None:
+            try:
+                if str(UUID(note_id)) != note_id:
+                    raise ValueError
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise FileReadError("invalid_knowledge_id", "固定知识 ID 必须是完整 UUID。") from exc
+        note_id, now = note_id or str(uuid4()), datetime.now(timezone.utc).isoformat()
         with self._open() as conn, conn:
+            old = conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
+            if old is not None:
+                if (old["project_id"], old["title"], old["body"], old["kind"], old["scope"], old["observed_commit"]) != (
+                        project["id"], title, body, kind, scope, commit):
+                    raise FileReadError("knowledge_id_conflict", "同一来源 ID 已有不同知识，不覆盖原记录。")
+                return self._record(conn, note_id)
             conn.execute("INSERT INTO notes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                          (note_id, project["id"], title, body, kind, scope, commit, "draft", now, now, None, None))
             conn.execute("INSERT INTO note_events(note_id,action,created_at) VALUES (?,?,?)", (note_id, "created", now))

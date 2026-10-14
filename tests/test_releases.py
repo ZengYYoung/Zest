@@ -259,8 +259,15 @@ class ReleasesTest(unittest.TestCase):
         exported = SourceExporter(self.state).export(self.project["id"], export_directory)
         self.assertEqual(exported["validation"]["backend"], "docker")
         self.assertEqual(verify_export(export_directory)["status"], "intact")
+        from zest.history import capture_maintenance
+        captured = capture_maintenance(self.state, promoted["id"])
+        self.assertEqual(captured["note"]["status"], "draft")
+        KnowledgeStore(self.state).confirm(captured["note"]["id"])
         self.assertEqual(self.approve(self.store.rollback(promoted["id"]))["status"], "applied")
         self.assertIn("a - b", read_project_file(self.project, "app.py")["content"])
+        recalled = prepare_context(self.project, "历史维护", state_dir=self.state)
+        self.assertTrue(any(source["evidence"].get("knowledge_id") == captured["note"]["id"]
+                            for source in recalled["sources"]))
 
 
 if __name__ == "__main__":

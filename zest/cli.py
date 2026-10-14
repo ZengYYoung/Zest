@@ -145,6 +145,8 @@ def _parser() -> argparse.ArgumentParser:
     exported.add_argument("destination", type=Path)
     checked_export = release_actions.add_parser("verify-export", help="只核对导出文件与清单，不执行源码")
     checked_export.add_argument("directory", type=Path)
+    captured = release_actions.add_parser("capture", help="将已完成验证后的源码选择留存为待确认维护知识")
+    captured.add_argument("operation_id")
     for name in ("active", "list"):
         action = release_actions.add_parser(name)
         action.add_argument("project_id")
@@ -163,7 +165,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "release":
             from .releases import ReleaseStore
             store = ReleaseStore(args.state_dir)
-            if args.action == "export":
+            if args.action == "capture":
+                from .history import capture_maintenance
+                result = capture_maintenance(args.state_dir, args.operation_id)
+            elif args.action == "export":
                 from .exports import SourceExporter
                 result = SourceExporter(args.state_dir).export(args.project_id, args.destination)
             elif args.action == "verify-export":

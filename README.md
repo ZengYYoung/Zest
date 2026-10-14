@@ -189,6 +189,18 @@ uv run --extra ai zest knowledge invalidate <note-id> --reason "已被新方案�
 
 记录和状态事件保存在 `.zest/knowledge.sqlite3`；已失效记录不进入新问答，等待批准任务中引用的知识如果失效或变化也会阻止调用。当前不自动将聊天或模型推测写成确认事实，不自动解决冲突，不支持多人审批或正文覆盖编辑；纠错采用新草稿加旧记录失效。
 
+完成验证后源码选择的操作可留存历史案例：
+
+```bash
+python3 -m zest release capture <applied-promotion-operation-id>
+python3 -m zest knowledge show <returned-note-id>
+python3 -m zest knowledge confirm <returned-note-id>
+```
+
+capture 重新核对操作、历史引用及真实验证完整哈希，不调用模型；保存路径/变更哈希、基础与候选版本、测试/镜像来源，并将方案说明标为未确认推断。记录为 project 范围的 maintenance 草稿，observed_commit 明确指向当次候选；确认后可跨版本检索，正文标明历史案例不代表当前已修复或运行已部署。
+
+操作 UUID 固定知识 ID，多次捕获保留确认/失效状态，不覆盖相同 ID 的不同记录。可以在后续版本或回退后捕获旧操作，来源版本不会误记成当前 HEAD；等待批准、未完成验证、离线正式入口或回退操作不能冒充新的修复案例。
+
 ## 词法 RAG 索引
 
 ```bash
