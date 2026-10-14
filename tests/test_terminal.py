@@ -306,3 +306,15 @@ class TerminalTest(unittest.IsolatedAsyncioTestCase):
     def test_plain_terminal_text_does_not_interpret_escape_or_markup(self):
         self.assertEqual(display_text("\x1b[31m[bold]raw[/bold]"), "\\x1b[31m[bold]raw[/bold]")
         self.assertNotIn("sk-", display_text("sk-" + "x" * 24))
+
+    async def test_progress_tick_after_widget_removal_or_shutdown_is_harmless(self):
+        app = create_workspace(self.state_dir, runner=self.runner)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            widget = app.progress_widget
+            self.assertTrue(widget.is_attached)
+            await widget.remove()
+            self.assertFalse(widget.is_attached)
+            app.update_progress()
+            await pilot.pause(0.3)
+        app.update_progress()

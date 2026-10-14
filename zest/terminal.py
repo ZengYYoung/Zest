@@ -163,6 +163,8 @@ def create_workspace(state_dir, *, runner=None):
             self.last_record = None
             self.outcome = None
             self.reading_history = False
+            self.progress_widget = None
+            self.progress_timer = None
 
         def compose(self) -> ComposeResult:
             yield Header()
@@ -185,11 +187,17 @@ def create_workspace(state_dir, *, runner=None):
             yield Footer()
 
         def on_mount(self):
-            self.set_interval(0.25, self.update_progress)
+            self.progress_widget = self.query_one("#stage", Static)
+            self.progress_timer = self.set_interval(0.25, self.update_progress)
             self.append("Zest", "选择项目后持续提问。每次先在本地准备完整来源，再由你单独批准请求。")
             if not self.project:
                 self.append("Zest", "尚未登记项目。请先用 project init 或 project import 接入，然后重新启动工作台。")
             self.update_progress()
+
+        def on_unmount(self):
+            if self.progress_timer is not None:
+                self.progress_timer.stop()
+            self.progress_widget = None
 
         def append(self, role, message):
             value = display_text(message)
@@ -197,6 +205,10 @@ def create_workspace(state_dir, *, runner=None):
             self.query_one("#conversation", RichLog).write(Text(f"{role}\n{value}\n"))
 
         def update_progress(self):
+            # A queued timer tick can outlive the screen during shutdown.
+            widget = self.progress_widget
+            if widget is None or not widget.is_attached:
+                return
             if self.busy and self.started is not None:
                 self.elapsed = time.monotonic() - self.started
             phases = ["本地准备来源", "审阅 / 批准请求", "分析 / 核对结果", "展示回答与引用"]
@@ -214,7 +226,7 @@ def create_workspace(state_dir, *, runner=None):
                 lines.append(f"{marker} {label}")
             if self.last_record:
                 lines.extend(["", "任务 ID", self.last_record["task_id"]])
-            self.query_one("#stage", Static).update(Text("\n".join(lines)))
+            widget.update(Text("\n".join(lines)))
 
         def controls(self):
             blocked = self.busy or self.pending is not None or self.project is None
