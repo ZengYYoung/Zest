@@ -254,6 +254,11 @@ class ReleasesTest(unittest.TestCase):
         promoted = self.approve(self.store.promote(result["id"]))
         self.assertEqual(promoted["status"], "applied")
         self.assertIn("a + b", read_project_file(self.project, "app.py")["content"])
+        from zest.exports import SourceExporter, verify_export
+        export_directory = self.root / "real-docker-export"
+        exported = SourceExporter(self.state).export(self.project["id"], export_directory)
+        self.assertEqual(exported["validation"]["backend"], "docker")
+        self.assertEqual(verify_export(export_directory)["status"], "intact")
         self.assertEqual(self.approve(self.store.rollback(promoted["id"]))["status"], "applied")
         self.assertIn("a - b", read_project_file(self.project, "app.py")["content"])
 

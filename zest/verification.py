@@ -93,13 +93,25 @@ def _export(files, destination):
 
 
 def _manifest_on_disk(snapshot, expected):
-    actual_paths = {str(path.relative_to(snapshot)) for path in snapshot.rglob("*")
-                    if not path.is_dir() or path.is_symlink()}
+    if snapshot.is_symlink() or not snapshot.is_dir():
+        raise FileReadError("snapshot_changed", "验证快照目录不存在或变为链接。")
+    actual_paths = set()
+    for count, path in enumerate(snapshot.rglob("*"), 1):
+        if count > MAX_FILES * 33 + 1:
+            raise FileReadError("snapshot_changed", "验证目录的额外条目超过核对预算。")
+        if not path.is_dir() or path.is_symlink():
+            actual_paths.add(str(path.relative_to(snapshot)))
+        if len(actual_paths) > len(expected):
+            raise FileReadError("snapshot_changed", "验证目录出现额外文件。")
     if actual_paths != {entry["path"] for entry in expected}:
         raise FileReadError("snapshot_changed", "本地验证快照出现额外或缺失文件。")
     for entry in expected:
         path = snapshot / entry["path"]
-        if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size != entry["bytes"]:
+            raise FileReadError("snapshot_changed", "本地验证快照在执行期间改变。")
+        with path.open("rb") as source:
+            raw = source.read(entry["bytes"] + 1)
+        if len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]:
             raise FileReadError("snapshot_changed", "本地验证快照在执行期间改变。")
 
 

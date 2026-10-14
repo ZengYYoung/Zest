@@ -298,6 +298,17 @@ Git 事务同时保存 `refs/zest/releases/<operation-id>/before|after` 并以�
 
 Git 与 SQLite 不能共同提交事务；发生中断时保留 pending_execution，recover 依据事务内的历史引用核对结果，不重放。无法核对时仍保持待处理状态。当前依赖可信本地操作者，没有多人认证或防止用户手工改写数据库/引用的审计系统。旧 M012 待批准方案若因新增 workspace_head 绑定不兼容，应重新准备并批准。
 
+已选定源码可以导出：
+
+```bash
+python3 -m zest release export <project-id> /absolute/path/outside-project/new-export
+python3 -m zest release verify-export /absolute/path/outside-project/new-export
+```
+
+全新目录内包含 source/ 文件目录和 manifest.json。导出固定管理 commit，核对已完成版本操作及历史引用；候选来源再核对真实验证记录，回退来源标为 previous_recorded_source，不假定运行健康。清单包含 commit、操作/验证来源、每文件 SHA-256、字节数与执行权限；不附带 Git 元数据、未提交文件或本地密钥配置，不安装依赖或启动代码。
+
+父目录须存在，目标必须全新且位于原项目之外；不覆盖已有文件，部分失败保留目录，不提供完整清单。verify-export 只校验本地清单一致性，拒绝改动、缺失、额外文件、链接和权限变化；不是签名、身份认证或新的测试结果。可在 source/ 中查看并按项目说明使用源码，后续产生文件会改变清单校验结果；原工作区和 main 不变。
+
 ## 修复建议 Agent
 
 ```bash

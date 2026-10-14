@@ -140,6 +140,11 @@ def _parser() -> argparse.ArgumentParser:
     promotion.add_argument("verification_id")
     rollback = release_actions.add_parser("rollback")
     rollback.add_argument("operation_id", help="回到该已完成操作的 previous_commit")
+    exported = release_actions.add_parser("export", help="将已批准管理版本导出到项目外全新目录")
+    exported.add_argument("project_id")
+    exported.add_argument("destination", type=Path)
+    checked_export = release_actions.add_parser("verify-export", help="只核对导出文件与清单，不执行源码")
+    checked_export.add_argument("directory", type=Path)
     for name in ("active", "list"):
         action = release_actions.add_parser(name)
         action.add_argument("project_id")
@@ -158,7 +163,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "release":
             from .releases import ReleaseStore
             store = ReleaseStore(args.state_dir)
-            if args.action == "promote":
+            if args.action == "export":
+                from .exports import SourceExporter
+                result = SourceExporter(args.state_dir).export(args.project_id, args.destination)
+            elif args.action == "verify-export":
+                from .exports import verify_export
+                result = verify_export(args.directory)
+            elif args.action == "promote":
                 result = store.promote(args.verification_id)
             elif args.action == "rollback":
                 result = store.rollback(args.operation_id)
