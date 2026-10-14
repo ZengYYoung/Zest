@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { projectName, readApi, shortCommit, statusLabels, validateConnection, type Connection, type Project, type Row } from './api.ts'
+import { RecordDetail } from './RecordDetail.tsx'
 
 type Tab = 'overview' | 'tasks' | 'repairs' | 'knowledge' | 'releases'
 const tabs: [Tab, string, string][] = [['overview', '项目概览', '◈'], ['tasks', '调查与建议', '◎'], ['repairs', '候选修改', '⌘'], ['knowledge', '项目知识', '◇'], ['releases', '版本历史', '↺']]
@@ -137,11 +138,11 @@ export function App() {
         </>}
         {tab !== 'overview' && <section className="panel"><div className="panel-heading"><h2>{tabs.find(([key]) => key === tab)?.[1]}</h2><span className="muted">{rows.length} 条记录</span></div>
           {!rows.length ? <div className="empty compact"><h3>还没有相关记录</h3><p>通过 CLI 完成调查、维护或知识确认后，记录会在这里展示。</p></div> : <div className="table-wrap"><table><thead><tr><th>记录</th><th>状态</th><th>类型 / 来源</th><th>创建时间</th><th /></tr></thead><tbody>
-            {rows.map((row, index) => <tr key={String(row.id || row.task_id || index)}><td><strong>{String(row.title || row.task_id || row.id).slice(0, 36)}</strong></td><td><Status value={row.status} /></td>
+            {rows.map((row, index) => <tr key={String(row.id || row.task_id || index)}><td><strong title={String(row.title || row.task_id || row.id)}>{String(row.title || row.task_id || row.id).slice(0, row.title ? 36 : 12)}</strong></td><td><Status value={row.status} /></td>
               <td>{String(row.purpose === 'repair_proposal' ? '修复 / 开发建议' : row.purpose === 'question' ? '调查问答' : row.kind || row.operation || '候选修改')}</td><td>{row.created_at ? new Date(String(row.created_at)).toLocaleString('zh-CN', { hour12: false }) : '—'}</td><td><button onClick={() => openRecord(row)}>查看 →</button></td></tr>)}
           </tbody></table></div>}
           <div className="notice">这个工作台目前只展示记录。模型数据批准、具体修改、验证与版本选择仍通过 CLI 独立进行。</div></section>}
-        {detail && <section className="panel"><div className="panel-heading"><h2>完整记录</h2><button onClick={() => { recordRequest.current?.abort(); setDetail(null) }}>收起</button></div><pre className="record">{JSON.stringify(detail, null, 2)}</pre></section>}
+        {detail && tab !== 'overview' && <RecordDetail kind={tab} value={detail} onClose={() => { recordRequest.current?.abort(); setDetail(null) }} />}
       </>}
       <footer>Zest · 为一个项目保留连续的上下文<span>有来源 · 可审阅 · 有记录</span></footer>
     </main>
