@@ -24,6 +24,11 @@ mcp = [
     "fastmcp>=4.1.0",
     "langchain[mcp]>=1.4.5",
 ]
+web = [
+    "fastapi>=0.143.0",
+    "python-dotenv>=1.2.4",
+    "uvicorn>=0.54.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["zest*"]

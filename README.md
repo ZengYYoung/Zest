@@ -349,6 +349,22 @@ suggest 通过持久化 LangGraph 准备完整范围并暂停，不调用模型�
 
 当前修复模型效果使用明确的离线模型和真实 LangChain MockTransport 验证，没有新增真实项目数据发送或准确率结论。生成的方案仍需人工审查与独立容器测试。
 
+## 本地只读 Web API
+
+```bash
+uv sync --extra ai --extra mcp --extra web
+# 在本地 .env 配置独立的 ZEST_WEB_API_TOKEN（32—256 位 URL-safe 随机 token）
+uv run --extra ai --extra mcp --extra web zest web serve --port 8000
+```
+
+仅绑定 127.0.0.1，不接受远程 bind 参数。除最小 /health 外，所有 /api 端点需要 `Authorization: Bearer <web-token>`；Web token 不等于模型密钥、不进入请求 URL 或访问日志。生产多人认证尚未实现。[FastAPI 安全依赖](https://fastapi.tiangolo.com/tutorial/security/simple-oauth2/)
+
+只读端点覆盖 projects/list/show/overview/file/knowledge，以及 tasks、repairs、verifications、releases 的记录查询。UUID 和范围校验、路径/内容限制复用 CLI；没有上传任意仓库路径、模型调用、命令执行、修改或批准端点。错误不回显输入或原始存储异常，响应 no-store；不开放 Swagger 外部资源或源码生成日志。
+
+Host 限制本地，CORS 只允许 http://127.0.0.1:5173 与 http://localhost:5173 的 GET/Authorization，禁止任意来源和 cookie 凭据。[CORS 规则](https://fastapi.tiangolo.com/tutorial/cors/)
+
+Web 是单个可信本地操作者的记录读取入口，不能公开部署或当作多人权限系统。服务器的只读含义是未提供业务变更/调用接口；底层数据库连接可能初始化既有状态的兼容 schema。
+
 ## 开发日志
 
 每个小模块包含对应实现、验证、文档和日志，并创建一次 Git 提交。开发记录见 [开发日志](docs/DEVLOG.md)。
