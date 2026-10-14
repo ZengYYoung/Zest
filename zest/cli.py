@@ -25,6 +25,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-dir", type=Path, default=Path.cwd() / ".zest",
                         help="Zest 状态目录，默认当前目录下的 .zest")
     commands = parser.add_subparsers(dest="command", required=True)
+    doctor = commands.add_parser("doctor", help="只读检查本地环境，不调用模型或执行项目代码")
+    doctor.add_argument("--docker", action="store_true", help="读取本地 Docker 服务版本")
+    doctor.add_argument("--image", help="核对已安装测试镜像并返回固定 ID，不自动下载")
+    doctor.add_argument("--docker-socket", type=Path)
     projects = commands.add_parser("project", help="登记和查询本地 Git 项目")
     actions = projects.add_subparsers(dest="action", required=True)
     imported = actions.add_parser("import", help="只读采集 Git 状态并登记项目")
@@ -162,6 +166,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "doctor":
+            from .doctor import readiness
+            print(json.dumps(readiness(check_docker=args.docker, image=args.image, socket_path=args.docker_socket),
+                             ensure_ascii=True, indent=2))
+            return 0
         if args.command == "release":
             from .releases import ReleaseStore
             store = ReleaseStore(args.state_dir)
