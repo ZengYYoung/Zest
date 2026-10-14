@@ -37,6 +37,9 @@ def _parser() -> argparse.ArgumentParser:
     actions = projects.add_subparsers(dest="action", required=True)
     imported = actions.add_parser("import", help="只读采集 Git 状态并登记项目")
     imported.add_argument("path", type=Path, help="本地 Git 仓库根目录")
+    mapped = actions.add_parser("map", help="只读提取固定版本的 Python 模块、符号和 import 声明")
+    mapped.add_argument("project_id")
+    mapped.add_argument("--commit")
     initialized = actions.add_parser("init", help="创建全新本地项目和 Git 基线")
     initialized.add_argument("path", type=Path)
     initialized.add_argument("--name", required=True)
@@ -313,6 +316,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             if args.action == "overview":
                 result = build_overview(result)
+            elif args.action == "map":
+                from .structure import build_structure
+                result = build_structure(result, commit=args.commit)
             elif args.action == "read":
                 result = read_project_file(result, args.path, commit=args.commit,
                                            start_line=args.start_line, end_line=args.end_line)

@@ -48,11 +48,19 @@ python3 -m zest project show <project-id>
 # 查看已登记项目的只读概览
 python3 -m zest project overview <project-id>
 
+# 提取固定版本的 Python 模块、类、函数与 import 声明（不执行源码）
+python3 -m zest project map <project-id>
+python3 -m zest project map <project-id> --commit <完整commit>
+
 # 读取指定文件的前 20 行
 python3 -m zest project read <project-id> README.md --end-line 20
 ```
 
 命令输出 JSON。`import` 返回项目 ID、规范化路径、分支、commit、采集时间和工作区状态。重复登记同一路径会更新记录，保留原项目 ID。
+
+`project map` 与 `/api/projects/<id>/structure` 提供 Python AST 声明地图，默认使用管理源码版本，附带工作区 HEAD、解析器版本、符号词法名称、作用域、装饰器起始行、import 别名/相对层数、commit/blob/原文件哈希和行号。只记录声明，不导入模块或执行装饰器，不解析动态调用/动态 import 或假定真实运行依赖；不读取未提交内容。
+
+最多检查 100 个 Python 文件/4 MiB/4096 个树条目、单文件 20000 语法节点/200 声明、合计 3000 声明，沿用 256 KiB 文本/凭据/链接规则；解析器使用当前 Python 语法，不兼容语法及超预算文件计为跳过。30 秒为操作间检查预算，不是独立解析沙箱或硬终止保证；warnings/skipped_counts 和 python_only 限制说明未覆盖部分，不能称为理解了整个项目。[Python AST](https://docs.python.org/3.14/library/ast.html)
 
 默认状态存储在**运行命令时所在目录**下的 `.zest/state.sqlite3`，已被本仓库忽略。切换目录会使用不同的默认状态库；需要固定位置时，将全局参数放在 `project` 前：
 

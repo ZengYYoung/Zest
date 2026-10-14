@@ -116,6 +116,11 @@ def create_app(state_dir, *, settings=None):
         project(project_id)
         return {"data": KnowledgeStore(state_dir).list_notes(str(project_id))}
 
+    @router.get("/projects/{project_id}/structure")
+    def structure(project_id: UUID, commit: str | None = None):
+        from .structure import build_structure
+        return {"data": build_structure(project(project_id), commit=commit)}
+
     @router.get("/tasks")
     def tasks(project_id: UUID | None = None):
         from .tasks import TaskRunner

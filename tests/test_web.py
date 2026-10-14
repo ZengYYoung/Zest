@@ -60,6 +60,15 @@ class WebTest(unittest.TestCase):
         file = self.client.get(prefix + "/file", params={"path": "app.py", "end_line": 1}, headers=self.headers)
         self.assertEqual(file.json()["data"]["content"], "print('hello')\n")
 
+    def test_structure_endpoint_uses_fixed_version_without_model_calls(self):
+        prefix = "/api/projects/" + self.project["id"] + "/structure"
+        with patch("zest.models.DeepSeekModel.complete", side_effect=AssertionError("no calls")):
+            record = self.client.get(prefix, headers=self.headers).json()["data"]
+        self.assertEqual(record["commit"], self.project["git"]["head_commit"])
+        self.assertEqual(record["backend"], "python_ast_declarations")
+        self.assertEqual(record["modules"][0]["path"], "app.py")
+        self.assertEqual(self.client.get(prefix + "?commit=main", headers=self.headers).status_code, 400)
+
     def test_private_traversal_and_bad_inputs_are_rejected_without_echo(self):
         endpoint = "/api/projects/" + self.project["id"] + "/file"
         for path in (".env", "../outside.py", "/etc/passwd"):
