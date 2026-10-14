@@ -40,3 +40,14 @@ test('planned new paths and draft knowledge are not presented as confirmed facts
   assert.ok(note.includes('待确认'))
   assert.ok(note.includes('草稿不进入 Agent 上下文'))
 })
+
+test('verification distinguishes offline, unrun baseline and actual candidate measurements', () => {
+  const html = render('verifications', { status: 'passed', plan: { backend: 'offline_fixture', baseline_strategy: 'not_applicable_initial_creation' }, result: {
+    baseline: { status: 'not_applicable', tests_run: 0, container_started: false, cleanup_ok: true },
+    candidate: { status: 'passed', tests_run: 3, exit_code: 0, cleanup_ok: true, policy_verified: true, output: '<img src=x onerror=alert(1)> fixture log' } } })
+  for (const value of ['离线或未知后端', '基线未运行，不是测试通过', '候选结果', '测试数量', '&lt;img']) assert.ok(html.includes(value), value)
+  assert.ok(!html.includes('<img src='))
+  const pending = render('verifications', { status: 'awaiting_approval', plan: { backend: 'docker' }, result: null })
+  assert.ok(pending.includes('尚无执行结果'))
+  assert.ok(!pending.includes('验证通过'))
+})

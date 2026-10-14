@@ -273,6 +273,7 @@ python3 -m zest repair list <project-id>
 ```bash
 python3 -m zest verification create <repair-id> --image <local-test-image> --timeout 30
 python3 -m zest verification show <verification-id>
+python3 -m zest verification list <project-id>
 python3 -m zest verification approve <verification-id> --plan-sha256 <show返回的哈希>
 python3 -m zest verification reject <verification-id>
 ```
@@ -383,6 +384,8 @@ npm run build
 可查看项目概览、已提交源码原文、调查/建议任务、候选修改、项目知识及管理源码版本历史。项目切换清空旧详情并取消未完成读取；刷新重新读取项目登记列表及当前页。调查列表按项目筛选最近全局 100 个任务中的匹配记录，尚未实现完整分页。状态和详情来自现有记录，没有批准、调用模型或执行修改的页面按钮。
 
 记录详情分开显示调查结论、待补充信息与可展开的引用来源，原文携带行号、commit 和原文件哈希；待创建路径明确区分于已有代码。候选修改显示基础/候选版本、具体批准哈希、逐文件 diff 与完整候选正文。草稿知识、历史观察版本以及源码选择/回退的边界直接显示，完整原始 JSON 仍可展开核对；引用存在不代表模型结论已经得到语义验证。
+
+测试验证页通过项目内列表定位记录，分别展示基线/候选的退出码、测试数量、隔离配置核对、容器清理、OOM/日志截断以及保存的日志。离线/未知后端明确提示不能用于正式源码选择，not_applicable 基线明确显示未运行；缺失指标显示未知而不是通过。CLI/API 验证列表通过已有 repair 关联项目，保留旧计划和批准哈希，当前筛选最近全局 100 个验证记录，不加载日志/清单进入列表。
 
 源码读取显示实际 evidence 的路径和 commit，工作区 HEAD 单独报告；项目知识和任务结果按文本显示，不执行正文中的 HTML。这里展示的是本地维护状态，不是运行服务监控。当前使用 React 19.3、TypeScript 7、Vite 8，精确依赖见 package-lock.json；Node 版本须满足 Vite 要求，本机使用 Node 26 验证。[React 应用搭建](https://react.dev/learn/creating-a-react-app)、[Vite 入门](https://vite.dev/guide/)
 

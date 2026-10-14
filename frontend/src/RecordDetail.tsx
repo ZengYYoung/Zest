@@ -1,6 +1,6 @@
 import { shortCommit, statusLabels, type Row } from './api.ts'
 
-type Kind = 'tasks' | 'repairs' | 'knowledge' | 'releases'
+type Kind = 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases'
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}
 const records = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const text = (value: unknown, fallback = '—') => typeof value === 'string' ? value : fallback
@@ -78,9 +78,36 @@ function Release({ record }: { record: Row }) {
     <p className="review-note">这里只记录管理源码指针的选择，不代表服务部署或流量切换。回退可恢复有故障的历史基线，不恢复数据库或运行健康。</p></>
 }
 
+function Verification({ record }: { record: Row }) {
+  const plan = object(record.plan)
+  const result = object(record.result)
+  const fixture = plan.backend !== 'docker'
+  const describe = (value: unknown) => value === undefined ? '—' : String(value)
+  return <><p className="review-question">候选测试验证</p>
+    <p className="review-note">{fixture ? '离线或未知后端记录，不能作为正式管理源码选择的真实 Docker 证据。' : '受限 Docker 测试记录；通过只说明这套测试通过，仍需独立批准源码选择。'}</p>
+    <div className="review-fields"><Field label="验证状态" value={statusLabels[text(record.status)] || record.status} /><Field label="执行后端" value={plan.backend} />
+      <Field label="基础版本" value={plan.base_commit} /><Field label="候选版本" value={plan.candidate_commit} /><Field label="固定镜像 ID" value={plan.image_id} /><Field label="验证批准 SHA-256" value={record.plan_sha256} /></div>
+    <Field label="固定命令" value={Array.isArray(plan.command) ? plan.command.join(' ') : undefined} />
+    <p className="review-note">单次时限：{describe(plan.timeout_seconds)} 秒。{plan.baseline_strategy === 'not_applicable_initial_creation' ? '初始纯创建且基线无匹配测试：基线不运行，候选仍必须真实执行非空测试。' : '基线与候选分别测试，保留两份结果。'}</p>
+    {(['baseline', 'candidate'] as const).map(key => {
+      const run = object(result[key])
+      if (!Object.keys(run).length) return <div className="review-answer" key={key}>{key === 'baseline' ? '基线' : '候选'}：尚无执行结果</div>
+      return <section className="change-entry" key={key}><div className="change-heading"><strong>{key === 'baseline' ? '基线结果' : '候选结果'}</strong><span>{statusLabels[text(run.status)] || text(run.status)}</span></div>
+        {run.status === 'not_applicable' && <p className="review-note">基线未运行，不是测试通过。</p>}
+        <div className="review-fields"><Field label="测试数量" value={describe(run.tests_run)} /><Field label="退出码" value={describe(run.exit_code)} />
+          <Field label="容器清理已确认" value={describe(run.cleanup_ok)} /><Field label="实际隔离配置已核对" value={describe(run.policy_verified)} />
+          <Field label="OOM / 日志截断" value={`${describe(run.oom_killed)} / ${describe(run.output_truncated)}`} /></div>
+        {Boolean(run.error) && <div className="error" role="alert">{text(object(run.error).message)}</div>}
+        {typeof run.output === 'string' && <details className="json-details"><summary>查看保存的测试日志</summary><pre>{run.output}</pre></details>}</section>
+    })}
+    {result.error && <div className="error" role="alert">{text(object(result.error).message)}</div>}
+    <details className="json-details"><summary>查看验证策略与文件清单</summary><pre>{JSON.stringify({ policy: plan.policy, base: plan.base_manifest, candidate: plan.candidate_manifest }, null, 2)}</pre></details>
+  </>
+}
+
 export function RecordDetail({ kind, value, onClose }: { kind: Kind; value: unknown; onClose: () => void }) {
   const record = object(value)
   return <section className="panel"><div className="panel-heading"><h2>审阅记录</h2><button onClick={onClose}>收起</button></div>
-    <div className="review-body">{kind === 'tasks' ? <Task record={record} /> : kind === 'repairs' ? <Repair record={record} /> : kind === 'knowledge' ? <Knowledge record={record} /> : <Release record={record} />}</div>
+    <div className="review-body">{kind === 'tasks' ? <Task record={record} /> : kind === 'repairs' ? <Repair record={record} /> : kind === 'verifications' ? <Verification record={record} /> : kind === 'knowledge' ? <Knowledge record={record} /> : <Release record={record} />}</div>
     <details className="json-details"><summary>查看完整原始记录</summary><pre>{JSON.stringify(value, null, 2)}</pre></details></section>
 }

@@ -137,6 +137,8 @@ def _parser() -> argparse.ArgumentParser:
     prepare_verification.add_argument("--image", required=True, help="已安装且信任的本地 Python 测试镜像")
     prepare_verification.add_argument("--timeout", type=int, default=30)
     prepare_verification.add_argument("--docker-socket", type=Path)
+    list_verification = verification_actions.add_parser("list")
+    list_verification.add_argument("project_id")
     for name in ("show", "approve", "reject"):
         action = verification_actions.add_parser(name)
         action.add_argument("verification_id")
@@ -215,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
                 result = store.create(args.repair_id, args.image, timeout=args.timeout, socket_path=args.docker_socket)
             elif args.action == "show":
                 result = store.show(args.verification_id)
+            elif args.action == "list":
+                if ProjectRegistry(args.state_dir).get_project(args.project_id) is None:
+                    raise FileReadError("project_not_found", "未找到该项目。")
+                result = store.list_verifications(args.project_id)
             else:
                 result = store.decide(args.verification_id, approved=args.action == "approve",
                                       plan_sha256=getattr(args, "plan_sha256", None))

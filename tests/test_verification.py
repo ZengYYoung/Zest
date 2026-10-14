@@ -79,6 +79,48 @@ class VerificationTest(unittest.TestCase):
     def approve(self, record):
         return self.store.decide(record["id"], approved=True, plan_sha256=record["plan_sha256"])
 
+    def test_list_does_not_change_old_plan_or_execute_engine(self):
+        record = self.prepare()
+        before = self.store.show(record["id"])
+        with patch("zest.verification.DockerEngine", side_effect=AssertionError("no Docker")):
+            listed = VerificationStore(self.state).list_verifications(self.project["id"])
+        self.assertEqual([item["id"] for item in listed], [record["id"]])
+        self.assertEqual(listed[0]["project_id"], self.project["id"])
+        self.assertNotIn("plan", listed[0])
+        self.assertNotIn("result", listed[0])
+        self.assertEqual(self.store.show(record["id"]), before)
+        self.assertNotIn("project_id", before["plan"])
+        self.assertEqual(self.engine.calls, [])
+
+    def test_list_absent_database_does_not_create_state(self):
+        missing = self.root / "missing-state"
+        self.assertEqual(VerificationStore(missing).list_verifications(self.project["id"]), [])
+        self.assertFalse(missing.exists())
+
+    def test_list_filters_identity_and_preserves_pending_execution(self):
+        from uuid import uuid4
+        record = self.prepare()
+        with self.store._open() as conn:
+            record["status"] = "running"
+            self.store._save(conn, record)
+        self.assertEqual(self.store.list_verifications(str(uuid4())), [])
+        self.assertEqual(self.store.list_verifications(self.project["id"])[0]["status"], "pending_execution")
+        record["plan_sha256"] = "changed"
+        with self.store._open() as conn:
+            self.store._save(conn, record)
+        with self.assertRaises(FileReadError) as raised:
+            self.store.list_verifications(self.project["id"])
+        self.assertEqual(raised.exception.code, "verification_record_corrupt")
+
+    def test_list_cli_reads_project_without_execution(self):
+        import io
+        from zest.cli import main
+        record = self.prepare()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), patch("zest.verification.DockerEngine", side_effect=AssertionError("no Docker")):
+            self.assertEqual(main(["--state-dir", str(self.state), "verification", "list", self.project["id"]]), 0)
+        self.assertEqual(json.loads(output.getvalue())[0]["id"], record["id"])
+
     def test_prepare_does_not_execute_and_binds_complete_manifest(self):
         record = self.prepare()
         self.assertEqual(self.engine.calls, [])

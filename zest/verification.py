@@ -334,6 +334,32 @@ class VerificationStore:
         with self._open() as conn:
             return self._record(conn, verification_id)
 
+    def list_verifications(self, project_id):
+        """Bounded read-only summaries; project identity comes from the linked repair.
+
+        Older plans have no project_id, so keep their approved payload unchanged.
+        This currently filters the latest 100 global records, without pagination.
+        """
+        if not self.db_path.exists():
+            return []
+        repairs = RepairStore(self.state_dir)
+        summaries = []
+        with self._open() as conn:
+            ids = [row[0] for row in conn.execute(
+                "SELECT id FROM verifications ORDER BY json_extract(record, '$.created_at') DESC, id DESC LIMIT 100")]
+            for verification_id in ids:
+                record = self._record(conn, verification_id)
+                plan = record["plan"]
+                repair = repairs.show(plan["repair_id"])
+                if repair["project_id"] != project_id:
+                    continue
+                summaries.append({"id": record["id"], "project_id": repair["project_id"],
+                                  "created_at": record["created_at"], "status": record["status"],
+                                  "kind": "测试验证", "repair_id": plan["repair_id"],
+                                  "backend": plan["backend"], "base_commit": plan["base_commit"],
+                                  "candidate_commit": plan["candidate_commit"]})
+        return summaries
+
     def decide(self, verification_id, *, approved, plan_sha256=None):
         with RepairStore(self.state_dir)._lock(verification_id), self._open() as conn:
             record = self._record(conn, verification_id)

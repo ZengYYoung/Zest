@@ -145,6 +145,12 @@ def create_app(state_dir, *, settings=None):
         from .verification import VerificationStore
         return {"data": VerificationStore(state_dir).show(str(verification_id))}
 
+    @router.get("/projects/{project_id}/verifications")
+    def verification_list(project_id: UUID):
+        from .verification import VerificationStore
+        project(project_id)
+        return {"data": VerificationStore(state_dir).list_verifications(str(project_id))}
+
     @router.get("/projects/{project_id}/releases")
     def release_list(project_id: UUID):
         from .releases import ReleaseStore

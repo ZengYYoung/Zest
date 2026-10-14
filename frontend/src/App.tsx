@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { projectName, readApi, shortCommit, statusLabels, validateConnection, type Connection, type Project, type Row } from './api.ts'
 import { RecordDetail } from './RecordDetail.tsx'
 
-type Tab = 'overview' | 'tasks' | 'repairs' | 'knowledge' | 'releases'
-const tabs: [Tab, string, string][] = [['overview', '项目概览', '◈'], ['tasks', '调查与建议', '◎'], ['repairs', '候选修改', '⌘'], ['knowledge', '项目知识', '◇'], ['releases', '版本历史', '↺']]
+type Tab = 'overview' | 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases'
+const tabs: [Tab, string, string][] = [['overview', '项目概览', '◈'], ['tasks', '调查与建议', '◎'], ['repairs', '候选修改', '⌘'], ['verifications', '测试验证', '✓'], ['knowledge', '项目知识', '◇'], ['releases', '版本历史', '↺']]
 
 function Status({ value }: { value: unknown }) {
   const key = String(value || 'unknown')
@@ -64,7 +64,7 @@ export function App() {
     recordRequest.current?.abort(); fileRequest.current?.abort()
     setLoading(true); setError(''); setDetail(null); setFile(null); setData(null)
     const paths = { overview: `/api/projects/${projectId}/overview`, tasks: `/api/tasks?project_id=${projectId}`,
-      repairs: `/api/projects/${projectId}/repairs`, knowledge: `/api/projects/${projectId}/knowledge`, releases: `/api/projects/${projectId}/releases` }
+      repairs: `/api/projects/${projectId}/repairs`, verifications: `/api/projects/${projectId}/verifications`, knowledge: `/api/projects/${projectId}/knowledge`, releases: `/api/projects/${projectId}/releases` }
     readApi(connection, paths[tab], controller.signal).then(value => { setData(value); setLoading(false) }).catch(error => {
       if (error instanceof Error && error.name === 'AbortError') return
       setLoading(false); setError(error instanceof Error ? error.message : '读取失败。')

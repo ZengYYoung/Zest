@@ -39,4 +39,5 @@ export const statusLabels: Record<string, string> = {
   awaiting_approval: '等待批准', completed: '已完成', proposed: '建议已生成', candidate_ready: '候选就绪',
   passed: '验证通过', failed: '失败', error: '异常', applied: '已选择', rejected: '已拒绝',
   pending_execution: '待核对执行', draft: '待确认', confirmed: '已确认', invalidated: '已失效',
+  not_applicable: '未运行（不适用）', timed_out: '执行超时',
 }

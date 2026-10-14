@@ -127,6 +127,25 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/tasks?project_id=" + record["id"], headers=self.headers).json()["data"], [])
         self.assertEqual(model.calls, [])
 
+    def test_verification_list_reads_linked_project_without_execution(self):
+        import hashlib
+        from zest.repairs import RepairStore
+        from zest.verification import VerificationStore
+        from tests.test_verification import OfflineVerificationEngine
+        repairs = RepairStore(self.state_dir)
+        repair = repairs.create(self.project, {"summary": "UI fixture", "changes": [{"path": "app.py",
+            "expected_sha256": hashlib.sha256((self.repo / "app.py").read_bytes()).hexdigest(), "content": "print('hi')\n"}]})
+        candidate = repairs.decide(repair["id"], approved=True, plan_sha256=repair["plan_sha256"])
+        engine = OfflineVerificationEngine()
+        record = VerificationStore(self.state_dir, engine=engine).create(candidate["id"], "offline-fixture")
+        with patch("zest.verification.DockerEngine", side_effect=AssertionError("no Docker")):
+            response = self.client.get("/api/projects/" + self.project["id"] + "/verifications", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"][0]["id"], record["id"])
+        self.assertEqual(response.json()["data"][0]["backend"], "offline_fixture")
+        self.assertEqual(engine.calls, [])
+        self.assertEqual(self.client.get("/api/projects/" + str(uuid4()) + "/verifications", headers=self.headers).status_code, 404)
+
     def test_web_token_is_independent_and_repr_private(self):
         self.assertNotIn(TOKEN, repr(WebSettings(TOKEN)))
         for token in ("", "short", "sk-" + "x" * 40, TOKEN + "\n"):
