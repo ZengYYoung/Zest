@@ -98,3 +98,5 @@ zest cognition reject <run-id>
 Web 的“项目认知”只读列表/详情展示阶段、调用数、任务、六部分发现和原文。GET `/api/projects/{id}/cognition`、`/api/cognition/{id}`、`/api/cognition/{id}/dossier` 继承本地 Bearer 认证与 no-store。Web 不能创建、批准、启动 worker 或修改知识。
 
 首轮未包含生产日志、完整 Git 历史、自动增量刷新、向量检索或真实模型质量评测。后续分别设计，不把离线夹具输出作为真实项目理解效果。
+
+小规模真实模型验收的本地准备方案与人工评分模板见 [认知验收准备](COGNITION_ACCEPTANCE.md)。具体样本、模型目标、预算和通过门槛仍待确定；真实执行需针对具体资料包另行明确批准。
