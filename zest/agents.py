@@ -18,6 +18,13 @@ async def verify_sources(context, state_dir):
     async with Client(create_server(context["project_id"], state_dir)) as client:
         for source in context["sources"]:
             e = source["evidence"]
+            if e.get("kind") == "auto_reviewed_project_knowledge":
+                from .cognition_store import CognitionStore
+                note = CognitionStore(state_dir).reviewed_finding(e["run_id"], e["finding_id"])
+                if (note["project_id"] != context["project_id"] or note["commit"] != context["commit"]
+                        or note["finding_sha256"] != e["finding_sha256"] or note["body"] != source["body"]):
+                    raise FileReadError("source_changed", "项目认知来源已变化。")
+                continue
             if e.get("kind") == "planned_new_file":
                 from .repairs import assert_new_path
                 from .storage import ProjectRegistry
@@ -65,7 +72,7 @@ def answer_multi_context(context, *, allow_model, state_dir, model=None):
 
     def is_document(source):
         e = source["evidence"]
-        return (e.get("kind") == "confirmed_knowledge" or
+        return (e.get("kind") in ("confirmed_knowledge", "auto_reviewed_project_knowledge") or
                 PurePosixPath(e.get("path", "")).suffix.lower() in
                 (".md", ".rst", ".txt", ".toml", ".json", ".xml", ".yaml", ".yml", ".ini", ".properties"))
 

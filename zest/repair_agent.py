@@ -63,6 +63,12 @@ def prepare_repair_context(project, question, *, files, state_dir, new_files=Non
         sources.append({"id": f"E{len(sources) + 1}", "evidence": {"kind": "confirmed_knowledge",
                         "knowledge_id": note["id"], "scope": note["scope"], "observed_commit": note["observed_commit"],
                         "confirmed_at": note["confirmed_at"]}, "title": note["title"], "body": note["body"]})
+    from .cognition_store import CognitionStore
+    for note in CognitionStore(state_dir).for_context(project["id"], commit, query=question):
+        sources.append({"id": f"E{len(sources) + 1}", "evidence": {"kind": "auto_reviewed_project_knowledge",
+                        "run_id": note["run_id"], "finding_id": note["id"], "observed_commit": note["commit"],
+                        "finding_sha256": note["finding_sha256"]}, "title": "项目认知 · 自动核对", "body": note["body"],
+                        "provenance": note["evidence"], "review": note["review"]})
     context = {"project_id": project["id"], "question": question, "commit": commit,
                "workspace_head": state.head_commit, "sources": sources, "warnings": [],
                "purpose": "repair_proposal", "execution_policy": repair_policy(editable_ids)}
@@ -131,6 +137,10 @@ def generate_proposal(context, *, state_dir, model, source_task_id):
                 or state.dirty):
             raise FileReadError("repair_base_changed", "修复建议的基础版本或工作区已变化，需要重新准备。")
     check_version()
+    from .cognition_store import CognitionStore
+    paths = [source["evidence"]["path"] for source in context["sources"] if "path" in source["evidence"]]
+    if CognitionStore(state_dir).pending_for_paths(context["project_id"], context["commit"], paths):
+        raise FileReadError("cognition_related_investigation_pending", "关联文件的后台调查仍待核对；请查看项目认知任务，完成后重新准备修改建议。")
     asyncio.run(verify_sources(context, state_dir))
     response = model.complete(model_payload(context), purpose="repair_proposal")
     proposal = validate_proposal(response["text"], context)

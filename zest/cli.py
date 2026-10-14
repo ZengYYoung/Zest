@@ -85,6 +85,30 @@ def _parser() -> argparse.ArgumentParser:
     survey_show = survey_actions.add_parser("show", help="读取已保存记录，不重新扫描仓库")
     survey_show.add_argument("survey_id")
     survey_show.add_argument("--format", choices=("json", "text"), default="json")
+    cognition = commands.add_parser("cognition", help="项目认知规划、后台调查与精简档案")
+    cognition_actions = cognition.add_subparsers(dest="action", required=True)
+    cognition_create = cognition_actions.add_parser("create", help="准备固定版本完整资料包，等待一次工作流批准")
+    cognition_create.add_argument("project_id")
+    cognition_create.add_argument("--survey-id")
+    cognition_list = cognition_actions.add_parser("list")
+    cognition_list.add_argument("project_id")
+    for name in ("show", "preview", "approve", "reject", "recover", "dossier", "watch"):
+        command = cognition_actions.add_parser(name)
+        command.add_argument("run_id")
+        if name == "approve":
+            command.add_argument("--approval-sha256", required=True)
+            command.add_argument("--no-start", action="store_true", help="只入队，由已有独立 worker 执行")
+        if name == "show":
+            command.add_argument("--calls", action="store_true", help="包含逐次请求与响应记录")
+        if name in ("show", "dossier"):
+            command.add_argument("--format", choices=("json", "text"), default="json")
+    worker_command = cognition_actions.add_parser("worker", help="独立本地 worker，关闭工作台不影响已启动工作")
+    worker_command.add_argument("--once", action="store_true")
+    worker_command.add_argument("--idle-seconds", type=int, default=30)
+    invalidated = cognition_actions.add_parser("invalidate", help="带原因失效自动核对的认知")
+    invalidated.add_argument("run_id")
+    invalidated.add_argument("finding_id")
+    invalidated.add_argument("--reason", required=True)
     tasks = commands.add_parser("task", help="持久化问答任务及批准")
     task_actions = tasks.add_subparsers(dest="action", required=True)
     create = task_actions.add_parser("create", help="准备上下文并暂停等待批准")
@@ -224,6 +248,45 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"已保存摸底记录：{result['id']}", file=sys.stderr)
             print(format_survey(result) if getattr(args, "format", "json") == "text"
                   else json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
+        if args.command == "cognition":
+            from .cognition_store import CognitionStore
+            from .cognition_views import format_cognition, format_dossier, watch_cognition
+            store = CognitionStore(args.state_dir)
+            if args.action == "worker":
+                from .cognition import worker
+                if not 1 <= args.idle_seconds <= 300:
+                    raise FileReadError("invalid_worker_timeout", "worker 空闲退出时间须为 1—300 秒。")
+                worker(args.state_dir, once=args.once, idle_seconds=args.idle_seconds)
+                return 0
+            if args.action == "create":
+                result = store.create(args.project_id, survey_id=args.survey_id)
+            elif args.action == "list":
+                result = store.list_runs(args.project_id)
+            elif args.action == "preview":
+                result = store.show(args.run_id, include_envelope=True)
+            elif args.action == "show":
+                result = store.show(args.run_id, include_calls=args.calls)
+            elif args.action == "dossier":
+                result = store.dossier(args.run_id)
+            elif args.action == "invalidate":
+                result = store.invalidate(args.run_id, args.finding_id, args.reason)
+            elif args.action == "watch":
+                watch_cognition(store, args.run_id)
+                return 0
+            elif args.action == "recover":
+                result = store.recover(args.run_id)
+                from .cognition import start_worker
+                result["worker"] = start_worker(args.state_dir)
+            else:
+                result = store.decide(args.run_id, approved=args.action == "approve", approval_sha256=getattr(args, "approval_sha256", None))
+                if args.action == "approve" and not args.no_start:
+                    from .cognition import start_worker
+                    result["worker"] = start_worker(args.state_dir)
+            if getattr(args, "format", "json") == "text":
+                print(format_dossier(result) if args.action == "dossier" else format_cognition(result))
+            else:
+                print(json.dumps(result, ensure_ascii=True, indent=2))
             return 0
         if args.command == "release":
             from .releases import ReleaseStore

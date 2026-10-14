@@ -158,6 +158,12 @@ class TaskRunner:
                     from .knowledge import KnowledgeStore
                     for source in state["context"]["sources"]:
                         evidence = source["evidence"]
+                        if evidence.get("kind") == "auto_reviewed_project_knowledge":
+                            from .cognition_store import CognitionStore
+                            note = CognitionStore(self.state_dir).reviewed_finding(evidence["run_id"], evidence["finding_id"])
+                            if (note["project_id"] != state["context"]["project_id"] or note["commit"] != state["context"]["commit"]
+                                    or note["finding_sha256"] != evidence["finding_sha256"] or note["body"] != source["body"]):
+                                raise FileReadError("cognition_knowledge_changed", "项目认知来源已变化，需要重新准备。")
                         if evidence.get("kind") == "confirmed_knowledge":
                             note = KnowledgeStore(self.state_dir).get(evidence["knowledge_id"])
                             if (note["status"] != "confirmed" or note["confirmed_at"] != evidence["confirmed_at"]

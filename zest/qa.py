@@ -47,6 +47,21 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
             else:
                 result["warnings"].append({"code": "knowledge_context_budget"})
 
+        from .cognition_store import CognitionStore
+        for note in CognitionStore(state_dir).for_context(project["id"], commit, query=question):
+            source = {"id": f"E{len(result['sources']) + 1}",
+                      "evidence": {"kind": "auto_reviewed_project_knowledge", "run_id": note["run_id"],
+                                   "finding_id": note["id"], "observed_commit": note["commit"],
+                                   "finding_sha256": note["finding_sha256"]},
+                      "title": "项目认知 · 自动核对", "body": note["body"],
+                      "provenance": note["evidence"], "review": note["review"]}
+            added = len(json.dumps(source, ensure_ascii=False))
+            if len(result["sources"]) < MAX_SOURCES and size + added <= MAX_CONTEXT_CHARS:
+                result["sources"].append(source)
+                size += added
+            else:
+                result["warnings"].append({"code": "cognition_context_budget"})
+
     if not commit:
         result["warnings"].append({"code": "unborn_repository"})
         return result
