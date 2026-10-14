@@ -246,7 +246,9 @@ python3 -m zest repair list <project-id>
 
 方案绑定基础 commit、项目、完整新正文、原文件哈希和权限策略。show 返回完整内容及 diff；批准前必须匹配哈希并重新检查干净工作区和基础版本。状态目录应置于仓库外或被 Git 忽略，否则本地状态文件会导致工作区不干净。
 
-修复执行器仅应用确定的批准方案；模型建议入口见下节，不能绕过执行批准。最多替换 5 个既有普通文本文件，每文件新旧内容各最多 64 KiB、总计 256 KiB；不能增删文件、跟随链接、改 `.env` 或运行命令。使用独立 Git index 和原始 blob 写入生成 candidate_commit，保存于 `refs/zest/candidates/<repair-id>`，原工作区、index、分支和 HEAD 保持不变。这是文件变更隔离，不是执行沙箱。[Git index 原理](https://git-scm.com/docs/git-update-index)、[候选提交](https://git-scm.com/docs/git-commit-tree)
+修复执行器仅应用确定的批准方案；模型建议入口见后文，不能绕过执行批准。最多替换或创建 5 个普通文本文件，每文件新旧内容各最多 64 KiB、总计 256 KiB；不能删除文件、跟随链接、改 `.env` 或运行命令。使用独立 Git index 和原始 blob 写入生成 candidate_commit，保存于 `refs/zest/candidates/<repair-id>`，原工作区、index、分支和 HEAD 保持不变。这是文件变更隔离，不是执行沙箱。[Git index 原理](https://git-scm.com/docs/git-update-index)、[候选提交](https://git-scm.com/docs/git-commit-tree)
+
+创建文件必须显式指定 `operation: "create"` 和 `expected_sha256: null`，已有路径不得覆盖；所有新文件 mode 为 100644，支持空文本初始化文件。父路径经过既有文件、链接、子模块，或出现重复、大小写、文件/子路径冲突时拒绝。路径是否存在依据固定 Git 版本，候选创建不写入原工作区。
 
 候选仍待验证，不能自动完成版本切换。执行崩溃保留 pending_execution 和私有 index，不自动重放；失败可能留下不可达对象或候选 ref，需要后续人工检查。状态检查禁用已配置的 clean/process/smudge filter；使用字节比较，过滤器转换项目可能因此显示差异。
 
@@ -263,13 +265,15 @@ python3 -m zest verification reject <verification-id>
 
 计划绑定修复方案、基础/候选 commit、两份完整文件清单和 SHA-256、镜像 ID、本地 Docker Unix socket、固定测试命令和资源策略。每次测试前检查候选 ref、父提交与变更范围，重新读取对应 Git 快照。仅支持 `python -m unittest discover -s tests -q`；从预览批准后才执行，不能提供任意宿主机命令。默认 socket 为 `~/.docker/run/docker.sock`，可用 `--docker-socket` 指定另一个本地 socket，禁止远程 Docker 地址。
 
-两版本分别执行并保存基线与候选结果；项目代码仅在容器内运行。禁网、非 root、只读根与快照、丢弃全部 capabilities、no-new-privileges，限制 1 CPU、256 MiB、64 进程与 64 MiB 临时目录；仅挂载导出的只读快照，不挂载 Git、密钥或 Docker socket，拒绝镜像额外声明的 volumes。启动前核对实际 Docker 配置，超时终止并删除该任务容器。[Docker 运行限制](https://docs.docker.com/engine/containers/run/)
+通常两版本分别执行并保存基线与候选结果；项目代码仅在容器内运行。禁网、非 root、只读根与快照、丢弃全部 capabilities、no-new-privileges，限制 1 CPU、256 MiB、64 进程与 64 MiB 临时目录；仅挂载导出的只读快照，不挂载 Git、密钥或 Docker socket，拒绝镜像额外声明的 volumes。启动前核对实际 Docker 配置，超时终止并删除该任务容器。[Docker 运行限制](https://docs.docker.com/engine/containers/run/)
+
+初始开发的例外：仅当全部为创建操作且基线不存在匹配 `tests/test*.py` 的文件时，预览明确绑定 `baseline_strategy=not_applicable_initial_creation`。批准后不启动基线容器，记录 not_applicable/未执行；候选仍必须真实运行至少 1 项测试并通过。替换操作或已存在匹配测试不能使用此策略，切换阶段再次核对；不会把未运行的基线标为通过。
 
 候选 exit=0 且至少报告 1 项测试、未 OOM、日志未超限、实际配置匹配且两次容器清理完成，才标记 passed；基线结果可通过或失败，但执行环境错误不能当作基线测试结果。passed 表示这套测试通过，不证明需求或测试本身完整正确，也不自动切换代码或部署。
 
 首版完整快照最多 500 个允许文本文件/8 MiB，单文件 256 KiB；出现不允许文件、链接、子模块、二进制或已知凭据时整体拒绝，不能悄悄跳过。标准锁文件已加入允许文件名。输出最多 64 KiB，并过滤已知凭据模式，保存于私有本地状态。执行崩溃保留 pending_execution，不自动重放；Docker 是受限测试环境，不替代生产多租户的完整安全隔离设计。
 
-真实 Docker 回归需显式启用：`ZEST_RUN_DOCKER_TESTS=1 uv run --extra ai --extra mcp python -m unittest discover -s tests -q`，并准备 `python:3.14-slim` 或通过 `ZEST_TEST_IMAGE` 提供已安装镜像完整 ID。普通套件跳过 3 个 Docker 实测，其余使用明确的离线执行夹具，不能当成真实验证证据。
+真实 Docker 回归需显式启用：`ZEST_RUN_DOCKER_TESTS=1 uv run --extra ai --extra mcp python -m unittest discover -s tests -q`，并准备 `python:3.14-slim` 或通过 `ZEST_TEST_IMAGE` 提供已安装镜像完整 ID。普通套件跳过 4 个 Docker 实测，其余使用明确的离线执行夹具，不能当成真实验证证据。
 
 ## 管理源码版本的切换与回退
 
@@ -308,7 +312,9 @@ python3 -m zest repair approve <repair-id> --plan-sha256 <show返回的哈希>
 
 suggest 通过持久化 LangGraph 准备完整范围并暂停，不调用模型。用户批准数据请求后，专门的修复 Agent 调用模型 1 次、输出最多 4096 tokens；先用本地 MCP 核对文件/知识。请求与批准哈希包含任务用途、文件 ID、固定 Prompt 校验值与版本权限；密钥和主机绝对路径不发送。
 
-首版必须显式选择 1—5 个非空既有文件，每文件最多 200 行/64 KiB，整体 JSON 请求最多 24000 字符。完整文件发送，不用局部片段覆盖未见内容。模型只返回来源 ID 和完整替换内容，路径与原哈希由程序取自已批准来源；未知来源、重复文件、凭据、无效 JSON 或未解决缺口不能形成可执行方案。
+明确选择既有文件与待创建路径合计 1—5 项；既有文件须非空、最多 200 行/64 KiB，整体 JSON 请求最多 24000 字符。完整文件发送，不用局部片段覆盖未见内容。模型只返回来源 ID 和完整正文，路径与原哈希由程序取自已批准来源；未知来源、重复文件、凭据、无效 JSON 或未解决缺口不能形成可执行方案。
+
+开发新文件可使用 `repair suggest <project-id> "创建加法函数及测试" --new-file app.py --new-file tests/test_add.py`。预览里的 planned_new_file 只代表批准的待创建路径，不是已有代码；根据固定 Git 版本重新核对不存在及目录安全性。也可同时指定 --file 的既有文件或已确认项目目标作为上下文，仍需模型批准和独立创建批准。
 
 证据不足时返回缺口，无 repair 记录。可执行建议保存为 awaiting_approval 的具体方案，仍需独立修复批准；此步骤不生成候选、执行脚本、验证或发布。来源任务 ID 固定方案 ID，相同方案重复记录不重置拒绝/执行状态；冲突拒绝覆盖。等待批准可恢复，模型执行中崩溃仍不能保证计费或结果恰好一次，不自动重放。
 

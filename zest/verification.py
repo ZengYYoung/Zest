@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import stat
@@ -26,6 +26,13 @@ COMMAND = ["-m", "unittest", "discover", "-s", "tests", "-q"]
 POLICY = {"network": "none", "user": "65534:65534", "read_only": True, "cap_drop": "ALL",
           "no_new_privileges": True, "pids": 64, "cpus": 1, "memory_mb": 256, "tmp_mb": 64,
           "mounts": "snapshot_only_readonly", "pull": "never", "entrypoint": "python"}
+
+
+def baseline_strategy(repair, manifest):
+    has_tests = any(entry["path"].startswith("tests/") and PurePosixPath(entry["path"]).name.startswith("test")
+                    and entry["path"].endswith(".py") for entry in manifest)
+    only_creates = all(change.get("operation") == "create" for change in repair["plan"]["changes"])
+    return "not_applicable_initial_creation" if only_creates and not has_tests else "run"
 
 
 def _candidate(record):
@@ -301,6 +308,7 @@ class VerificationStore:
                 "base_manifest": base_manifest, "candidate_manifest": manifest,
                 "image_id": engine.resolve_image(image), "socket_path": str(engine.socket), "backend": engine.backend,
                 "command": ["python", *COMMAND], "timeout_seconds": timeout, "policy": POLICY}
+        plan["baseline_strategy"] = baseline_strategy(repair, base_manifest)
         record = {"id": str(uuid4()), "created_at": datetime.now(timezone.utc).isoformat(),
                   "status": "awaiting_approval", "plan": plan, "plan_sha256": digest(plan),
                   "result": None, "events": [{"step": "prepared"}]}
@@ -334,6 +342,8 @@ class VerificationStore:
             if (repair["plan_sha256"] != plan["repair_plan_sha256"] or base != plan["base_commit"]
                     or candidate != plan["candidate_commit"]):
                 raise FileReadError("candidate_changed", "验证批准的候选版本已变化。")
+            if plan.get("baseline_strategy", "run") != baseline_strategy(repair, plan["base_manifest"]):
+                raise FileReadError("verification_policy_changed", "基线执行策略不符合当前批准方案。")
             engine = self.engine or DockerEngine(plan["socket_path"])
             if str(engine.socket) != plan["socket_path"] or engine.backend != plan["backend"]:
                 raise FileReadError("docker_target_changed", "Docker 目标与批准计划不同。")
@@ -347,6 +357,10 @@ class VerificationStore:
                     expected = plan["base_manifest" if label == "baseline" else "candidate_manifest"]
                     if manifest != expected:
                         raise FileReadError("snapshot_changed", "验证快照与批准清单不一致。")
+                    if label == "baseline" and plan.get("baseline_strategy") == "not_applicable_initial_creation":
+                        results[label] = {"status": "not_applicable", "reason": "initial_creation_without_baseline_tests",
+                                          "container_started": False, "tests_run": 0, "cleanup_ok": True}
+                        continue
                     path = self.state_dir / "verification-artifacts" / record["id"] / label
                     _export(files, path)
                     results[label] = engine.run(plan, path, str(uuid4()))
@@ -361,7 +375,7 @@ class VerificationStore:
                                     and candidate_result.get("output_truncated") is False
                                     and candidate_result.get("policy_verified") is True
                                     and candidate_result.get("cleanup_ok") is True
-                                    and results["baseline"]["status"] in ("passed", "failed")
+                                    and results["baseline"]["status"] in ("passed", "failed", "not_applicable")
                                     and results["baseline"].get("cleanup_ok") is True else "failed")
             except FileReadError as exc:
                 record["status"] = "error"

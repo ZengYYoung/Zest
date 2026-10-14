@@ -22,6 +22,7 @@ class TaskState(TypedDict, total=False):
     question: str
     keywords: list
     files: list
+    new_files: list
     retrieval: str
     strategy: str
     target: dict
@@ -118,7 +119,7 @@ class TaskRunner:
                         if state.get("strategy", "single") != "single" or state["keywords"] or state.get("retrieval", "keyword") != "keyword":
                             raise FileReadError("invalid_repair_strategy", "修复建议需要明确文件范围和单次专门 Agent 调用。")
                         context = prepare_repair_context(state["project"], state["question"],
-                                                         files=state["files"], state_dir=self.state_dir)
+                                                         files=state["files"], new_files=state.get("new_files", []), state_dir=self.state_dir)
                     else:
                         context = prepare_context(state["project"], state["question"],
                                               keywords=state["keywords"], files=state["files"], state_dir=self.state_dir,
@@ -206,9 +207,11 @@ class TaskRunner:
                 "error": state.get("error"), "events": state.get("events", []),
                 "next_steps": list(snapshot.next)}
 
-    def create(self, project, question, *, keywords=None, files=None, retrieval="keyword", strategy="single", purpose="question"):
+    def create(self, project, question, *, keywords=None, files=None, retrieval="keyword", strategy="single", purpose="question", new_files=None):
         if purpose not in ("question", "repair_proposal"):
             raise FileReadError("invalid_task_purpose", "不支持的任务类型。")
+        if new_files and purpose != "repair_proposal":
+            raise FileReadError("invalid_task_purpose", "新文件路径只可用于明确的开发/修复建议任务。")
         from langsmith import tracing_context
         task_id = str(uuid4())
         target = self._target()
@@ -216,7 +219,7 @@ class TaskRunner:
             conn.execute("INSERT INTO task_records VALUES (?, ?)", (task_id, datetime.now(timezone.utc).isoformat()))
             conn.commit()
             graph.invoke({"task_id": task_id, "purpose": purpose, "project": project, "question": question, "keywords": keywords or [],
-                          "files": files or [], "retrieval": retrieval, "strategy": strategy,
+                          "files": files or [], "new_files": new_files or [], "retrieval": retrieval, "strategy": strategy,
                           "target": target, "status": "created"},
                          self._config(task_id), durability="sync")
             return self._view(conn, graph, task_id)

@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+from pathlib import Path
 
 from .agents import verify_sources
 from .files import CREDENTIAL_PATTERNS, FileReadError, read_project_file
@@ -10,7 +11,7 @@ from .git import inspect_repository, selected_commit
 from .knowledge import KnowledgeStore, _text
 from .models import REPAIR_PROMPT
 from .qa import model_payload
-from .repairs import MAX_CHANGE_BYTES, RepairStore, _raw_content
+from .repairs import MAX_CHANGE_BYTES, RepairStore, _raw_content, assert_new_path, validate_change_paths
 from .storage import ProjectRegistry
 
 
@@ -20,11 +21,12 @@ def repair_policy(source_ids):
             "prompt_sha256": hashlib.sha256(REPAIR_PROMPT.encode()).hexdigest()}
 
 
-def prepare_repair_context(project, question, *, files, state_dir):
+def prepare_repair_context(project, question, *, files, state_dir, new_files=None):
     _text(question, 2000)
-    if (not isinstance(files, list) or not 1 <= len(files) <= 5 or not all(isinstance(path, str) for path in files)
-            or len(set(files)) != len(files)):
-        raise FileReadError("repair_files_required", "请明确指定 1—5 个不重复的既有待修复文件。")
+    new_files = [] if new_files is None else new_files
+    if not isinstance(files, list) or not isinstance(new_files, list) or not 1 <= len(files) + len(new_files) <= 5:
+        raise FileReadError("repair_files_required", "请明确指定合计 1—5 个既有文件或待创建路径。")
+    validate_change_paths([*files, *new_files])
     state = inspect_repository(project["root_path"])
     commit = selected_commit(project, state)
     if commit is None or state.dirty:
@@ -37,6 +39,10 @@ def prepare_repair_context(project, question, *, files, state_dir):
         sources.append({"id": f"E{len(sources) + 1}", "evidence": record["evidence"],
                         "lines": record["lines"], "content": record["content"],
                         "content_sha256": record["content_sha256"]})
+    for path in new_files:
+        assert_new_path(Path(state.root_path), commit, path)
+        sources.append({"id": f"E{len(sources) + 1}", "evidence": {"kind": "planned_new_file", "path": path,
+                        "commit": commit}, "content": "", "content_sha256": None})
     editable_ids = [source["id"] for source in sources]
     for note in KnowledgeStore(state_dir).for_context(project["id"], commit):
         sources.append({"id": f"E{len(sources) + 1}", "evidence": {"kind": "confirmed_knowledge",
@@ -109,9 +115,13 @@ def generate_proposal(context, *, state_dir, model, source_task_id):
         return {**proposal, "model_called": True, "model": metadata, "commit": context["commit"]}
     check_version()
     known = {source["id"]: source for source in context["sources"]}
-    changes = [{"path": known[change["source_id"]]["evidence"]["path"],
-                "expected_sha256": known[change["source_id"]]["content_sha256"], "content": change["content"]}
-               for change in proposal["changes"]]
+    changes = []
+    for change in proposal["changes"]:
+        source = known[change["source_id"]]
+        mapped = {"path": source["evidence"]["path"], "expected_sha256": source["content_sha256"], "content": change["content"]}
+        if source["evidence"].get("kind") == "planned_new_file":
+            mapped["operation"] = "create"
+        changes.append(mapped)
     repair = RepairStore(state_dir).create(project, {"summary": proposal["summary"], "changes": changes},
                                          source_task_id=source_task_id)
     return {"status": "proposed", "repair_id": repair["id"], "repair_plan_sha256": repair["plan_sha256"],

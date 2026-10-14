@@ -17,7 +17,7 @@ from uuid import UUID, uuid4
 
 from .files import (CREDENTIAL_PATTERNS, FileReadError, _find_file,
                     _validate_path, load_text_blob)
-from .git import git_environment, inspect_repository, selected_commit
+from .git import git_environment, inspect_repository, selected_commit, list_tree
 from .knowledge import _text
 
 
@@ -35,6 +35,42 @@ def _diff(old, new, path):
     rows = difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
                                fromfile=f"a/{path}", tofile=f"b/{path}")
     return "".join(row if row.endswith("\n") else row + "\n\\ No newline at end of file\n" for row in rows)
+
+
+def validate_change_paths(paths):
+    if not all(isinstance(path, str) for path in paths):
+        raise FileReadError("invalid_repair_change", "路径必须是字符串。")
+    prefixes, folded = {}, set()
+    for path in paths:
+        parts = _validate_path(path)
+        if path.casefold() in folded:
+            raise FileReadError("duplicate_repair_path", "方案存在重复或大小写冲突的文件。")
+        folded.add(path.casefold())
+        for count in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:count])
+            previous = prefixes.setdefault(prefix.casefold(), prefix)
+            if previous != prefix:
+                raise FileReadError("repair_path_collision", "方案中的目录存在大小写冲突。")
+    for path in folded:
+        if any(other.startswith(path + "/") for other in folded):
+            raise FileReadError("repair_path_collision", "方案不能同时创建文件及该文件下的子路径。")
+
+
+def assert_new_path(root, commit, path):
+    parts = _validate_path(path)
+    tree = commit
+    for index, part in enumerate(parts):
+        entries = list_tree(root, tree)
+        entry = next((item for item in entries if item.path == part), None)
+        if any(item.path.casefold() == part.casefold() and item.path != part for item in entries):
+            raise FileReadError("repair_path_collision", "新路径与既有 Git 路径存在大小写冲突。")
+        if entry is None:
+            return
+        if index == len(parts) - 1:
+            raise FileReadError("repair_path_exists", "创建路径在该版本中已经存在，不能覆盖。")
+        if entry.object_type != "tree":
+            raise FileReadError("unsupported_file_type", "新路径经过文件、链接或子模块，不能创建。")
+        tree = entry.object_id
 
 
 def _raw_content(content):
@@ -56,39 +92,53 @@ def prepare_plan(project, proposal):
             or not isinstance(proposal["changes"], list) or not 1 <= len(proposal["changes"]) <= 5):
         raise FileReadError("invalid_repair_plan", "方案需要 summary 和 1—5 项 changes。")
     _text(proposal["summary"], 2000)
+    if not all(isinstance(change, dict) for change in proposal["changes"]):
+        raise FileReadError("invalid_repair_change", "每项变更必须是对象。")
+    validate_change_paths([change.get("path") for change in proposal["changes"]])
     state = inspect_repository(project["root_path"])
     if state.unborn or state.dirty:
         raise FileReadError("repair_clean_base_required", "修复方案需要有提交且干净的基础工作区。")
     root = Path(state.root_path)
     base = selected_commit(project, state)
-    changes, seen, total = [], set(), 0
+    changes, total = [], 0
     for change in proposal["changes"]:
-        if (not isinstance(change, dict) or set(change) != {"path", "expected_sha256", "content"}
+        if (set(change) not in ({"path", "expected_sha256", "content"}, {"path", "expected_sha256", "content", "operation"})
                 or not isinstance(change["path"], str)):
             raise FileReadError("invalid_repair_change", "变更需要 path、expected_sha256 和完整替换 content。")
         parts = _validate_path(change["path"])
-        if change["path"] in seen:
-            raise FileReadError("duplicate_repair_path", "一个方案不能重复修改同一路径。")
-        seen.add(change["path"])
-        entry = _find_file(root, base, parts)
-        old = load_text_blob(root, entry)
+        operation = change.get("operation", "replace")
+        if operation not in ("replace", "create"):
+            raise FileReadError("invalid_repair_operation", "首版仅支持替换和创建文本文件。")
+        if operation == "create":
+            if change["expected_sha256"] is not None:
+                raise FileReadError("invalid_repair_change", "创建文件的 expected_sha256 必须为 null。")
+            assert_new_path(root, base, change["path"])
+            old, entry = b"", None
+        else:
+            entry = _find_file(root, base, parts)
+            old = load_text_blob(root, entry)
         new = _raw_content(change["content"])
         if len(old) > MAX_CHANGE_BYTES:
             raise FileReadError("repair_content_limit", "首版修复仅支持不超过 64 KiB 的既有文本文件。")
-        if hashlib.sha256(old).hexdigest() != change["expected_sha256"]:
+        if operation == "replace" and hashlib.sha256(old).hexdigest() != change["expected_sha256"]:
             raise FileReadError("repair_source_mismatch", "原文件哈希不匹配，需要重新读取来源并准备方案。")
-        if new == old:
+        if operation == "replace" and new == old:
             raise FileReadError("repair_no_change", "替换内容与原文件相同。")
         total += len(old) + len(new)
         if total > MAX_TOTAL_BYTES:
             raise FileReadError("repair_plan_limit", "方案原文与替换正文合计超过 256 KiB。")
-        changes.append({**change, "mode": entry.mode, "old_blob": entry.object_id,
+        diff = _diff(old.decode(), change["content"], change["path"])
+        if operation == "create":
+            diff = "new file mode 100644\n" + (diff.replace(f"--- a/{change['path']}\n", "--- /dev/null\n", 1)
+                                                or f"--- /dev/null\n+++ b/{change['path']}\n")
+        changes.append({**change, "mode": entry.mode if entry else "100644", "old_blob": entry.object_id if entry else None,
                         "new_sha256": hashlib.sha256(new).hexdigest(),
-                        "diff": _diff(old.decode(), change["content"], change["path"])})
+                        "diff": diff})
     return {"project_id": project["id"], "root_path": state.root_path,
             "base_commit": base, "workspace_head": state.head_commit,
             "summary": proposal["summary"], "changes": changes,
-            "policy": {"operation": "replace_existing_text", "execute_code": False,
+            "policy": {"operation": "replace_or_create_text" if any(change.get("operation") == "create" for change in changes)
+                       else "replace_existing_text", "execute_code": False,
                        "switch_version": False, "max_files": 5}}
 
 
@@ -242,7 +292,7 @@ class RepairStore:
             # Rebuild the approved data from its original objects before any writes.
             refreshed = prepare_plan({"id": plan["project_id"], "root_path": plan["root_path"]},
                                      {"summary": plan["summary"], "changes": [
-                                         {k: change[k] for k in ("path", "expected_sha256", "content")}
+                                         {k: change[k] for k in ("path", "expected_sha256", "content", "operation") if k in change}
                                          for change in plan["changes"]]})
             if "source_task_id" in plan:
                 refreshed["source_task_id"] = plan["source_task_id"]

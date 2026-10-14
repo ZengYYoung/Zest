@@ -15,7 +15,7 @@ from .files import FileReadError
 from .git import inspect_repository, managed_ref, read_direct_ref, verify_commit
 from .repairs import RepairStore, _git_write, digest
 from .storage import ProjectRegistry
-from .verification import VerificationStore, _candidate, collect_snapshot, COMMAND, POLICY
+from .verification import VerificationStore, _candidate, collect_snapshot, COMMAND, POLICY, baseline_strategy
 
 
 SOURCE_POLICY = {"scope": "zest_managed_source", "worktree_checkout": False, "deploy_runtime": False,
@@ -36,7 +36,7 @@ def _validated_verification_data(state_dir, verification_id):
             or type(candidate.get("tests_run")) is not int or candidate["tests_run"] < 1
             or candidate.get("oom_killed") is not False or candidate.get("output_truncated") is not False
             or candidate.get("policy_verified") is not True or candidate.get("cleanup_ok") is not True
-            or baseline.get("status") not in ("passed", "failed") or baseline.get("cleanup_ok") is not True):
+            or baseline.get("status") not in ("passed", "failed", "not_applicable") or baseline.get("cleanup_ok") is not True):
         raise FileReadError("release_verification_required", "验证结果不满足版本切换条件。")
     if not any(event.get("step") == "approved" and event.get("plan_sha256") == verification["plan_sha256"]
                for event in verification["events"]):
@@ -50,6 +50,13 @@ def _validated_verification_data(state_dir, verification_id):
         manifest, _ = collect_snapshot(root, commit)
         if manifest != plan[key]:
             raise FileReadError("release_evidence_changed", "验证来源清单与 Git 对象不匹配。")
+    strategy = baseline_strategy(repair, plan["base_manifest"])
+    if plan.get("baseline_strategy", "run") != strategy:
+        raise FileReadError("release_verification_required", "基线策略与批准修改不匹配。")
+    if ((strategy == "run" and baseline["status"] not in ("passed", "failed"))
+            or (strategy != "run" and (baseline["status"] != "not_applicable"
+                or baseline.get("container_started") is not False or baseline.get("tests_run") != 0))):
+        raise FileReadError("release_verification_required", "基线缺少真实结果或明确的初始创建声明。")
     return verification, repair
 
 

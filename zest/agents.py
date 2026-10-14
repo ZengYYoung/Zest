@@ -3,7 +3,7 @@
 import asyncio
 import json
 import operator
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Annotated, TypedDict
 
 from .files import FileReadError
@@ -18,6 +18,14 @@ async def verify_sources(context, state_dir):
     async with Client(create_server(context["project_id"], state_dir)) as client:
         for source in context["sources"]:
             e = source["evidence"]
+            if e.get("kind") == "planned_new_file":
+                from .repairs import assert_new_path
+                from .storage import ProjectRegistry
+                project = ProjectRegistry(state_dir).get_project(context["project_id"])
+                if project is None or e["commit"] != context["commit"] or source["content"] != "" or source["content_sha256"] is not None:
+                    raise FileReadError("source_changed", "待创建路径来源不符合批准上下文。")
+                assert_new_path(Path(project["root_path"]), e["commit"], e["path"])
+                continue
             if e.get("kind") == "confirmed_knowledge":
                 note = KnowledgeStore(state_dir).get(e["knowledge_id"])
                 if (note["project_id"] != context["project_id"] or note["status"] != "confirmed"

@@ -104,7 +104,8 @@ def _parser() -> argparse.ArgumentParser:
     suggestion = repair_actions.add_parser("suggest", help="准备修复 Agent 数据预览并等待模型调用批准")
     suggestion.add_argument("project_id")
     suggestion.add_argument("question")
-    suggestion.add_argument("--file", action="append", required=True, help="明确 1—5 个既有完整文件")
+    suggestion.add_argument("--file", action="append", default=[], help="明确既有完整文件，与新路径合计最多 5 项")
+    suggestion.add_argument("--new-file", action="append", default=[], help="明确待创建文件，不允许覆盖已有 Git 路径")
     listed_repairs = repair_actions.add_parser("list")
     listed_repairs.add_argument("project_id")
     for name in ("show", "approve", "reject"):
@@ -187,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.action == "suggest":
                     from .tasks import TaskRunner
                     result = TaskRunner(args.state_dir).create(project, args.question, files=args.file,
-                                                               purpose="repair_proposal")
+                                                               new_files=args.new_file, purpose="repair_proposal")
                 else:
                     result = (store.create(project, load_proposal(args.plan)) if args.action == "create"
                               else store.list_repairs(args.project_id))
