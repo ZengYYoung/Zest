@@ -29,7 +29,8 @@ async def verify_sources(context, state_dir):
                                                           "start_line": e["start_line"], "end_line": e["end_line"]})
             record = result.data.get("data") if result.data.get("ok") else None
             if (record is None or record["evidence"] != e or record["lines"] != source["lines"]
-                    or record["content_sha256"] != source["content_sha256"]):
+                    or record["content_sha256"] != source["content_sha256"]
+                    or ("content" in source and record["content"] != source["content"])):
                 raise FileReadError("source_changed", "MCP 核对来源失败，未调用模型。")
 
 

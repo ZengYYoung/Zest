@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已具备项目创建/导入、证据问答、词法 RAG、已审核知识、MCP 协作、批准候选修改、容器验证和管理源码版本切换/回退。模型修复建议生成与实际部署继续分模块实现，进度和验证记录见开发日志。
+已具备项目创建/导入、证据问答、词法 RAG、已审核知识、MCP 协作、模型修复建议、批准候选修改、容器验证和管理源码版本切换/回退。完整开发能力与实际部署继续分模块实现，进度和验证记录见开发日志。
 
 ## 已确认的方向
 
@@ -246,7 +246,7 @@ python3 -m zest repair list <project-id>
 
 方案绑定基础 commit、项目、完整新正文、原文件哈希和权限策略。show 返回完整内容及 diff；批准前必须匹配哈希并重新检查干净工作区和基础版本。状态目录应置于仓库外或被 Git 忽略，否则本地状态文件会导致工作区不干净。
 
-当前修复执行器仅应用确定的批准方案，不调用模型生成新修改。最多替换 5 个既有普通文本文件，每文件新旧内容各最多 64 KiB、总计 256 KiB；不能增删文件、跟随链接、改 `.env` 或运行命令。使用独立 Git index 和原始 blob 写入生成 candidate_commit，保存于 `refs/zest/candidates/<repair-id>`，原工作区、index、分支和 HEAD 保持不变。这是文件变更隔离，不是执行沙箱。[Git index 原理](https://git-scm.com/docs/git-update-index)、[候选提交](https://git-scm.com/docs/git-commit-tree)
+修复执行器仅应用确定的批准方案；模型建议入口见下节，不能绕过执行批准。最多替换 5 个既有普通文本文件，每文件新旧内容各最多 64 KiB、总计 256 KiB；不能增删文件、跟随链接、改 `.env` 或运行命令。使用独立 Git index 和原始 blob 写入生成 candidate_commit，保存于 `refs/zest/candidates/<repair-id>`，原工作区、index、分支和 HEAD 保持不变。这是文件变更隔离，不是执行沙箱。[Git index 原理](https://git-scm.com/docs/git-update-index)、[候选提交](https://git-scm.com/docs/git-commit-tree)
 
 候选仍待验证，不能自动完成版本切换。执行崩溃保留 pending_execution 和私有 index，不自动重放；失败可能留下不可达对象或候选 ref，需要后续人工检查。状态检查禁用已配置的 clean/process/smudge filter；使用字节比较，过滤器转换项目可能因此显示差异。
 
@@ -293,6 +293,26 @@ Git 事务同时保存 `refs/zest/releases/<operation-id>/before|after` 并以�
 管理版本与原工作区分别报告。切换不 checkout、修改原文件/index/main/HEAD，不部署或重启运行服务。回退恢复以前保存的源码提交，包括可能存在故障的初始基线；预览会标明不保证运行健康，不回退数据。原工作区即使有未提交修改，管理版本回退也能保留这些修改。
 
 Git 与 SQLite 不能共同提交事务；发生中断时保留 pending_execution，recover 依据事务内的历史引用核对结果，不重放。无法核对时仍保持待处理状态。当前依赖可信本地操作者，没有多人认证或防止用户手工改写数据库/引用的审计系统。旧 M012 待批准方案若因新增 workspace_head 绑定不兼容，应重新准备并批准。
+
+## 修复建议 Agent
+
+```bash
+uv run --extra ai --extra mcp zest repair suggest <project-id> "加法返回错误" --file app.py
+# 首先查看将发送的完整来源、接口、模型、调用上限和哈希
+uv run --extra ai --extra mcp zest task show <task-id>
+uv run --extra ai --extra mcp zest task approve <task-id> --payload-sha256 <show返回的哈希>
+# proposed 返回 repair_id；审阅具体新正文、diff，再单独批准生成候选提交
+python3 -m zest repair show <repair-id>
+python3 -m zest repair approve <repair-id> --plan-sha256 <show返回的哈希>
+```
+
+suggest 通过持久化 LangGraph 准备完整范围并暂停，不调用模型。用户批准数据请求后，专门的修复 Agent 调用模型 1 次、输出最多 4096 tokens；先用本地 MCP 核对文件/知识。请求与批准哈希包含任务用途、文件 ID、固定 Prompt 校验值与版本权限；密钥和主机绝对路径不发送。
+
+首版必须显式选择 1—5 个非空既有文件，每文件最多 200 行/64 KiB，整体 JSON 请求最多 24000 字符。完整文件发送，不用局部片段覆盖未见内容。模型只返回来源 ID 和完整替换内容，路径与原哈希由程序取自已批准来源；未知来源、重复文件、凭据、无效 JSON 或未解决缺口不能形成可执行方案。
+
+证据不足时返回缺口，无 repair 记录。可执行建议保存为 awaiting_approval 的具体方案，仍需独立修复批准；此步骤不生成候选、执行脚本、验证或发布。来源任务 ID 固定方案 ID，相同方案重复记录不重置拒绝/执行状态；冲突拒绝覆盖。等待批准可恢复，模型执行中崩溃仍不能保证计费或结果恰好一次，不自动重放。
+
+当前修复模型效果使用明确的离线模型和真实 LangChain MockTransport 验证，没有新增真实项目数据发送或准确率结论。生成的方案仍需人工审查与独立容器测试。
 
 ## 开发日志
 

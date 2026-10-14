@@ -148,4 +148,6 @@ def model_payload(context: dict) -> dict:
                "limitations": sorted({item["code"] for item in context["warnings"]})}
     if "execution_policy" in context:
         payload["execution_policy"] = context["execution_policy"]
+    if "purpose" in context:
+        payload["purpose"] = context["purpose"]
     return payload

@@ -101,6 +101,10 @@ def _parser() -> argparse.ArgumentParser:
     proposal = repair_actions.add_parser("create")
     proposal.add_argument("project_id")
     proposal.add_argument("--plan", type=Path, required=True, help="本地 JSON 方案文件")
+    suggestion = repair_actions.add_parser("suggest", help="准备修复 Agent 数据预览并等待模型调用批准")
+    suggestion.add_argument("project_id")
+    suggestion.add_argument("question")
+    suggestion.add_argument("--file", action="append", required=True, help="明确 1—5 个既有完整文件")
     listed_repairs = repair_actions.add_parser("list")
     listed_repairs.add_argument("project_id")
     for name in ("show", "approve", "reject"):
@@ -176,12 +180,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "repair":
             from .repairs import RepairStore, load_proposal
             store = RepairStore(args.state_dir)
-            if args.action in ("create", "list"):
+            if args.action in ("create", "list", "suggest"):
                 project = registry.get_project(args.project_id)
                 if project is None:
                     raise FileReadError("project_not_found", "未找到该项目。")
-                result = (store.create(project, load_proposal(args.plan)) if args.action == "create"
-                          else store.list_repairs(args.project_id))
+                if args.action == "suggest":
+                    from .tasks import TaskRunner
+                    result = TaskRunner(args.state_dir).create(project, args.question, files=args.file,
+                                                               purpose="repair_proposal")
+                else:
+                    result = (store.create(project, load_proposal(args.plan)) if args.action == "create"
+                              else store.list_repairs(args.project_id))
             elif args.action == "show":
                 result = store.show(args.repair_id)
             else:

@@ -190,14 +190,25 @@ class RepairStore:
             record["status"] = "pending_execution"
         return record
 
-    def create(self, project, proposal):
+    def create(self, project, proposal, *, source_task_id=None):
+        if source_task_id is not None:
+            try:
+                if str(UUID(source_task_id)) != source_task_id:
+                    raise ValueError
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise FileReadError("invalid_task_id", "方案来源任务 ID 必须是完整 UUID。") from exc
         plan = prepare_plan(project, proposal)
-        repair_id, now = str(uuid4()), datetime.now(timezone.utc).isoformat()
+        if source_task_id is not None:
+            plan["source_task_id"] = source_task_id
+        repair_id, now = source_task_id or str(uuid4()), datetime.now(timezone.utc).isoformat()
         with self._open() as conn, conn:
-            conn.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,?)",
+            conn.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
                          (repair_id, project["id"], now, "awaiting_approval", json.dumps(plan), digest(plan),
                           None, None, None, json.dumps([{"step": "prepared", "at": now}])))
-            return self._record(conn, repair_id)
+            record = self._record(conn, repair_id)
+            if record["plan_sha256"] != digest(plan):
+                raise FileReadError("repair_task_conflict", "同一来源任务已经产生不同方案，不覆盖原记录。")
+            return record
 
     def show(self, repair_id):
         if not self.db_path.exists():
@@ -233,6 +244,8 @@ class RepairStore:
                                      {"summary": plan["summary"], "changes": [
                                          {k: change[k] for k in ("path", "expected_sha256", "content")}
                                          for change in plan["changes"]]})
+            if "source_task_id" in plan:
+                refreshed["source_task_id"] = plan["source_task_id"]
             if digest(refreshed) != current["plan_sha256"]:
                 raise FileReadError("repair_base_changed", "基础版本或方案已改变，需重新准备和批准。")
             current["events"].append({"step": "approved", "at": datetime.now(timezone.utc).isoformat(),
