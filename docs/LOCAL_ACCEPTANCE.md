@@ -39,6 +39,16 @@ zest knowledge confirm <goal-note-id>
 
 init 只创建 README、忽略规则和 Git 初始提交。父目录须存在、目标全新；需要 Git 作者配置，或同时提供 `--author-name` 与 `--author-email`。不会创建远程 GitHub 仓库或推送。
 
+接入后可以先做本地摸底，形成后续规划所需的固定版本材料：
+
+```bash
+zest survey build <project-id> --format text
+zest survey list <project-id>
+zest survey show <survey-id> --format text
+```
+
+终端显示真实采集阶段；没有模型请求或项目执行，六个认知部分仍待调查。记录不自动进入问答上下文或共享知识，完整范围与预算见 [本地摸底](SURVEY.md)。
+
 ## 3. 调查与建议的数据批准
 
 问答：

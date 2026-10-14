@@ -17,6 +17,16 @@ uv run --extra ai --extra tui zest ui
 
 一次启动后可以选择项目、持续提问、审阅完整请求、单独批准并查看阶段/工作耗时、回答、引用和缺口。“问答历史”或 Ctrl+H 可打开旧任务，查看原结果或单独审阅后继续原批准流程；未知执行只核对、不重试。只做问答，不执行修复；实际模型非流式，界面不显示伪百分比。说明与验证见 [终端工作台](docs/TERMINAL_WORKSPACE.md)。
 
+## 本地项目摸底
+
+```bash
+uv run zest survey build <project-id> --format text
+uv run zest survey list <project-id>
+uv run zest survey show <survey-id> --format text
+```
+
+固定管理源码/HEAD，采集文档、嵌套依赖声明、入口/测试候选及 Python 声明地图，保存来源、版本、内容标识、覆盖与缺口。终端显示真实阶段和文件数，默认 JSON 输出仍可用于脚本。材料为主 Agent 后续制定计划准备，六个认知部分保持待调查；没有模型调用、项目执行或自动知识入库。[使用与边界](docs/SURVEY.md)
+
 ## 已确认的方向
 
 - **开发模式**：从项目创建或早期开发开始参与，持续积累经过确认的需求、设计决策和维护记录。

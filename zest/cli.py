@@ -73,6 +73,18 @@ def _parser() -> argparse.ArgumentParser:
     ask.add_argument("--allow-model", action="store_true", help="允许把问题和选定证据发送到配置的模型")
     ask.add_argument("--retrieval", choices=("keyword", "lexical"), default="keyword")
     ask.add_argument("--strategy", choices=("single", "multi"), default="single")
+    survey = commands.add_parser("survey", help="固定版本的本地项目摸底，不调用模型或执行项目")
+    survey_actions = survey.add_subparsers(dest="action", required=True)
+    survey_build = survey_actions.add_parser("build", help="采集并保存一份独立摸底记录")
+    survey_build.add_argument("project_id")
+    survey_build.add_argument("--commit", help="可选完整 commit；默认固定开始时的管理源码/HEAD")
+    survey_build.add_argument("--format", choices=("json", "text"), default="json")
+    survey_build.add_argument("--progress", action="store_true", help="在 stderr 展示真实采集阶段，终端默认开启")
+    survey_list = survey_actions.add_parser("list", help="列出本项目最近 100 份记录摘要")
+    survey_list.add_argument("project_id")
+    survey_show = survey_actions.add_parser("show", help="读取已保存记录，不重新扫描仓库")
+    survey_show.add_argument("survey_id")
+    survey_show.add_argument("--format", choices=("json", "text"), default="json")
     tasks = commands.add_parser("task", help="持久化问答任务及批准")
     task_actions = tasks.add_subparsers(dest="action", required=True)
     create = task_actions.add_parser("create", help="准备上下文并暂停等待批准")
@@ -188,6 +200,30 @@ def main(argv: list[str] | None = None) -> int:
             from .doctor import readiness
             print(json.dumps(readiness(check_docker=args.docker, image=args.image, socket_path=args.docker_socket),
                              ensure_ascii=True, indent=2))
+            return 0
+        if args.command == "survey":
+            from .survey import SurveyStore, format_survey
+            store = SurveyStore(args.state_dir)
+            if args.action == "show":
+                result = store.show(args.survey_id)
+            else:
+                project = registry.get_project(args.project_id)
+                if project is None:
+                    raise FileReadError("project_not_found", "未找到该项目。")
+                if args.action == "list":
+                    result = store.list_surveys(project["id"])
+                else:
+                    show_progress = args.progress or sys.stderr.isatty()
+                    labels = {"snapshot": "固定源码版本", "inventory": "采集目录和安全文本材料",
+                              "structure": "生成固定版本的 Python 声明地图", "collected": "材料采集结束", "saving": "保存摸底记录"}
+                    def progress(event):
+                        detail = f" · 已收集 {event['files_read']} 个文本文件" if "files_read" in event else ""
+                        print(f"[{event['elapsed_seconds']:.3f}s] {labels[event['phase']]}{detail}", file=sys.stderr)
+                    result = store.build(project, commit=args.commit, progress=progress if show_progress else None)
+                    if show_progress:
+                        print(f"已保存摸底记录：{result['id']}", file=sys.stderr)
+            print(format_survey(result) if getattr(args, "format", "json") == "text"
+                  else json.dumps(result, ensure_ascii=True, indent=2))
             return 0
         if args.command == "release":
             from .releases import ReleaseStore
