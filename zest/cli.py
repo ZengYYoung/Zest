@@ -12,6 +12,14 @@ from .search import search_project
 from .storage import ProjectRegistry, StorageError
 
 
+def _range_argument(value):
+    try:
+        path, start, end = value.rsplit(":", 2)
+        return {"path": path, "start_line": int(start), "end_line": int(end)}
+    except (ValueError, AttributeError) as exc:
+        raise argparse.ArgumentTypeError("行段格式为 path:start:end，如 app.py:10:30") from exc
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="zest", description="Zest 项目维护 Agent")
     parser.add_argument("--state-dir", type=Path, default=Path.cwd() / ".zest",
@@ -106,6 +114,7 @@ def _parser() -> argparse.ArgumentParser:
     suggestion.add_argument("question")
     suggestion.add_argument("--file", action="append", default=[], help="明确既有完整文件，与新路径合计最多 5 项")
     suggestion.add_argument("--new-file", action="append", default=[], help="明确待创建文件，不允许覆盖已有 Git 路径")
+    suggestion.add_argument("--range", action="append", default=[], type=_range_argument, help="明确可编辑行段，格式 path:start:end，每项最多 200 行")
     listed_repairs = repair_actions.add_parser("list")
     listed_repairs.add_argument("project_id")
     for name in ("show", "approve", "reject"):
@@ -188,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.action == "suggest":
                     from .tasks import TaskRunner
                     result = TaskRunner(args.state_dir).create(project, args.question, files=args.file,
-                                                               new_files=args.new_file, purpose="repair_proposal")
+                                                               new_files=args.new_file, ranges=args.range, purpose="repair_proposal")
                 else:
                     result = (store.create(project, load_proposal(args.plan)) if args.action == "create"
                               else store.list_repairs(args.project_id))

@@ -87,6 +87,27 @@ def _raw_content(content):
     return raw
 
 
+def anchored_content(raw, start, end, old_text, new_text):
+    if (type(start) is not int or type(end) is not int or start < 1 or end < start or end - start + 1 > 200):
+        raise FileReadError("invalid_edit_range", "锚点修改必须指定 1—200 行的有效范围。")
+    old_anchor, replacement = _raw_content(old_text), _raw_content(new_text)
+    if not old_anchor:
+        raise FileReadError("invalid_edit_anchor", "旧锚点不能为空。")
+    # Split only physical LF lines, preserving CRLF and every unseen byte.
+    pieces = raw.split(b"\n")
+    lines = [piece + b"\n" for piece in pieces[:-1]]
+    if pieces[-1]:
+        lines.append(pieces[-1])
+    if start > len(lines) or end > len(lines):
+        raise FileReadError("invalid_edit_range", "修改范围超出原文件。")
+    segment = b"".join(lines[start - 1:end])
+    if segment.count(old_anchor) != 1:
+        raise FileReadError("edit_anchor_mismatch", "旧锚点在批准行段内必须精确匹配一次，未修改。")
+    result = b"".join(lines[:start - 1]) + segment.replace(old_anchor, replacement, 1) + b"".join(lines[end:])
+    _raw_content(result.decode("utf-8"))
+    return result.decode("utf-8")
+
+
 def prepare_plan(project, proposal):
     if (not isinstance(proposal, dict) or set(proposal) != {"summary", "changes"}
             or not isinstance(proposal["changes"], list) or not 1 <= len(proposal["changes"]) <= 5):
@@ -102,13 +123,18 @@ def prepare_plan(project, proposal):
     base = selected_commit(project, state)
     changes, total = [], 0
     for change in proposal["changes"]:
-        if (set(change) not in ({"path", "expected_sha256", "content"}, {"path", "expected_sha256", "content", "operation"})
+        if (set(change) not in ({"path", "expected_sha256", "content"}, {"path", "expected_sha256", "content", "operation"},
+                               {"path", "expected_sha256", "operation", "start_line", "end_line", "old_text", "new_text"})
                 or not isinstance(change["path"], str)):
             raise FileReadError("invalid_repair_change", "变更需要 path、expected_sha256 和完整替换 content。")
         parts = _validate_path(change["path"])
         operation = change.get("operation", "replace")
-        if operation not in ("replace", "create"):
-            raise FileReadError("invalid_repair_operation", "首版仅支持替换和创建文本文件。")
+        if operation not in ("replace", "create", "edit"):
+            raise FileReadError("invalid_repair_operation", "仅支持替换、创建和行段锚点修改。")
+        if operation == "edit" and "old_text" not in change:
+            raise FileReadError("invalid_repair_change", "锚点操作需要行段、old_text 与 new_text。")
+        if operation != "edit" and "content" not in change:
+            raise FileReadError("invalid_repair_change", "创建与替换操作需要完整正文。")
         if operation == "create":
             if change["expected_sha256"] is not None:
                 raise FileReadError("invalid_repair_change", "创建文件的 expected_sha256 必须为 null。")
@@ -117,27 +143,30 @@ def prepare_plan(project, proposal):
         else:
             entry = _find_file(root, base, parts)
             old = load_text_blob(root, entry)
-        new = _raw_content(change["content"])
         if len(old) > MAX_CHANGE_BYTES:
             raise FileReadError("repair_content_limit", "首版修复仅支持不超过 64 KiB 的既有文本文件。")
-        if operation == "replace" and hashlib.sha256(old).hexdigest() != change["expected_sha256"]:
+        if operation != "create" and hashlib.sha256(old).hexdigest() != change["expected_sha256"]:
             raise FileReadError("repair_source_mismatch", "原文件哈希不匹配，需要重新读取来源并准备方案。")
-        if operation == "replace" and new == old:
+        content = (anchored_content(old, change["start_line"], change["end_line"], change["old_text"], change["new_text"])
+                   if operation == "edit" else change["content"])
+        new = _raw_content(content)
+        if operation != "create" and new == old:
             raise FileReadError("repair_no_change", "替换内容与原文件相同。")
         total += len(old) + len(new)
         if total > MAX_TOTAL_BYTES:
             raise FileReadError("repair_plan_limit", "方案原文与替换正文合计超过 256 KiB。")
-        diff = _diff(old.decode(), change["content"], change["path"])
+        diff = _diff(old.decode(), content, change["path"])
         if operation == "create":
             diff = "new file mode 100644\n" + (diff.replace(f"--- a/{change['path']}\n", "--- /dev/null\n", 1)
                                                 or f"--- /dev/null\n+++ b/{change['path']}\n")
-        changes.append({**change, "mode": entry.mode if entry else "100644", "old_blob": entry.object_id if entry else None,
+        changes.append({**change, "content": content, "mode": entry.mode if entry else "100644", "old_blob": entry.object_id if entry else None,
                         "new_sha256": hashlib.sha256(new).hexdigest(),
                         "diff": diff})
     return {"project_id": project["id"], "root_path": state.root_path,
             "base_commit": base, "workspace_head": state.head_commit,
             "summary": proposal["summary"], "changes": changes,
             "policy": {"operation": "replace_or_create_text" if any(change.get("operation") == "create" for change in changes)
+                       else "bounded_anchor_edit" if any(change.get("operation") == "edit" for change in changes)
                        else "replace_existing_text", "execute_code": False,
                        "switch_version": False, "max_files": 5}}
 
@@ -292,7 +321,8 @@ class RepairStore:
             # Rebuild the approved data from its original objects before any writes.
             refreshed = prepare_plan({"id": plan["project_id"], "root_path": plan["root_path"]},
                                      {"summary": plan["summary"], "changes": [
-                                         {k: change[k] for k in ("path", "expected_sha256", "content", "operation") if k in change}
+                                         {k: change[k] for k in (("path", "expected_sha256", "operation", "start_line", "end_line", "old_text", "new_text")
+                                                                 if change.get("operation") == "edit" else ("path", "expected_sha256", "content", "operation")) if k in change}
                                          for change in plan["changes"]]})
             if "source_task_id" in plan:
                 refreshed["source_task_id"] = plan["source_task_id"]

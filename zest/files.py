@@ -144,7 +144,7 @@ def read_project_file(project: dict, path: str, *, commit: str | None = None,
                      "start_line": start_line if total else None, "end_line": actual_end if total else None},
         "content_sha256": hashlib.sha256(raw).hexdigest(),
         "excerpt_sha256": hashlib.sha256(excerpt).hexdigest(),
-        "total_lines": total, "lines": lines, "content": excerpt.decode("utf-8"),
+        "total_lines": total, "total_bytes": len(raw), "lines": lines, "content": excerpt.decode("utf-8"),
         "more_before": total > 0 and start_line > 1, "more_after": actual_end < total,
         "warnings": warnings,
     }
