@@ -109,6 +109,24 @@ class WebTest(unittest.TestCase):
         self.assertNotIn(TOKEN, response.text)
         self.assertEqual(model.calls, [])
 
+    def test_task_list_filters_project_identity_without_calling_model(self):
+        from zest.tasks import TaskRunner
+        from tests.test_repair_agent import OfflineRepairModel
+        model = OfflineRepairModel()
+        task = TaskRunner(self.state_dir, model=model).create(self.project, "fix", files=["app.py"], purpose="repair_proposal")
+        endpoint = "/api/tasks?project_id=" + self.project["id"]
+        records = self.client.get(endpoint, headers=self.headers).json()["data"]
+        self.assertEqual([record["task_id"] for record in records], [task["task_id"]])
+        self.assertEqual(records[0]["project_id"], self.project["id"])
+        self.assertEqual(self.client.get("/api/tasks?project_id=" + str(uuid4()), headers=self.headers).status_code, 404)
+        # A registered repository with no tasks must not display another project's records.
+        other = self.root / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-b", "main", str(other)], capture_output=True, check=True)
+        record = ProjectRegistry(self.state_dir).register(inspect_repository(other))
+        self.assertEqual(self.client.get("/api/tasks?project_id=" + record["id"], headers=self.headers).json()["data"], [])
+        self.assertEqual(model.calls, [])
+
     def test_web_token_is_independent_and_repr_private(self):
         self.assertNotIn(TOKEN, repr(WebSettings(TOKEN)))
         for token in ("", "short", "sk-" + "x" * 40, TOKEN + "\n"):

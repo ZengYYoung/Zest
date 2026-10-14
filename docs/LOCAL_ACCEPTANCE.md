@@ -140,8 +140,16 @@ zest release approve <rollback-operation-id> --plan-sha256 <show中的哈希>
 完整回归：
 
 ```bash
-uv run --extra ai --extra mcp python -m unittest discover -s tests -q
-ZEST_RUN_DOCKER_TESTS=1 ZEST_TEST_IMAGE=<本地完整镜像ID> uv run --extra ai --extra mcp python -m unittest discover -s tests -q
+uv run --extra ai --extra mcp --extra web python -m unittest discover -s tests -q
+ZEST_RUN_DOCKER_TESTS=1 ZEST_TEST_IMAGE=<本地完整镜像ID> uv run --extra ai --extra mcp --extra web python -m unittest discover -s tests -q
 ```
 
 普通套件跳过 Docker 实测，模型结果来自明确的离线夹具/MockTransport。显式 opt-in 的 Docker 案例是真实临时项目，测试容器清理完成；不能用它们泛化所有项目和生产环境的效果。
+
+## 8. 只读管理台
+
+在本地 .env 设置独立 ZEST_WEB_API_TOKEN 后，以 `uv run --extra ai --extra mcp --extra web zest web serve --port 8000` 启动 API。另开终端进入 frontend，运行 `npm ci` 和 `npm run dev`，打开 http://127.0.0.1:5173，填写端口与 Web token；不能填写模型密钥。
+
+检查概览的管理源码与工作区 HEAD 是否分别显示、README 原文是否携带实际 commit；调查列表仅显示当前项目的最近记录，详情可以审阅完整来源和批准哈希。候选、知识、版本状态与 CLI 记录保持一致；当前所有批准和执行仍通过 CLI。
+
+通过 CLI 新增登记或状态后刷新，切换项目/页签时旧详情清空；断开或刷新页面后重新填写令牌。浏览器没有模型或修改入口。`npm test` 检查本地请求边界，`npm run build` 检查 TypeScript 和打包；依赖安装需要网络，实际使用/API 请求仅本机。

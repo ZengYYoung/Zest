@@ -203,6 +203,7 @@ class TaskRunner:
         status = ("awaiting_approval" if snapshot.interrupts else
                   "pending_execution" if snapshot.next else state.get("status", "interrupted"))
         return {"task_id": task_id, "created_at": row[0], "status": status,
+                "project_id": state.get("project", {}).get("id"),
                 "purpose": state.get("purpose", "question"),
                 "target": state.get("target"), "payload_sha256": state.get("payload_sha256"),
                 "context": state.get("context"), "result": state.get("result"),

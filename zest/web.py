@@ -117,9 +117,12 @@ def create_app(state_dir, *, settings=None):
         return {"data": KnowledgeStore(state_dir).list_notes(str(project_id))}
 
     @router.get("/tasks")
-    def tasks():
+    def tasks(project_id: UUID | None = None):
         from .tasks import TaskRunner
-        return {"data": TaskRunner(state_dir).list_tasks()}
+        if project_id is not None:
+            project(project_id)
+        records = TaskRunner(state_dir).list_tasks()
+        return {"data": [record for record in records if project_id is None or record["project_id"] == str(project_id)]}
 
     @router.get("/tasks/{task_id}")
     def task(task_id: UUID):
