@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from .files import FileReadError, read_project_file
-from .git import RepositoryError, inspect_repository, verify_commit
+from .git import RepositoryError, inspect_repository, verify_commit, selected_commit
 from .index import RetrievalIndex
 from .knowledge import KnowledgeStore
 from .overview import build_overview
@@ -52,7 +52,7 @@ def create_server(project_id, state_dir):
         """返回该版本适用的已确认知识，不返回草稿或失效记录。"""
         def query():
             state = inspect_repository(project["root_path"])
-            selected = commit.lower() if commit is not None else state.head_commit
+            selected = selected_commit(project, state, commit)
             if commit is not None and not verify_commit(Path(state.root_path), selected):
                 raise FileReadError("invalid_commit", "需要本地存在的完整 commit。")
             return KnowledgeStore(state_dir).for_context(project_id, selected)

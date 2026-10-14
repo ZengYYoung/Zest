@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path, PurePosixPath
 import re
 
-from .git import inspect_repository, list_tree, read_blob, verify_commit
+from .git import inspect_repository, list_tree, read_blob, verify_commit, selected_commit as resolve_commit
 from .overview import EXCLUDED_DIRECTORIES
 
 
@@ -98,7 +98,7 @@ def read_project_file(project: dict, path: str, *, commit: str | None = None,
 
     state = inspect_repository(project["root_path"])
     root = Path(state.root_path)
-    selected_commit = commit.lower() if commit is not None else state.head_commit
+    selected_commit = resolve_commit(project, state, commit)
     if selected_commit is None:
         raise FileReadError("unborn_repository", "仓库尚无提交，暂无可读取的已提交文件。")
     if not verify_commit(root, selected_commit):
@@ -134,7 +134,8 @@ def read_project_file(project: dict, path: str, *, commit: str | None = None,
     if project["git"]["head_commit"] != state.head_commit:
         warnings.append({"code": "registration_head_changed", "message": "当前 HEAD 与上次登记不同，登记记录未自动更新。"})
     if selected_commit != state.head_commit:
-        warnings.append({"code": "historical_commit", "message": "读取的是指定历史版本，不是当前 HEAD。"})
+        warnings.append({"code": "historical_commit" if commit is not None else "managed_version_selected",
+                         "message": "读取的提交与工作区 HEAD 不同。"})
     return {
         "project_id": project["id"], "root_path": state.root_path,
         "source": {"kind": "git_commit", "commit": selected_commit,

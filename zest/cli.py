@@ -120,6 +120,20 @@ def _parser() -> argparse.ArgumentParser:
         action.add_argument("verification_id")
         if name == "approve":
             action.add_argument("--plan-sha256", required=True)
+    releases = commands.add_parser("release", help="批准管理源码版本切换与回退，不部署运行服务")
+    release_actions = releases.add_subparsers(dest="action", required=True)
+    promotion = release_actions.add_parser("promote")
+    promotion.add_argument("verification_id")
+    rollback = release_actions.add_parser("rollback")
+    rollback.add_argument("operation_id", help="回到该已完成操作的 previous_commit")
+    for name in ("active", "list"):
+        action = release_actions.add_parser(name)
+        action.add_argument("project_id")
+    for name in ("show", "approve", "reject", "recover"):
+        action = release_actions.add_parser(name)
+        action.add_argument("operation_id")
+        if name == "approve":
+            action.add_argument("--plan-sha256", required=True)
     return parser
 
 
@@ -127,6 +141,26 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         registry = ProjectRegistry(args.state_dir)
+        if args.command == "release":
+            from .releases import ReleaseStore
+            store = ReleaseStore(args.state_dir)
+            if args.action == "promote":
+                result = store.promote(args.verification_id)
+            elif args.action == "rollback":
+                result = store.rollback(args.operation_id)
+            elif args.action == "active":
+                result = store.active(args.project_id)
+            elif args.action == "list":
+                result = store.list_operations(args.project_id)
+            elif args.action == "show":
+                result = store.show(args.operation_id)
+            elif args.action == "recover":
+                result = store.recover(args.operation_id)
+            else:
+                result = store.decide(args.operation_id, approved=args.action == "approve",
+                                      plan_sha256=getattr(args, "plan_sha256", None))
+            print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
         if args.command == "verification":
             from .verification import VerificationStore
             store = VerificationStore(args.state_dir)

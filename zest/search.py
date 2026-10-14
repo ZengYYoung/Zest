@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 
 from .files import BLOCKED_DIRECTORIES, FileReadError, _validate_path, load_text_blob
-from .git import inspect_repository, list_tree, verify_commit
+from .git import inspect_repository, list_tree, verify_commit, selected_commit
 
 
 MAX_SEARCH_FILES = 200
@@ -22,7 +22,7 @@ def search_project(project: dict, query: str, *, commit: str | None = None,
     if not 1 <= limit <= 100:
         raise FileReadError("invalid_search_limit", "匹配数量须在 1—100 之间。")
     state = inspect_repository(project["root_path"])
-    selected = commit.lower() if commit is not None else state.head_commit
+    selected = selected_commit(project, state, commit)
     if selected is not None and not verify_commit(Path(state.root_path), selected):
         raise FileReadError("invalid_commit", "请指定本地存在的完整 commit ID。")
     result = {"project_id": project["id"], "query": query,
@@ -35,7 +35,8 @@ def search_project(project: dict, query: str, *, commit: str | None = None,
     if state.head_commit != project["git"]["head_commit"]:
         result["warnings"].append({"code": "registration_head_changed", "message": "登记 HEAD 已过时，登记记录未更新。"})
     if selected != state.head_commit:
-        result["warnings"].append({"code": "historical_commit", "message": "搜索指定历史版本。"})
+        result["warnings"].append({"code": "historical_commit" if commit is not None else "managed_version_selected",
+                                   "message": "搜索的提交与工作区 HEAD 不同。"})
     if selected is None:
         result["warnings"].append({"code": "unborn_repository", "message": "仓库尚无提交，无已提交文件可搜索。"})
         return result

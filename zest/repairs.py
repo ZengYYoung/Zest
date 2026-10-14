@@ -17,7 +17,7 @@ from uuid import UUID, uuid4
 
 from .files import (CREDENTIAL_PATTERNS, FileReadError, _find_file,
                     _validate_path, load_text_blob)
-from .git import git_environment, inspect_repository
+from .git import git_environment, inspect_repository, selected_commit
 from .knowledge import _text
 
 
@@ -60,6 +60,7 @@ def prepare_plan(project, proposal):
     if state.unborn or state.dirty:
         raise FileReadError("repair_clean_base_required", "修复方案需要有提交且干净的基础工作区。")
     root = Path(state.root_path)
+    base = selected_commit(project, state)
     changes, seen, total = [], set(), 0
     for change in proposal["changes"]:
         if (not isinstance(change, dict) or set(change) != {"path", "expected_sha256", "content"}
@@ -69,7 +70,7 @@ def prepare_plan(project, proposal):
         if change["path"] in seen:
             raise FileReadError("duplicate_repair_path", "一个方案不能重复修改同一路径。")
         seen.add(change["path"])
-        entry = _find_file(root, state.head_commit, parts)
+        entry = _find_file(root, base, parts)
         old = load_text_blob(root, entry)
         new = _raw_content(change["content"])
         if len(old) > MAX_CHANGE_BYTES:
@@ -85,7 +86,8 @@ def prepare_plan(project, proposal):
                         "new_sha256": hashlib.sha256(new).hexdigest(),
                         "diff": _diff(old.decode(), change["content"], change["path"])})
     return {"project_id": project["id"], "root_path": state.root_path,
-            "base_commit": state.head_commit, "summary": proposal["summary"], "changes": changes,
+            "base_commit": base, "workspace_head": state.head_commit,
+            "summary": proposal["summary"], "changes": changes,
             "policy": {"operation": "replace_existing_text", "execute_code": False,
                        "switch_version": False, "max_files": 5}}
 
@@ -267,7 +269,8 @@ class RepairStore:
         candidate = _git_write(root, index, "commit-tree", tree, "-p", plan["base_commit"],
                                "-m", f"Zest approved repair {repair_id}").decode()
         state = inspect_repository(root)
-        if state.head_commit != plan["base_commit"] or state.dirty:
+        selected = selected_commit({"id": plan["project_id"]}, state)
+        if (selected != plan["base_commit"] or state.head_commit != plan["workspace_head"] or state.dirty):
             raise FileReadError("repair_base_changed", "执行期间基础工作区已改变；候选未发布，原项目未修改。")
         ref = f"refs/zest/candidates/{repair_id}"
         _git_write(root, index, "update-ref", ref, candidate, "0" * len(candidate))

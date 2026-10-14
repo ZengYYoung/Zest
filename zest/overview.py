@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import tomllib
 
-from .git import TreeEntry, inspect_repository, list_tree, read_blob
+from .git import TreeEntry, inspect_repository, list_tree, read_blob, selected_commit
 
 
 MAX_MANIFEST_BYTES = 256 * 1024
@@ -83,25 +83,27 @@ def _node_manifest(raw: bytes) -> tuple[dict, dict]:
 def build_overview(project: dict) -> dict:
     state = inspect_repository(project["root_path"])
     root = Path(state.root_path)
-    commit = state.head_commit
+    commit = selected_commit(project, state)
     registered_commit = project["git"]["head_commit"]
     overview = {
         "project_id": project["id"], "root_path": state.root_path,
         "source": {"kind": "git_commit", "commit": commit,
                    "working_tree_changes_included": False},
         "registered_head_commit": registered_commit,
-        "registration_head_changed": registered_commit != commit,
+        "registration_head_changed": registered_commit != state.head_commit,
         "git": asdict(state), "root_directories": [], "manifests": [],
         "documents": [], "declared_commands": [], "entrypoint_candidates": [],
         "warnings": [],
     }
     warnings = overview["warnings"]
-    if registered_commit != commit:
+    if registered_commit != state.head_commit:
         warnings.append({"code": "registration_head_changed",
                          "message": "HEAD 与上次登记不同；概览使用本次采集的 commit，登记记录未自动更新。"})
     if state.dirty:
         warnings.append({"code": "working_tree_excluded",
                          "message": "工作区存在未提交修改；概览不包含暂存、未暂存和未跟踪内容。"})
+    if commit != state.head_commit:
+        warnings.append({"code": "managed_version_selected", "message": "概览使用 Zest 管理版本；工作区 HEAD 单独报告。"})
     if commit is None:
         warnings.append({"code": "unborn_repository", "message": "仓库尚无提交，暂无可概览的已提交文件。"})
         return overview

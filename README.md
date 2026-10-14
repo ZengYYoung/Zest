@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-已具备项目创建/导入、概览、证据读取、词法 RAG、问答、持久化批准、已审核知识和只读 MCP 专业 Agent 协作。具体进度与验证记录见开发日志；完整维护及修复能力继续分模块实现。
+已具备项目创建/导入、证据问答、词法 RAG、已审核知识、MCP 协作、批准候选修改、容器验证和管理源码版本切换/回退。模型修复建议生成与实际部署继续分模块实现，进度和验证记录见开发日志。
 
 ## 已确认的方向
 
@@ -76,7 +76,7 @@ python3 -m zest project init /absolute/path/to/new-project --name "示例项目"
 
 ## 项目概览
 
-`overview` 在查询时采集当前 HEAD，并始终按这个 commit 读取 Git 对象，不读取暂存区、工作区或未跟踪文件。它不自动刷新登记记录；如果 HEAD 与上次登记不同，会返回 `registration_head_changed` 提示。
+`overview` 在查询时选择管理版本（尚未选择时用 HEAD），始终按这个 commit 读取 Git 对象，不读取暂存区、工作区或未跟踪文件。Git 工作区 HEAD 单独报告；如果 HEAD 与上次登记不同，会返回 `registration_head_changed` 提示。
 
 当前输出包括：
 
@@ -105,7 +105,7 @@ python3 -m zest project read <project-id> zest/cli.py --start-line 10 --end-line
 python3 -m zest project read <project-id> README.md --commit <full-commit-id> --end-line 20
 ```
 
-`path` 必须是规范的仓库相对路径。`--commit` 仅接受本地存在的完整 40/64 位 commit ID，不接受分支名、缩写或 Git 表达式；省略时选择当前 HEAD。未提交内容不读取，已登记记录不自动刷新。
+`path` 必须是规范的仓库相对路径。`--commit` 仅接受本地存在的完整 40/64 位 commit ID，不接受分支名、缩写或 Git 表达式；省略时选择管理版本，尚未选择时用 HEAD。未提交内容不读取，已登记记录不自动刷新。
 
 返回 JSON 包括：
 
@@ -269,7 +269,30 @@ python3 -m zest verification reject <verification-id>
 
 首版完整快照最多 500 个允许文本文件/8 MiB，单文件 256 KiB；出现不允许文件、链接、子模块、二进制或已知凭据时整体拒绝，不能悄悄跳过。标准锁文件已加入允许文件名。输出最多 64 KiB，并过滤已知凭据模式，保存于私有本地状态。执行崩溃保留 pending_execution，不自动重放；Docker 是受限测试环境，不替代生产多租户的完整安全隔离设计。
 
-真实 Docker 回归需显式启用：`ZEST_RUN_DOCKER_TESTS=1 uv run --extra ai --extra mcp python -m unittest discover -s tests -q`，并准备 `python:3.14-slim` 或通过 `ZEST_TEST_IMAGE` 提供已安装镜像。普通套件跳过 2 个 Docker 实测，其余使用标记为 offline_fixture 的执行夹具，不能当成真实验证证据。
+真实 Docker 回归需显式启用：`ZEST_RUN_DOCKER_TESTS=1 uv run --extra ai --extra mcp python -m unittest discover -s tests -q`，并准备 `python:3.14-slim` 或通过 `ZEST_TEST_IMAGE` 提供已安装镜像完整 ID。普通套件跳过 3 个 Docker 实测，其余使用明确的离线执行夹具，不能当成真实验证证据。
+
+## 管理源码版本的切换与回退
+
+```bash
+python3 -m zest release promote <passed-verification-id>
+python3 -m zest release show <operation-id>
+python3 -m zest release approve <operation-id> --plan-sha256 <show返回的哈希>
+python3 -m zest release active <project-id>
+python3 -m zest release list <project-id>
+# 准备回到该已完成操作的 previous_commit，仍需 show 和 approve
+python3 -m zest release rollback <applied-operation-id>
+python3 -m zest release reject <operation-id>
+# 核对执行中断后的 Git 事务结果，不重新执行切换
+python3 -m zest release recover <operation-id>
+```
+
+promote 只准备预览：需要 M013 真实 Docker 后端通过的结果，离线夹具、空测试、超限、未清理或不兼容策略不能用于切换。候选须基于当前选定版本；approve 重新核对候选、验证来源与完整结果哈希，以及当前指针和工作区 HEAD。审批哈希绑定操作、前后版本、验证证据和权限策略。
+
+Git 事务同时保存 `refs/zest/releases/<operation-id>/before|after` 并以旧值比较更新 `refs/zest/active/<project-id>`，避免并发覆盖；不跟随符号引用，不运行 hooks。更新以后，概览、读取、关键词、RAG、问答、MCP 和新 snapshot 知识使用这个管理版本，显式 `--commit` 仍可查询历史版本；新索引须按新版本构建，后续修复也以它为基础。[Git 原子引用事务](https://git-scm.com/docs/git-update-ref)
+
+管理版本与原工作区分别报告。切换不 checkout、修改原文件/index/main/HEAD，不部署或重启运行服务。回退恢复以前保存的源码提交，包括可能存在故障的初始基线；预览会标明不保证运行健康，不回退数据。原工作区即使有未提交修改，管理版本回退也能保留这些修改。
+
+Git 与 SQLite 不能共同提交事务；发生中断时保留 pending_execution，recover 依据事务内的历史引用核对结果，不重放。无法核对时仍保持待处理状态。当前依赖可信本地操作者，没有多人认证或防止用户手工改写数据库/引用的审计系统。旧 M012 待批准方案若因新增 workspace_head 绑定不兼容，应重新准备并批准。
 
 ## 开发日志
 

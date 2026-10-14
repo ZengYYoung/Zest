@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 from .files import BLOCKED_DIRECTORIES, CREDENTIAL_PATTERNS, FileReadError, _validate_path, load_text_blob
-from .git import inspect_repository, list_tree, verify_commit
+from .git import inspect_repository, list_tree, verify_commit, selected_commit
 
 
 MAX_INDEX_FILES = 200
@@ -65,7 +65,7 @@ class RetrievalIndex:
 
     def build(self, project):
         state = inspect_repository(project["root_path"])
-        commit = state.head_commit
+        commit = selected_commit(project, state)
         if commit is None:
             raise FileReadError("unborn_repository", "需要已提交文件才能建立索引。")
         root = Path(state.root_path)
@@ -134,7 +134,7 @@ class RetrievalIndex:
         if not query.strip() or len(query) > 2000 or not 1 <= limit <= 20:
             raise FileReadError("invalid_index_query", "问题须为非空且不超过 2000 字符，数量为 1—20。")
         state = inspect_repository(project["root_path"])
-        selected = commit.lower() if commit is not None else state.head_commit
+        selected = selected_commit(project, state, commit)
         if selected is None or not verify_commit(Path(state.root_path), selected):
             raise FileReadError("invalid_commit", "需要本地存在的完整 commit。")
         if not self.db_path.exists():

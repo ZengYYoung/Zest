@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from uuid import UUID
 
 
 class RepositoryError(Exception):
@@ -173,3 +174,31 @@ def verify_commit(root: Path, object_id: str) -> bool:
         return False
     result = _git(root, "cat-file", "-t", object_id, allowed=(0, 1, 128))
     return result.returncode == 0 and result.stdout.strip() == b"commit"
+
+
+def managed_ref(project_id: str) -> str:
+    try:
+        if str(UUID(project_id)) != project_id:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise RepositoryError("项目 ID 必须是完整 UUID。") from exc
+    return f"refs/zest/active/{project_id}"
+
+
+def read_direct_ref(root: Path, ref: str) -> str | None:
+    symbolic = _git(root, "symbolic-ref", "--quiet", ref, allowed=(0, 1, 128))
+    if symbolic.returncode == 0:
+        raise RepositoryError("Zest 管理引用不能是符号引用。")
+    result = _git(root, "show-ref", "--verify", "--hash", ref, allowed=(0, 1, 128))
+    if result.returncode != 0:
+        return None
+    commit = result.stdout.decode().strip()
+    if not verify_commit(root, commit):
+        raise RepositoryError("Zest 管理引用未指向有效提交。")
+    return commit
+
+
+def selected_commit(project: dict, state: GitState, explicit: str | None = None) -> str | None:
+    if explicit is not None:
+        return explicit.lower()
+    return read_direct_ref(Path(state.root_path), managed_ref(project["id"])) or state.head_commit

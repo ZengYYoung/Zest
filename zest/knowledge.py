@@ -9,7 +9,7 @@ import sqlite3
 from uuid import uuid4
 
 from .files import CREDENTIAL_PATTERNS, FileReadError
-from .git import inspect_repository
+from .git import inspect_repository, selected_commit
 
 
 def _text(value, limit):
@@ -70,7 +70,7 @@ class KnowledgeStore:
         _text(body, 8000)
         if kind not in ("decision", "constraint", "maintenance") or scope not in ("snapshot", "project"):
             raise FileReadError("invalid_knowledge_scope", "知识类型或适用范围不受支持。")
-        commit = inspect_repository(project["root_path"]).head_commit
+        commit = selected_commit(project, inspect_repository(project["root_path"]))
         if scope == "snapshot" and commit is None:
             raise FileReadError("knowledge_snapshot_required", "版本知识需要至少一个已提交版本。")
         note_id, now = str(uuid4()), datetime.now(timezone.utc).isoformat()

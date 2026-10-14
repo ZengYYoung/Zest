@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 
 from .files import CREDENTIAL_PATTERNS, FileReadError, read_project_file
-from .git import inspect_repository
+from .git import inspect_repository, selected_commit
 from .models import DeepSeekModel, ModelSettings
 from .search import search_project
 
@@ -24,11 +24,13 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
     if len(keywords) > 3 or len(files) > 5:
         raise FileReadError("context_input_limit", "最多指定 3 个关键词和 5 个文件。")
     state = inspect_repository(project["root_path"])
-    commit = state.head_commit
+    commit = selected_commit(project, state)
     result = {"project_id": project["id"], "question": question, "commit": commit,
               "sources": [], "warnings": []}
     seen = set()
     size = 0
+    if commit != state.head_commit:
+        result["warnings"].append({"code": "managed_version_selected"})
 
     if state_dir is not None:
         from .knowledge import KnowledgeStore
