@@ -4,6 +4,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { RecordDetail } from '../src/RecordDetail.tsx'
 import { ProjectStructure } from '../src/ProjectStructure.tsx'
+import { CognitionDetail } from '../src/CognitionDetail.tsx'
 
 const render = (kind, value) => renderToStaticMarkup(createElement(RecordDetail, { kind, value, onClose() {} }))
 const sourceRecord = { id: 'E1', evidence: { path: 'app.py', commit: 'a'.repeat(40), start_line: 4, end_line: 5 }, content: 'def add(a,b):\n    return a-b\n', content_sha256: 'c'.repeat(64) }
@@ -59,4 +60,21 @@ test('source map preserves symbol locations and incomplete static coverage witho
     skipped_counts: { sensitive_content: 1 }, warnings: [{ code: 'structure_skipped_sources' }], limitations: ['python_only'] } }))
   for (const value of ['Service.method', '行 3–4', 'from ..utils import helper as h', '部分来源未覆盖', '不执行项目源码', '&lt;script&gt;']) assert.ok(html.includes(value), value)
   assert.ok(!html.includes('<script>'))
+})
+
+test('cognition shows background tasks, source proofs and uncertainty without write controls', () => {
+  const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: {
+    status: 'partial', commit: 'a'.repeat(40), call_count: 7, file_count: 2, policy: { max_model_calls: 32 }, worker_active: false,
+    plan: { overview: [{ statement: '初步认识', kind: 'inferred' }], gaps: [{ section: 'constraints', question: '缺少历史决策' }] },
+    jobs: [{ id: 'T1', status: 'completed', spec: { title: '调查入口', goal: '确认调用链', deliverable: '流程说明', depends_on: [], acceptance: ['有原文'] } }],
+    findings: [{ id: 'T1:F1', job_id: 'T1', status: 'auto_reviewed', finding: { section: 'flows', kind: 'observed', statement: '<script>unsafe</script>', evidence: [{ text: 'return a+b', evidence: { path: 'app.py', commit: 'a'.repeat(40), start_line: 1, end_line: 2 } }] }, review: { reason: '原文支持' } }],
+  } }))
+  for (const value of ['部分完成', '7 / 32', '调查入口', '自动核对通过', 'app.py', '原文支持', '缺少历史决策', '仍可能出错', '&lt;script&gt;']) assert.ok(html.includes(value), value)
+  assert.ok(!html.includes('<script>'))
+  assert.ok(!html.includes('批准并启动'))
+})
+
+test('auto reviewed knowledge is distinct from human confirmation and retains original proofs', () => {
+  const html = render('tasks', { context: { sources: [{ id: 'E1', title: '认知', body: '声明使用数据库', evidence: { kind: 'auto_reviewed_project_knowledge', run_id: 'run', finding_id: 'T1:F1', observed_commit: 'a'.repeat(40) }, provenance: [{ text: 'database=mysql', evidence: { path: 'config.toml', commit: 'a'.repeat(40), start_line: 1, end_line: 1 } }] }] } })
+  for (const value of ['自动核对认知', '不等于人工确认', 'config.toml', 'database=mysql']) assert.ok(html.includes(value), value)
 })

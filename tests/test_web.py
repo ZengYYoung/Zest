@@ -87,6 +87,26 @@ class WebTest(unittest.TestCase):
         self.assertFalse((self.state_dir / "tasks.sqlite3").exists())
         self.assertFalse((self.state_dir / "repairs.sqlite3").exists())
 
+    def test_cognition_routes_are_private_readonly_and_project_scoped(self):
+        from zest.cognition_store import CognitionStore
+        store = CognitionStore(self.state_dir)
+        prefix = "/api/projects/" + self.project["id"] + "/cognition"
+        self.assertEqual(self.client.get(prefix, headers=self.headers).json()["data"], [])
+        self.assertFalse(store.db_path.exists())
+        record = store.create(self.project["id"], target={"provider": "deepseek", "model": "offline", "base_url": "https://fixture.invalid"})
+        routes = [prefix, "/api/cognition/" + record["id"], "/api/cognition/" + record["id"] + "/dossier"]
+        with patch("zest.models.DeepSeekModel.complete", side_effect=AssertionError("no calls")):
+            for route in routes:
+                self.assertEqual(self.client.get(route).status_code, 401)
+                response = self.client.get(route, headers=self.headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
+                self.assertNotIn('"envelope"', response.text)
+                self.assertIn(self.client.post(route, headers=self.headers).status_code, (404, 405))
+        self.assertEqual(self.client.get("/api/projects/" + str(uuid4()) + "/cognition", headers=self.headers).status_code, 404)
+        self.assertEqual(self.client.get("/api/cognition/" + str(uuid4()), headers=self.headers).status_code, 404)
+        self.assertEqual(store.show(record["id"])["status"], "awaiting_approval")
+
     def test_no_mutation_or_model_routes(self):
         before = self.git("show-ref")
         with patch("zest.models.DeepSeekModel.complete", side_effect=AssertionError("no calls")):

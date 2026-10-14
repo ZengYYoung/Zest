@@ -129,6 +129,22 @@ def create_app(state_dir, *, settings=None):
         records = TaskRunner(state_dir).list_tasks()
         return {"data": [record for record in records if project_id is None or record["project_id"] == str(project_id)]}
 
+    @router.get("/projects/{project_id}/cognition")
+    def cognition_runs(project_id: UUID):
+        from .cognition_store import CognitionStore
+        project(project_id)
+        return {"data": CognitionStore(state_dir).list_runs(str(project_id))}
+
+    @router.get("/cognition/{run_id}")
+    def cognition_run(run_id: UUID):
+        from .cognition_store import CognitionStore
+        return {"data": CognitionStore(state_dir).show(str(run_id))}
+
+    @router.get("/cognition/{run_id}/dossier")
+    def cognition_dossier(run_id: UUID):
+        from .cognition_store import CognitionStore
+        return {"data": CognitionStore(state_dir).dossier(str(run_id))}
+
     @router.get("/tasks/{task_id}")
     def task(task_id: UUID):
         from .tasks import TaskRunner

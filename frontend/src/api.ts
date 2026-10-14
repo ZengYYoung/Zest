@@ -41,4 +41,7 @@ export const statusLabels: Record<string, string> = {
   passed: '验证通过', failed: '失败', error: '异常', applied: '已选择', rejected: '已拒绝',
   pending_execution: '待核对执行', draft: '待确认', confirmed: '已确认', invalidated: '已失效',
   not_applicable: '未运行（不适用）', timed_out: '执行超时',
+  queued: '已排队', planning: '正在规划', investigating: '后台调查', reviewing: '正在核对',
+  partial: '部分完成', running: '进行中', blocked: '依赖阻塞', pending_review: '待核对',
+  auto_reviewed: '自动核对通过', needs_investigation: '仍需调查',
 }

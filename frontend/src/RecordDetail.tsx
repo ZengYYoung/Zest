@@ -14,16 +14,20 @@ function Sources({ sources, citations }: { sources: Row[]; citations: unknown })
   return <div className="review-sources">{sources.map((source, index) => {
     const evidence = object(source.evidence)
     const planned = evidence.kind === 'planned_new_file'
-    const knowledge = evidence.kind === 'confirmed_knowledge'
+    const autoKnowledge = evidence.kind === 'auto_reviewed_project_knowledge'
+    const knowledge = evidence.kind === 'confirmed_knowledge' || autoKnowledge
     const content = typeof source.content === 'string' ? source.content : Array.isArray(source.lines)
       ? records(source.lines).map(line => `${String(line.number).padStart(4)}  ${text(line.text, '')}`).join('\n') : text(source.body, '来源未保存正文。')
     return <details key={text(source.id, String(index))} className="source-entry">
       <summary><span className="evidence-id">{text(source.id)}</span><strong>{text(evidence.path, text(source.title, '知识记录'))}</strong>
-        <span className="muted">{planned ? '待创建路径' : knowledge ? '已确认知识' : `行 ${evidence.start_line}–${evidence.end_line}`}</span>
+        <span className="muted">{planned ? '待创建路径' : autoKnowledge ? '自动核对认知' : knowledge ? '已确认知识' : `行 ${evidence.start_line}–${evidence.end_line}`}</span>
         {cited.includes(source.id) && <span className="cited">结果引用</span>}</summary>
       <div className="source-metadata"><Field label={knowledge ? '观察版本' : '来源版本'} value={evidence.commit || evidence.observed_commit} />
-        {knowledge ? <Field label="知识记录 ID" value={evidence.knowledge_id} /> : <Field label="原文件 SHA-256" value={source.content_sha256} />}</div>
+        {knowledge ? <Field label="知识记录 ID" value={evidence.knowledge_id || `${evidence.run_id}:${evidence.finding_id}`} /> : <Field label="原文件 SHA-256" value={source.content_sha256} />}</div>
       {planned ? <p className="review-note">这是批准范围内的待创建路径，不代表已有文件或代码证据。</p> : <pre className="source-code">{content}</pre>}
+      {autoKnowledge && <><p className="review-note">自动核对不等于人工确认。原文依据：</p>{records(source.provenance).map((proof, i) => { const location = object(proof.evidence)
+        return <div key={i}><p>{text(location.path)} · 行 {Number(location.start_line)}–{Number(location.end_line)}</p><code>{text(location.commit)}</code><pre className="source-code">{text(proof.text)}</pre></div>
+      })}</>}
     </details>
   })}</div>
 }

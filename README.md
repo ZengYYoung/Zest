@@ -11,11 +11,23 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 ## 交互式终端
 
 ```bash
-uv sync --extra ai --extra tui
-uv run --extra ai --extra tui zest ui
+uv sync --extra ai --extra mcp --extra tui
+uv run --extra ai --extra mcp --extra tui zest ui
 ```
 
-一次启动后可以选择项目、持续提问、审阅完整请求、单独批准并查看阶段/工作耗时、回答、引用和缺口。“问答历史”或 Ctrl+H 可打开旧任务，查看原结果或单独审阅后继续原批准流程；未知执行只核对、不重试。只做问答，不执行修复；实际模型非流式，界面不显示伪百分比。说明与验证见 [终端工作台](docs/TERMINAL_WORKSPACE.md)。
+一次启动后选择项目、持续提问、审阅请求并查看真实阶段、引用和缺口。“问答历史”或 Ctrl+H 打开原任务；“项目认知”或 Ctrl+U 新建自主后台调查，返回主对话后仍继续。未知执行只核对、不重试，终端不执行修复。说明见 [终端工作台](docs/TERMINAL_WORKSPACE.md)。
+
+## 自主项目认知
+
+```bash
+uv run zest cognition create <project-id>
+uv run zest cognition preview <run-id>
+uv run zest cognition approve <run-id> --approval-sha256 <完整预览的哈希>
+uv run zest cognition watch <run-id>
+uv run zest cognition dossier <run-id> --format text
+```
+
+本地摸底后一次批准固定版本、完整资料包、模型接口和预算。主 Agent 规划，任务 Agent 用 MCP/RAG 自主检索和读取，核对后形成六部分档案；进度、原文依据与未知项在 CLI、终端和只读 Web 展示。同版本自动核对知识进入新问答、修改建议及后续调查的批准预览；失效和跨版本记录不沿用。关闭工作台不取消独立 worker，未知模型请求不自动重发。[使用、架构与边界](docs/COGNITION.md)
 
 ## 本地项目摸底
 
@@ -32,7 +44,7 @@ uv run zest survey show <survey-id> --format text
 - **开发模式**：从项目创建或早期开发开始参与，持续积累经过确认的需求、设计决策和维护记录。
 - **导入模式**：接入已有项目，通过调查代码、文档、配置和历史记录建立初始理解，明确已查证的信息与知识缺口。
 - 两种模式共用长期维护能力，支持项目理解、故障诊断、处理建议以及后续开发与维护。
-- Zest 应自主建立并持续更新项目认知，用户介绍和选源只是可选补充；导入后的完整认知建设尚待实现，方向与现有缺口见 [长期项目认知方向](docs/PROJECT_UNDERSTANDING.md)。
+- Zest 应自主建立并持续更新项目认知，用户介绍和选源只是可选补充；首轮静态调查已实现，增量与运行环境调查待设计，见 [长期项目认知方向](docs/PROJECT_UNDERSTANDING.md)。
 - 修改方案须经用户批准；修复在隔离环境中进行，验证通过后才允许切换版本，并保留版本记录与回退能力。部署和数据回退的具体机制仍待设计。
 
 ## 架构方向
