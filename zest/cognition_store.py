@@ -36,6 +36,8 @@ def valid_id(value):
 
 
 def prepare_envelope(project, survey, target):
+    from .models import output_contract, structured_base_url
+    target = {**target, "base_url": structured_base_url(target["base_url"])}
     if survey["project_id"] != project["id"]:
         raise FileReadError("cognition_scope_mismatch", "摸底记录不属于当前项目。")
     state = inspect_repository(project["root_path"])
@@ -59,6 +61,7 @@ def prepare_envelope(project, survey, target):
     envelope = {"schema_version": 1, "project_id": project["id"], "survey_id": survey["id"],
                 "survey_sha256": survey["record_sha256"], "commit": commit, "target": target,
                 "policy": dict(POLICY), "instructions": dict(COGNITION_PROMPTS), "files": files,
+                "structured_outputs": {purpose: output_contract(purpose) for purpose in COGNITION_PROMPTS},
                 "survey_gaps": survey["gaps"], "survey_coverage": survey["coverage"],
                 "authorization": "model_requests_over_this_fixed_material_package_only"}
     if len(canonical(envelope).encode()) > MAX_ENVELOPE_BYTES:
@@ -110,6 +113,9 @@ class CognitionStore:
                     CREATE TABLE IF NOT EXISTS cognition_events (
                         seq INTEGER PRIMARY KEY, run_id TEXT NOT NULL, actor TEXT NOT NULL,
                         action TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL);
+                    CREATE TABLE IF NOT EXISTS cognition_call_receipts (
+                        run_id TEXT NOT NULL, actor TEXT NOT NULL, sequence INTEGER NOT NULL,
+                        receipt TEXT NOT NULL, PRIMARY KEY(run_id,actor,sequence));
                     PRAGMA user_version=1;
                     """)
                 yield conn
@@ -171,6 +177,11 @@ class CognitionStore:
                 result["envelope"] = envelope
             if include_calls:
                 result["calls"] = [dict(call) for call in conn.execute("SELECT actor,sequence,purpose,payload,payload_sha256,status,response,error,created_at FROM cognition_calls WHERE run_id=? ORDER BY created_at,actor,sequence", (run_id,))]
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cognition_call_receipts'").fetchone():
+                    receipts = {(row["actor"], row["sequence"]): json.loads(row["receipt"]) for row in
+                                conn.execute("SELECT * FROM cognition_call_receipts WHERE run_id=?", (run_id,))}
+                    for call in result["calls"]:
+                        call["receipt"] = receipts.get((call["actor"], call["sequence"]))
         result["worker_active"] = self.worker_active(run_id)
         return result
 

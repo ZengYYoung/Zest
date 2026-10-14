@@ -9,6 +9,51 @@ from .files import FileReadError
 from .cognition_contracts import COGNITION_PROMPTS
 
 
+def structured_base_url(url):
+    """Resolve the official strict endpoint before approval, never inside execution."""
+    return "https://api.deepseek.com/beta" if url.rstrip("/") == "https://api.deepseek.com" else url
+
+
+def model_target(settings):
+    return {"provider": settings.provider, "model": settings.name,
+            "base_url": structured_base_url(settings.base_url)}
+
+
+def output_contract(purpose):
+    """Complete, reviewable output and instruction contract; AI imports remain lazy."""
+    import hashlib
+    import json
+    if purpose not in PROMPTS:
+        raise FileReadError("invalid_model_purpose", "不支持的模型任务类型。")
+    try:
+        from .model_outputs import get_output_schema
+    except ImportError as exc:
+        raise FileReadError("ai_dependencies_missing", "请安装 ai 可选依赖。") from exc
+    schema = get_output_schema(purpose)
+    encoded = json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return {"version": 1, "purpose": purpose, "method": "function_calling", "strict": True,
+            "include_raw": True, "schema": schema, "schema_sha256": hashlib.sha256(encoded).hexdigest(),
+            "prompt_sha256": hashlib.sha256(PROMPTS[purpose].encode()).hexdigest()}
+
+
+def safe_model_receipt(response):
+    """Only response fields may enter checkpoints; sanitize before persistence."""
+    import json
+    import re
+    from .files import CREDENTIAL_PATTERNS
+    fields = {"text", "raw_response", "structured_status", "structured_error", "output_contract",
+              "target", "usage", "requested_model", "reported_model"}
+    receipt = {key: value for key, value in response.items() if key in fields}
+    encoded = json.dumps(receipt, ensure_ascii=False)
+    if any(re.search(pattern, encoded.encode()) for pattern in CREDENTIAL_PATTERNS):
+        return {"structured_status": "invalid", "structured_error": "sensitive_model_output", "raw_response": None}
+    return json.loads(encoded)
+
+
+def response_metadata(response):
+    return {key: value for key, value in safe_model_receipt(response).items() if key != "text"}
+
+
 @dataclass(frozen=True)
 class ModelSettings:
     provider: str
@@ -76,6 +121,10 @@ class DeepSeekModel:
     def __init__(self, settings: ModelSettings, *, http_client=None):
         self.settings = settings
         self.http_client = http_client
+        # Caller-supplied test transports may be shared. Scope the capture hook
+        # under one lock; normal requests each own a fresh client and stay parallel.
+        import threading
+        self._transport_lock = threading.RLock()
 
     def complete(self, payload: dict, *, purpose="qa") -> dict:
         if purpose not in PROMPTS:
@@ -86,33 +135,90 @@ class DeepSeekModel:
             from langchain_core.prompts import ChatPromptTemplate
             from langchain_deepseek import ChatDeepSeek
             from langsmith import tracing_context
+            from .model_outputs import model_for, output_to_protocol
         except ImportError as exc:
             raise FileReadError("ai_dependencies_missing", "请先执行 uv sync --extra ai。") from exc
         options = dict(model=self.settings.name, api_key=self.settings.api_key,
-                       base_url=self.settings.base_url, timeout=self.settings.timeout,
+                       base_url=structured_base_url(self.settings.base_url), timeout=self.settings.timeout,
                        max_retries=0, max_tokens=4096 if purpose == "repair_proposal" or purpose in COGNITION_PROMPTS else 2048, cache=False, verbose=False,
                        use_responses_api=False, extra_body={"thinking": {"type": "disabled"}})
         if self.http_client is not None:
             options["http_client"] = self.http_client
+        provider_response = {}
+        def capture_response(response):
+            if response.is_success:
+                response.read()
+                try:
+                    provider_response["body"] = response.json()
+                except ValueError:
+                    provider_response["body"] = {"unparsed_body": response.text}
         try:
             with ExitStack() as stack:
                 if self.http_client is None:
                     import httpx
                     options["http_client"] = stack.enter_context(httpx.Client(timeout=self.settings.timeout,
-                                                                             follow_redirects=False))
-                model = ChatDeepSeek(**options).bind(response_format={"type": "json_object"})
+                        follow_redirects=False, event_hooks={"response": [capture_response]}))
+                else:
+                    stack.enter_context(self._transport_lock)
+                    hooks = self.http_client.event_hooks["response"]
+                    hooks.append(capture_response)
+                    stack.callback(hooks.remove, capture_response)
+                model = ChatDeepSeek(**options).with_structured_output(
+                    model_for(purpose), method="function_calling", strict=True, include_raw=True)
                 prompt = ChatPromptTemplate.from_messages([("system", PROMPTS[purpose]), ("human", "{payload}")])
                 # Do not inherit automatic third-party tracing of project text.
                 with tracing_context(enabled=False):
                     response = (prompt | model).invoke({"payload": json.dumps(payload, ensure_ascii=False)})
-            if not isinstance(response.content, str):
-                raise FileReadError("invalid_model_output", "模型未返回预期的文本 JSON。")
-            return {"text": response.content, "usage": response.usage_metadata or {},
+            raw = response["raw"]
+            # Keep known responses even if schema parsing failed. Never store SDK error
+            # reprs (Pydantic errors may echo project text), secrets or automatic retries.
+            provider_body = provider_response.get("body", {})
+            messages = provider_body.get("choices", []) if isinstance(provider_body, dict) else []
+            provider_calls = messages[0].get("message", {}).get("tool_calls", []) if messages else []
+            snapshot = {"content": raw.content, "provider_response": provider_body,
+                        "provider_tool_calls": provider_calls,
+                        "tool_calls": raw.tool_calls,
+                        "invalid_tool_calls": [{key: call.get(key) for key in ("name", "args", "id")}
+                                               for call in raw.invalid_tool_calls]}
+            from .files import CREDENTIAL_PATTERNS
+            import re
+            serialized = json.dumps(snapshot, ensure_ascii=False)
+            sensitive = any(re.search(pattern, serialized.encode()) for pattern in CREDENTIAL_PATTERNS)
+            oversized = len(serialized.encode()) > 256 * 1024
+            valid = (response["parsing_error"] is None and response["parsed"] is not None and not sensitive
+                     and not oversized and not raw.invalid_tool_calls and len(raw.tool_calls) == 1
+                     and raw.tool_calls[0]["name"] == model_for(purpose).__name__)
+            result = {"text": json.dumps(output_to_protocol(response["parsed"]), ensure_ascii=False) if valid else "",
+                    "raw_response": None if sensitive or oversized else snapshot,
+                    "structured_status": "valid" if valid else "invalid",
+                    "structured_error": None if valid else "sensitive_model_output" if sensitive else
+                                        "model_output_budget" if oversized else "invalid_structured_output",
+                    "output_contract": output_contract(purpose), "target": model_target(self.settings),
+                    "usage": raw.usage_metadata or {},
                     "requested_model": self.settings.name,
-                    "reported_model": response.response_metadata.get("model_name")}
+                    "reported_model": raw.response_metadata.get("model_name")}
+            metadata = json.dumps({"usage": result["usage"], "reported_model": result["reported_model"]}, ensure_ascii=False)
+            if any(re.search(pattern, metadata.encode()) for pattern in CREDENTIAL_PATTERNS):
+                result.update(text="", raw_response=None, structured_status="invalid",
+                              structured_error="sensitive_model_output", usage={}, reported_model=None)
+            return result
         except FileReadError:
             raise
         except Exception as exc:
+            if "body" in provider_response:
+                # A complete successful HTTP body is a known response even when
+                # the SDK cannot construct an AIMessage. Keep its safe evidence;
+                # it must not become an unknown request or trigger a retry.
+                body = provider_response["body"]
+                snapshot = {"provider_response": body}
+                oversized = len(json.dumps(snapshot, ensure_ascii=False).encode()) > 256 * 1024
+                receipt = safe_model_receipt({"raw_response": snapshot, "structured_status": "invalid",
+                    "structured_error": "invalid_structured_output", "output_contract": output_contract(purpose),
+                    "target": model_target(self.settings), "usage": {}, "requested_model": self.settings.name,
+                    "reported_model": body.get("model") if isinstance(body, dict) else None})
+                if oversized and receipt["structured_error"] != "sensitive_model_output":
+                    receipt.update(raw_response=None, structured_error="model_output_budget")
+                return {**receipt, "text": ""}
             status = getattr(exc, "status_code", None)
             code = "model_auth_error" if status in (401, 403) else "model_request_failed"
             raise FileReadError(code, "模型调用失败，请检查本地配置、额度和网络；未返回原始错误以避免泄露凭据。") from exc

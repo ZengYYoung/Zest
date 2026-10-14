@@ -9,7 +9,7 @@ from .agents import verify_sources
 from .files import CREDENTIAL_PATTERNS, FileReadError, read_project_file
 from .git import inspect_repository, selected_commit
 from .knowledge import KnowledgeStore, _text
-from .models import REPAIR_PROMPT
+from .models import REPAIR_PROMPT, output_contract, response_metadata
 from .qa import model_payload
 from .repairs import MAX_CHANGE_BYTES, RepairStore, _raw_content, assert_new_path, validate_change_paths
 from .storage import ProjectRegistry
@@ -18,7 +18,8 @@ from .storage import ProjectRegistry
 def repair_policy(source_ids):
     return {"strategy": "repair_specialist", "editable_source_ids": source_ids,
             "max_model_calls": 1, "max_output_tokens": 4096, "apply_changes": False,
-            "prompt_sha256": hashlib.sha256(REPAIR_PROMPT.encode()).hexdigest()}
+            "prompt_sha256": hashlib.sha256(REPAIR_PROMPT.encode()).hexdigest(),
+            "structured_output": output_contract("repair_proposal")}
 
 
 def prepare_repair_context(project, question, *, files, state_dir, new_files=None, ranges=None):
@@ -143,8 +144,12 @@ def generate_proposal(context, *, state_dir, model, source_task_id):
         raise FileReadError("cognition_related_investigation_pending", "关联文件的后台调查仍待核对；请查看项目认知任务，完成后重新准备修改建议。")
     asyncio.run(verify_sources(context, state_dir))
     response = model.complete(model_payload(context), purpose="repair_proposal")
-    proposal = validate_proposal(response["text"], context)
-    metadata = {key: value for key, value in response.items() if key != "text"}
+    try:
+        proposal = validate_proposal(response["text"], context)
+    except FileReadError as exc:
+        exc.model_response = response_metadata(response)
+        raise
+    metadata = response_metadata(response)
     if proposal["status"] == "insufficient_evidence":
         return {**proposal, "model_called": True, "model": metadata, "commit": context["commit"]}
     check_version()

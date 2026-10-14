@@ -6,7 +6,7 @@ import re
 
 from .files import CREDENTIAL_PATTERNS, FileReadError, read_project_file
 from .git import inspect_repository, selected_commit
-from .models import DeepSeekModel, ModelSettings
+from .models import DeepSeekModel, ModelSettings, response_metadata
 from .search import search_project
 
 
@@ -150,11 +150,15 @@ def answer_context(context: dict, *, allow_model: bool, model=None) -> dict:
     provider = model or DeepSeekModel(ModelSettings.from_env())
     # Only the bounded sources and question are sent; local absolute paths and keys are not prompt data.
     response = provider.complete(model_payload(context))
-    answer = validate_answer(response["text"], context["sources"])
+    try:
+        answer = validate_answer(response["text"], context["sources"])
+    except FileReadError as exc:
+        exc.model_response = response_metadata(response)
+        raise
     known = {source["id"]: source for source in context["sources"]}
     return {**answer, "commit": context["commit"], "model_called": True,
             "evidence": [known[item] for item in dict.fromkeys(answer["citations"])],
-            "model": {key: value for key, value in response.items() if key != "text"},
+            "model": response_metadata(response),
             "warnings": context["warnings"]}
 
 

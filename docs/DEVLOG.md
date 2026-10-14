@@ -761,3 +761,19 @@ Zest 自身固定 **ac1085b** 的真实 PTY 摸底：72 个允许文本、7 份�
 - COGNITION.md 记录已确认但待实现状态；这不是扩大旧包授权或重发许可，旧参考/响应/预览保持不变。响应格式偏差仍待下一点共同确定，之后再实施与离线验证。
 
 本次仅设计文档；本地链接与 git diff --check 核对通过，无产品代码变化、模型调用、推送或部署。
+
+## 2026-10-14 — M037：全项目统一类型化模型输出
+
+提交标题：`feat(models): enforce typed structured outputs across agents`
+
+- 用户授权全项目固定格式输出统一使用 with_structured_output，并授权一个子 Agent 检查/修复。主 Agent 负责适配器、批准、记录与集成；子 Agent 定义/验证输出模型并两次复查遗漏，没有重构原业务工作流。
+- 新增 model_outputs.py：问答、修改建议、规划、调查、原文核对五类 Pydantic v2 模型及明确 Field 描述，严格类型/必填/额外字段控制。外部数据需运行时校验与 schema，采用 Pydantic；内部 LangGraph TypedDict、配置 dataclass 保持各自用途。ai extra 显式声明 Pydantic，离线更新 lock，没有升级现有包。
+- 唯一真实适配器统一 with_structured_output(method=function_calling, strict=True, include_raw=True)，没有 JSON Mode 回退、自动修补重发或网络重试。调查使用动作/报告互斥变体并转换回既有工具协议；权限、引用、依赖、数量/长度和修改范围仍独立校验。
+- 官方 DeepSeek 根地址在预览前显式解析为 /beta strict 目标，doctor 同时展示配置地址与实际地址。完整 schema、schema/指令哈希进入持久 task/认知批准包，调用前核对，旧批准或目标变化阻止执行；直接问答预览也展示 schema，但即时 --allow-model 不冒充持久哈希批准。
+- 保留供应商原始工具参数、usage、请求/返回模型名与实际目标；含敏感信息或超过 256 KiB 的原始收据拒绝正文留存。已收到但 schema/SDK 转换失败的响应分类已知无效，稳定错误码不包含解析异常正文。修正 SDK 丢失不合法原始参数、HTTP 200 转换异常丢收据和直接 CLI 预览遗漏。
+- 认知安全收据与 completed/invalid 在同一 SQLite 事务保存，响应已落库而节点中断可显式复用；提交前中断仍为未知，任何 invalid/pending/uncertain 不重发。多 Agent 问答保存各实际调用的安全收据；没有将其扩展成新的持久逐次请求调度器，checkpoint 前退出仍按原未知执行处理。
+- 更新 README、总体开发、认知与验收方案，新增 [结构化输出契约](STRUCTURED_OUTPUTS.md)。原真实样本、参考、预览和失败记录未覆盖，旧历史只读兼容。上下文去重、完整请求计数、报告收束和适度超限批准仍待下一模块；当前认知 canonical(payload) 限额尚不含系统消息和工具 schema。
+
+验证：最终完整后端离线回归 **346 项完成、342 通过、4 项未启用 Docker 实测跳过**，耗时 197.333 秒；新增 10 项 schema、12 项真实 LangChain/HTTP MockTransport 与 1 项多 Agent 失败记录测试。覆盖五类发送 schema/预览一致性、缺字段/额外字段/类型错误、SDK 转换失败、敏感字段、一次请求无重试、目标/契约漂移、响应原子保存和节点/事务中断恢复。回环 HTTP 测试因沙箱禁止端口绑定，最终在允许本地端口的环境通过；没有把权限错误当成产品错误或静默跳过。基础无 AI 依赖的只读 CLI 检查通过，**14 份 Markdown、65 个本地链接**及 git diff --check 通过。前端未变更，不重复前端构建；线上模型质量仍未验证。
+
+本轮没有真实模型请求、样本代码执行、推送或部署。原生 strict 线上效果与项目理解质量仍需在修正上下文流程后，审阅新的固定包与实际目标并重新明确批准验收；离线回归不代替真实效果。

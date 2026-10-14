@@ -16,7 +16,7 @@ from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, k
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
 from .files import FileReadError
-from .models import DeepSeekModel, ModelSettings
+from .models import DeepSeekModel, ModelSettings, model_target, output_contract, safe_model_receipt
 
 
 class InvestigationState(TypedDict, total=False):
@@ -64,11 +64,13 @@ class CognitionEngine:
             raise FileReadError("cognition_prompt_budget", "单次模型请求超过批准预算。")
         provider = self.model or DeepSeekModel(ModelSettings.from_env())
         settings = provider.settings
-        target = {"provider": settings.provider, "model": settings.name, "base_url": settings.base_url}
+        target = model_target(settings)
         if target != envelope["target"]:
             raise FileReadError("model_target_changed", "模型目标已变化，需要重新准备批准。")
         if envelope["instructions"] != COGNITION_PROMPTS or envelope["policy"] != POLICY or settings.timeout > POLICY["max_request_seconds"]:
             raise FileReadError("cognition_contract_changed", "工作流指令或预算已变化，需要重新批准。")
+        if envelope.get("structured_outputs") != {kind: output_contract(kind) for kind in COGNITION_PROMPTS}:
+            raise FileReadError("cognition_contract_changed", "结构化输出契约已变化，需要重新准备并批准。")
         request_hash = digest({"purpose": purpose, "payload": payload})
         with self.store.open(write=True) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -82,6 +84,8 @@ class CognitionEngine:
             if old:
                 if old["payload_sha256"] != request_hash or old["purpose"] != purpose:
                     raise FileReadError("cognition_request_changed", "恢复请求与保存身份不一致，不再次调用。")
+                if old["status"] == "invalid":
+                    raise FileReadError("cognition_response_invalid", "已保存的响应不符合契约，请审阅调用记录；不重新调用。")
                 if old["status"] != "completed":
                     raise FileReadError("cognition_execution_unknown", "旧请求没有可复用结果，不重复调用。")
                 return json.loads(old["response"])
@@ -101,16 +105,24 @@ class CognitionEngine:
                 conn.execute("UPDATE cognition_calls SET status='uncertain',error=? WHERE run_id=? AND actor=? AND sequence=?",
                              (canonical({"code": code}), run_id, actor, sequence))
             raise FileReadError("cognition_execution_unknown", "模型请求结果未知，未自动重试。") from exc
+        parse_error = None
         try:
             value = parse_response(response)
         except FileReadError as exc:
-            with self.store.open(write=True) as conn, conn:
-                conn.execute("UPDATE cognition_calls SET status='invalid',error=? WHERE run_id=? AND actor=? AND sequence=?",
-                             (canonical({"code": exc.code}), run_id, actor, sequence))
-            raise
+            parse_error = exc
+        # A durable known response and its classification are one transaction.
+        # A crash before this commit leaves no reusable receipt, never a retry.
         with self.store.open(write=True) as conn, conn:
-            conn.execute("UPDATE cognition_calls SET status='completed',response=? WHERE run_id=? AND actor=? AND sequence=?",
-                         (canonical(value), run_id, actor, sequence))
+            conn.execute("INSERT INTO cognition_call_receipts VALUES (?,?,?,?)",
+                         (run_id, actor, sequence, canonical(safe_model_receipt(response))))
+            if parse_error is not None:
+                conn.execute("UPDATE cognition_calls SET status='invalid',error=? WHERE run_id=? AND actor=? AND sequence=?",
+                             (canonical({"code": parse_error.code}), run_id, actor, sequence))
+            else:
+                conn.execute("UPDATE cognition_calls SET status='completed',response=? WHERE run_id=? AND actor=? AND sequence=?",
+                             (canonical(value), run_id, actor, sequence))
+        if parse_error is not None:
+            raise parse_error
         self.store.event(run_id, actor, "model_response_saved", {"sequence": sequence})
         return value
 

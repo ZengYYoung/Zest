@@ -431,9 +431,11 @@ def main(argv: list[str] | None = None) -> int:
                                         limit=args.limit, case_sensitive=args.case_sensitive)
             elif args.action == "ask":
                 from .qa import answer_context, prepare_context
+                from .models import output_contract
                 context = prepare_context(result, args.question, keywords=args.keyword, files=args.file,
                                           state_dir=args.state_dir, retrieval=args.retrieval)
-                context["execution_policy"] = {"strategy": args.strategy, "max_model_calls": 3 if args.strategy == "multi" else 1}
+                context["execution_policy"] = {"strategy": args.strategy, "max_model_calls": 3 if args.strategy == "multi" else 1,
+                                               "structured_output": output_contract("qa")}
                 if args.preview:
                     result = context
                 elif args.strategy == "multi":

@@ -33,6 +33,8 @@ class TaskState(TypedDict, total=False):
     result: dict
     error: dict
     events: list
+    model_response: dict
+    model_responses: list
 
 
 def approval_digest(context: dict, target: dict) -> str:
@@ -61,7 +63,8 @@ class TaskRunner:
 
     def _target(self):
         settings = self.model.settings if self.model is not None else ModelSettings.from_env()
-        return {"provider": settings.provider, "model": settings.name, "base_url": settings.base_url}
+        from .models import model_target
+        return model_target(settings)
 
     @contextmanager
     def _lock(self, task_id):
@@ -130,7 +133,9 @@ class TaskRunner:
                     if strategy not in ("single", "multi"):
                         raise FileReadError("invalid_strategy", "不支持的 Agent 策略。")
                     if purpose == "question":
-                        context["execution_policy"] = {"strategy": strategy, "max_model_calls": 3 if strategy == "multi" else 1}
+                        from .models import output_contract
+                        context["execution_policy"] = {"strategy": strategy, "max_model_calls": 3 if strategy == "multi" else 1,
+                                                       "structured_output": output_contract("qa")}
                     digest = approval_digest(context, state["target"])
                     return {"context": context, "payload_sha256": digest, "status": "awaiting_approval",
                             "events": [{"step": "prepared", "payload_sha256": digest}]}
@@ -152,9 +157,13 @@ class TaskRunner:
                 try:
                     provider = self.model or DeepSeekModel(ModelSettings.from_env())
                     settings = provider.settings
-                    target = {"provider": settings.provider, "model": settings.name, "base_url": settings.base_url}
+                    from .models import model_target, output_contract
+                    target = model_target(settings)
                     if target != state["target"]:
                         raise FileReadError("model_target_changed", "模型或接口已变化，需要重新创建任务并批准。")
+                    output_purpose = "repair_proposal" if state.get("purpose") == "repair_proposal" else "qa"
+                    if state["context"].get("execution_policy", {}).get("structured_output") != output_contract(output_purpose):
+                        raise FileReadError("model_contract_changed", "结构化输出或工作指令已变化，需要重新准备并批准。")
                     from .knowledge import KnowledgeStore
                     for source in state["context"]["sources"]:
                         evidence = source["evidence"]
@@ -182,7 +191,9 @@ class TaskRunner:
                     return {"result": result, "status": "completed",
                             "events": [*state["events"], {"step": "completed"}]}
                 except FileReadError as exc:
-                    return {"status": "failed", "error": {"code": exc.code, "message": str(exc)}}
+                    return {"status": "failed", "error": {"code": exc.code, "message": str(exc)},
+                            "model_response": getattr(exc, "model_response", None),
+                            "model_responses": getattr(exc, "model_responses", None)}
                 except Exception:
                     return {"status": "failed", "error": {"code": "task_execution_failed", "message": "任务执行失败，未回显原始异常。"}}
 
@@ -213,6 +224,8 @@ class TaskRunner:
                 "purpose": state.get("purpose", "question"),
                 "target": state.get("target"), "payload_sha256": state.get("payload_sha256"),
                 "context": state.get("context"), "result": state.get("result"),
+                "model_response": state.get("model_response"),
+                "model_responses": state.get("model_responses"),
                 "error": state.get("error"), "events": state.get("events", []),
                 "next_steps": list(snapshot.next)}
 

@@ -8,7 +8,7 @@ import sys
 
 from .files import FileReadError
 from .git import git_environment
-from .models import ModelSettings
+from .models import ModelSettings, model_target
 from .verification import DockerEngine, _redact
 
 
@@ -36,7 +36,8 @@ def readiness(*, check_docker=False, image=None, socket_path=None):
         settings = ModelSettings.from_env()
         # Even wrongly configured names/URL paths cannot print known credential patterns.
         checks["model"] = {"configured": True, "provider": settings.provider,
-                           "name": _redact(settings.name.encode()), "base_url": _redact(settings.base_url.encode()),
+                           "name": _redact(settings.name.encode()), "base_url": _redact(model_target(settings)["base_url"].encode()),
+                           "configured_base_url": _redact(settings.base_url.encode()),
                            "connectivity_tested": False}
     except FileReadError as exc:
         checks["model"] = {"configured": False, "error": exc.code, "connectivity_tested": False}

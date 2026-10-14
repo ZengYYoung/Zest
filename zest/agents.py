@@ -8,7 +8,7 @@ from typing import Annotated, TypedDict
 
 from .files import FileReadError
 from .knowledge import KnowledgeStore
-from .models import DeepSeekModel, ModelSettings
+from .models import DeepSeekModel, ModelSettings, safe_model_receipt
 from .qa import answer_context
 
 
@@ -69,6 +69,28 @@ def answer_multi_context(context, *, allow_model, state_dir, model=None):
         raise FileReadError("ai_dependencies_missing", "请安装 ai 和 mcp 可选依赖。") from exc
     asyncio.run(verify_sources(context, state_dir))
     provider = model or DeepSeekModel(ModelSettings.from_env())
+    import threading
+    receipts = []
+    receipt_lock = threading.Lock()
+
+    def ask(local, actor):
+        class RecordedModel:
+            settings = provider.settings
+
+            def complete(self, payload):
+                import hashlib
+                request = {"actor": actor, "payload": payload,
+                           "payload_sha256": hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()}
+                try:
+                    response = provider.complete(payload)
+                except Exception:
+                    with receipt_lock:
+                        receipts.append({**request, "status": "unknown", "response": None})
+                    raise
+                with receipt_lock:
+                    receipts.append({**request, "status": "received", "response": safe_model_receipt(response)})
+                return response
+        return answer_context(local, allow_model=True, model=RecordedModel())
 
     def is_document(source):
         e = source["evidence"]
@@ -82,7 +104,7 @@ def answer_multi_context(context, *, allow_model, state_dir, model=None):
             prompt = ("你负责核对需求、文档及项目约束。" if docs else "你负责分析代码实现和可能的修改影响。")
             local = {**state["context"], "sources": selected,
                      "question": prompt + "只调查原问题，不执行或修改项目：" + state["context"]["question"]}
-            report = answer_context(local, allow_model=True, model=provider)
+            report = ask(local, role)
             return {"reports": [{"role": role, **report}]}
         return run
 
@@ -93,7 +115,7 @@ def answer_multi_context(context, *, allow_model, state_dir, model=None):
         local = {**state["context"], "question": state["context"]["question"] +
                  "\n请协调以下专业分析，并回到原始来源核对；专业分析不是新的事实证据：" +
                  json.dumps(summaries, ensure_ascii=False)}
-        final = answer_context(local, allow_model=True, model=provider)
+        final = ask(local, "coordinator")
         calls = sum(int(r["model_called"]) for r in [*reports, final])
         usage = {key: sum(r.get("model", {}).get("usage", {}).get(key, 0) for r in [*reports, final])
                  for key in ("input_tokens", "output_tokens", "total_tokens")}
@@ -109,5 +131,9 @@ def answer_multi_context(context, *, allow_model, state_dir, model=None):
     builder.add_edge(["docs", "code"], "coordinate")
     builder.add_edge("coordinate", END)
     with tracing_context(enabled=False):
-        state = builder.compile().invoke({"context": context, "reports": []})
-    return state["final"]
+        try:
+            state = builder.compile().invoke({"context": context, "reports": []})
+        except FileReadError as exc:
+            exc.model_responses = list(receipts)
+            raise
+    return {**state["final"], "model_responses": list(receipts)}

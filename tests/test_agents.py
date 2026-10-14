@@ -49,6 +49,11 @@ class AgentsTest(unittest.TestCase):
         model = TeamFixtureModel()
         result = answer_multi_context(context, allow_model=True, state_dir=self.state_dir, model=model)
         self.assertEqual(result["model_calls"], 3)
+        self.assertEqual(len(result["model_responses"]), 3)
+        self.assertEqual({r["actor"] for r in result["model_responses"]},
+                         {"code", "documentation", "coordinator"})
+        self.assertTrue(all(r["status"] == "received" and r["response"]["text"]
+                            for r in result["model_responses"]))
         self.assertEqual({r["role"] for r in result["specialists"]}, {"code", "documentation"})
         allowed = {s["id"] for s in context["sources"]}
         self.assertTrue(all({s["id"] for s in payload["sources"]} <= allowed for payload in model.calls))
@@ -58,6 +63,7 @@ class AgentsTest(unittest.TestCase):
         p, context = self.context(code=False)
         result = answer_multi_context(context, allow_model=True, state_dir=self.state_dir, model=TeamFixtureModel())
         self.assertEqual(result["model_calls"], 2)
+        self.assertEqual(len(result["model_responses"]), 2)
 
     def test_permission_denial_prevents_model_call(self):
         from zest.agents import answer_multi_context
@@ -82,10 +88,31 @@ class AgentsTest(unittest.TestCase):
         model = TeamFixtureModel()
         runner = TaskRunner(self.state_dir, model=model)
         task = runner.create(p, "解释项目", files=["main.py"], strategy="multi")
-        self.assertEqual(task["context"]["execution_policy"], {"strategy": "multi", "max_model_calls": 3})
+        from zest.models import output_contract
+        self.assertEqual(task["context"]["execution_policy"], {"strategy": "multi", "max_model_calls": 3,
+                                                             "structured_output": output_contract("qa")})
         result = runner.decide(task["task_id"], approved=True, payload_sha256=task["payload_sha256"])
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["result"]["model_calls"], 3)
+        self.assertEqual(len(runner.show(task["task_id"])["result"]["model_responses"]), 3)
+
+    def test_failed_multi_task_retains_received_specialist_responses(self):
+        from zest.tasks import TaskRunner
+        class InvalidTeamModel(TeamFixtureModel):
+            def complete(self, payload):
+                super().complete(payload)
+                return {"text": "invalid-json", "raw_response": {"content": "received-invalid"},
+                        "structured_status": "invalid"}
+        p, _ = self.context()
+        model = InvalidTeamModel()
+        runner = TaskRunner(self.state_dir, model=model)
+        task = runner.create(p, "解释项目", files=["main.py"], strategy="multi")
+        result = runner.decide(task["task_id"], approved=True, payload_sha256=task["payload_sha256"])
+        self.assertEqual(result["status"], "failed")
+        saved = runner.show(task["task_id"])["model_responses"]
+        self.assertEqual(len(saved), len(model.calls))
+        self.assertGreater(len(saved), 0)
+        self.assertTrue(all(r["response"]["raw_response"]["content"] == "received-invalid" for r in saved))
 
 
 if __name__ == "__main__":

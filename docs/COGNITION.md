@@ -26,7 +26,7 @@ zest cognition dossier <run-id> --format text > project-dossier.md
 zest cognition list <project-id>
 ```
 
-`preview` 包含完整允许文件全文、同版本共享认知、三个工作指令、模型目标和预算。批准哈希覆盖完整包，不仅覆盖清单。包内可自主查找，包外来源不能通过任意路径访问；扩大范围需新建工作流再批准。
+`preview` 包含完整允许文件全文、同版本共享认知、三个工作指令、完整结构化输出 schema、实际模型目标和预算。批准哈希覆盖完整包，不仅覆盖清单。包内可自主查找，包外来源不能通过任意路径访问；扩大范围需新建工作流再批准。
 
 `approve` 默认启动后台 worker；`--no-start` 只入队，可另运行 `zest cognition worker`。worker 处理队列，默认空闲 30 秒后退出；`--once` 处理一项后退出。它是独立本地进程，不是永久后台服务。修改、测试、网络工具、发布不在调查批准内。
 
@@ -48,6 +48,8 @@ zest cognition list <project-id>
 主协调图和每个子任务均有独立 LangGraph SQLite checkpoint；任务库保存状态与请求账本。LangChain 处理模型请求，MCP 工具仅使用保存的授权包，不重读当前工作区。资料中的提示不能改变程序权限。
 
 三类内置 Skill 指令与严格契约在 `zest/cognition_contracts.py`。规划用有预算的清单和文档形成 overview/tasks/gaps；任务包含目标、理由、线索、成果、完成标准、优先级/依赖。Agent 可查找包内非线索文件，已完成前置任务报告供依赖任务参考。
+
+三类响应绑定 [Pydantic 输出模型](STRUCTURED_OUTPUTS.md)，统一经 `with_structured_output` 原生 strict 工具调用生成；调查的动作/报告采用互斥变体。官方 DeepSeek 根接口在预览前显式解析为 `/beta`，输出契约变化阻止旧批准执行。结构正确仍须原文与业务规则核对。
 
 词法 RAG 按 40 行、30 行步长分块，TF-IDF 余弦排序；检索只返回位置，必须实际 read 才能引用 R 编号原文。它不是语义向量检索。符号工具提供 Python AST 声明位置，不执行源码。
 
@@ -79,9 +81,9 @@ zest cognition invalidate <run-id> <finding-id> --reason '需要重新核实'
 zest cognition reject <run-id>
 ```
 
-查看不会调用模型或创建空状态库。项目内最近 100 项可浏览，更早记录按完整 UUID 打开。`show --calls` 展示逐次 payload/hash/状态/响应，属于本地私有资料。
+查看不会调用模型或创建空状态库。项目内最近 100 项可浏览，更早记录按完整 UUID 打开。`show --calls` 展示逐次 payload/hash/状态/响应及可用的安全原始收据、usage 和供应商模型名，属于本地私有资料；旧记录没有的指标保持未知。
 
-请求先记 pending 并扣预算，响应先落库再推进 checkpoint。响应已保存而节点未完成时，显式 recover 可复用同身份响应。pending/uncertain 或无有效结果的请求不能重发：服务端可能已处理或计费。活动 worker/同 run 锁阻止重复执行和并发恢复。
+请求先记 pending 并扣预算，响应收据与解析分类在同一事务落库，再推进 checkpoint。响应已保存而节点未完成时，显式 recover 可复用同身份响应。已知无效响应记 invalid 并拒绝重发；pending/uncertain 或无有效结果的请求不能重发：服务端可能已处理或计费。活动 worker/同 run 锁阻止重复执行和并发恢复。
 
 状态：awaiting_approval → queued → planning → investigating → reviewing → completed/partial；错误为 failed，未知调用为 pending_execution。worker 消失时界面显示退出，不冒充仍在执行。completed 仅表示任务完成、六部分有经核对发现且计划无剩余缺口，不是完整理解证明。
 
@@ -107,4 +109,4 @@ Web 的“项目认知”只读列表/详情展示阶段、调用数、任务、
 
 内部证据额度拟作为提前收束的预警，完整原文与引用身份继续保存；模型可见上下文去除 text/lines 的重复表达。字符预算不是模型 token 上限，扩展不增加获准资料、工具权限或总请求次数，未知请求不能借此重发。
 
-以上规则尚未实现，当前代码仍按既有固定预算执行；旧 run/批准包不修改。下一项讨论为响应字段偏差的处理规则，确定后实施、离线验证，再准备新预览进行真实复测。
+以上规则尚未实现，当前代码仍按既有固定预算执行；canonical(payload) 的计数尚不含系统消息与工具 schema。响应字段控制已在 M037 统一实现并离线验证；下一模块实现完整请求计数、证据组织与超限批准，再准备新预览进行真实复测。旧 run/批准包不修改。

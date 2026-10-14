@@ -179,7 +179,8 @@ class RepairAgentTest(unittest.TestCase):
             captured.append(json.loads(request.content))
             return httpx.Response(200, json={"id": "offline", "object": "chat.completion", "created": 1,
                 "model": "offline-report", "choices": [{"index": 0, "message": {"role": "assistant",
-                "content": json.dumps(self.model.output)}, "finish_reason": "stop"}],
+                "content": None, "tool_calls": [{"id": "offline-call", "type": "function", "function": {
+                    "name": "RepairProposalResponse", "arguments": json.dumps(self.model.output)}}]}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
         with httpx.Client(transport=httpx.MockTransport(handle)) as client:
             provider = DeepSeekModel(self.model.settings, http_client=client)
@@ -189,7 +190,9 @@ class RepairAgentTest(unittest.TestCase):
         self.assertEqual(result["status"], "completed", result)
         self.assertEqual(captured[0]["messages"][0]["content"], REPAIR_PROMPT)
         self.assertEqual(captured[0]["max_tokens"], 4096)
-        self.assertEqual(captured[0]["response_format"], {"type": "json_object"})
+        self.assertTrue(captured[0]["tools"][0]["function"]["strict"])
+        self.assertEqual(captured[0]["tools"][0]["function"]["name"], "RepairProposalResponse")
+        self.assertNotIn("response_format", captured[0])
 
 
 if __name__ == "__main__":

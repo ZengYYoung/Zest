@@ -81,6 +81,8 @@ class QATest(unittest.TestCase):
             code, stdout, stderr = self.cli("project", "ask", project["id"], "语言？", "--preview")
         self.assertEqual((code, stderr), (0, ""))
         self.assertTrue(json.loads(stdout)["sources"])
+        from zest.models import output_contract
+        self.assertEqual(json.loads(stdout)["execution_policy"]["structured_output"], output_contract("qa"))
 
     def test_context_budget_is_explicit(self):
         project = self.prepare()
@@ -127,14 +129,17 @@ class ModelTransportTest(unittest.TestCase):
             captured.append(body)
             return httpx.Response(200, json={"id": "offline", "object": "chat.completion", "created": 1,
                 "model": "reported-fixture", "choices": [{"index": 0, "message": {"role": "assistant", "content":
-                '{"status":"insufficient_evidence","answer":"未知","citations":[],"unknowns":["缺少信息"]}'},
+                None, "tool_calls": [{"id": "offline-call", "type": "function", "function": {"name": "QAResponse", "arguments":
+                '{"status":"insufficient_evidence","answer":"未知","citations":[],"unknowns":["缺少信息"]}'}}]},
                 "finish_reason": "stop"}], "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5}})
 
         settings = ModelSettings("deepseek", "deepseek-v4-flash", "https://provider.example.invalid", "fixture")
         with httpx.Client(transport=httpx.MockTransport(handle)) as client:
             result = DeepSeekModel(settings, http_client=client).complete({"question": "test", "sources": []})
         self.assertEqual(captured[0]["model"], "deepseek-v4-flash")
-        self.assertEqual(captured[0]["response_format"], {"type": "json_object"})
+        self.assertTrue(captured[0]["tools"][0]["function"]["strict"])
+        self.assertEqual(captured[0]["tools"][0]["function"]["name"], "QAResponse")
+        self.assertNotIn("response_format", captured[0])
         self.assertEqual(result["reported_model"], "reported-fixture")
 
 
