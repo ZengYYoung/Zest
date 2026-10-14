@@ -24,12 +24,13 @@ def display_text(value):
     return "".join(char if ord(char) >= 32 or char in "\n\t" else f"\\x{ord(char):02x}" for char in raw).replace("\x7f", "\\x7f")
 
 
-def create_workspace(state_dir, *, runner=None):
+def create_workspace(state_dir, *, runner=None, cognition_store=None, cognition_launch=None):
     # Optional dependency: importing the base CLI must not require Textual.
     try:
         from rich.text import Text
         from textual import on, work
         from textual.app import App, ComposeResult
+        from textual.binding import Binding
         from textual.containers import Horizontal, Vertical, VerticalScroll
         from textual.screen import ModalScreen
         from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static, TextArea
@@ -128,12 +129,14 @@ def create_workspace(state_dir, *, runner=None):
     class Workspace(App):
         TITLE = "Zest · 项目维护工作台"
         BINDINGS = [("ctrl+q", "quit_workspace", "退出"), ("ctrl+c", "quit_workspace", "退出"),
-                    ("ctrl+l", "focus_question", "输入问题"), ("ctrl+h", "history", "问答历史")]
+                    ("ctrl+l", "focus_question", "输入问题"), ("ctrl+h", "history", "问答历史"),
+                    Binding("ctrl+u", "cognition", "项目认知", priority=True)]
         CSS = """
         Screen { background: $background; }
         #project-row { margin: 0 1; height: 3; }
         #project { width: 1fr; }
         #history { width: 14; margin-left: 1; }
+        #cognition { width: 12; margin-left: 1; }
         #review-saved { width: 16; margin-left: 1; }
         #body { height: 1fr; margin: 0 1; }
         #conversation { width: 1fr; border: round #cccccc; padding: 0 1; }
@@ -173,13 +176,14 @@ def create_workspace(state_dir, *, runner=None):
                 yield Select(options, value=self.project["id"] if self.project else Select.NULL,
                              allow_blank=not bool(options), prompt="选择已登记项目", id="project", disabled=not bool(options))
                 yield Button("问答历史", id="history", disabled=not bool(options))
+                yield Button("项目认知", id="cognition", disabled=not bool(options))
                 yield Button("审阅原请求", id="review-saved", disabled=True)
             with Horizontal(id="body"):
                 yield RichLog(wrap=True, min_width=20, markup=False, highlight=False, max_lines=3000, id="conversation")
                 with VerticalScroll(id="progress"):
                     yield Static("阶段时间线", markup=False)
                     yield Static("", markup=False, id="stage")
-            yield Static("只生成调查回答。修复、测试与源码选择仍使用现有子命令。", markup=False, id="notice")
+            yield Static("项目认知可独立后台调查；修复、测试与源码选择使用现有子命令。", markup=False, id="notice")
             yield Input(placeholder="来源文件：相对路径，逗号分隔；留空使用现有默认来源", max_length=5120, id="files", disabled=not bool(options))
             with Horizontal(id="question-row"):
                 yield Input(placeholder="向这个项目提问（最多 2000 字符）", id="question", max_length=2000, disabled=not bool(options))
@@ -232,10 +236,17 @@ def create_workspace(state_dir, *, runner=None):
             blocked = self.busy or self.pending is not None or self.project is None
             for selector in ("#project", "#files", "#question", "#submit", "#history"):
                 self.query_one(selector).disabled = blocked
+            self.query_one("#cognition", Button).disabled = blocked
             record = self.last_record or {}
             self.query_one("#review-saved", Button).disabled = blocked or not (
                 record.get("status") == "awaiting_approval" and record.get("purpose") == "question"
                 and record.get("project_id") == self.project["id"])
+
+        @on(Button.Pressed, "#cognition")
+        def action_cognition(self):
+            if self.project and not self.busy and self.pending is None:
+                from .cognition_terminal import cognition_screen
+                self.push_screen(cognition_screen(state_dir, self.project["id"], store=cognition_store, launch=cognition_launch))
 
         @on(Select.Changed, "#project")
         def select_project(self, event):
@@ -413,6 +424,11 @@ def create_workspace(state_dir, *, runner=None):
                     evidence = source["evidence"]
                     location = f"{evidence.get('path', source.get('title', '知识记录'))} · {evidence.get('commit', evidence.get('observed_commit'))}"
                     content = source.get("body") or "\n".join(f"{line['number']:>4}  {line['text']}" for line in source.get("lines", []))
+                    if evidence.get("kind") == "auto_reviewed_project_knowledge":
+                        content += "\n自动核对认知，不等于人工确认。原文依据："
+                        for proof in source.get("provenance", []):
+                            origin = proof["evidence"]
+                            content += f"\n{origin['path']}:{origin['start_line']}–{origin['end_line']} · {origin['commit']}\n{proof['text']}"
                     self.append(f"来源 {source['id']} · {location}", content)
                 self.append("Zest", "引用可定位原文，仍需核对结论。" + ("本次未调用模型。" if result.get("model_called") is False else ""))
             elif status == "rejected":
