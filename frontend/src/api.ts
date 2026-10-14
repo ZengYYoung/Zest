@@ -15,14 +15,15 @@ export function validateConnection(token: string, port: number): Connection {
   return { token, port }
 }
 
-export async function readApi<T>(connection: Connection, path: string, signal?: AbortSignal): Promise<T> {
+export async function readApi<T>(connection: Connection, path: string, signal?: AbortSignal, timeoutMs = 15000): Promise<T> {
   if (!path.startsWith('/api/') || path.startsWith('//') || path.includes('://')) throw new ApiError('无效的本地接口路径。', 0)
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) throw new ApiError('无效的本地读取时限。', 0)
   let response: Response
   try {
     response = await fetch(`http://127.0.0.1:${connection.port}${path}`, {
       method: 'GET', headers: { Authorization: `Bearer ${connection.token}` },
       credentials: 'omit', cache: 'no-store', redirect: 'error',
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error

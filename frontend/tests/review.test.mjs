@@ -3,6 +3,7 @@ import test from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { RecordDetail } from '../src/RecordDetail.tsx'
+import { ProjectStructure } from '../src/ProjectStructure.tsx'
 
 const render = (kind, value) => renderToStaticMarkup(createElement(RecordDetail, { kind, value, onClose() {} }))
 const sourceRecord = { id: 'E1', evidence: { path: 'app.py', commit: 'a'.repeat(40), start_line: 4, end_line: 5 }, content: 'def add(a,b):\n    return a-b\n', content_sha256: 'c'.repeat(64) }
@@ -50,4 +51,12 @@ test('verification distinguishes offline, unrun baseline and actual candidate me
   const pending = render('verifications', { status: 'awaiting_approval', plan: { backend: 'docker' }, result: null })
   assert.ok(pending.includes('尚无执行结果'))
   assert.ok(!pending.includes('验证通过'))
+})
+
+test('source map preserves symbol locations and incomplete static coverage without rendering HTML', () => {
+  const html = renderToStaticMarkup(createElement(ProjectStructure, { value: { commit: 'a'.repeat(40),
+    modules: [{ path: '<script>app.py', symbols: [{ lexical_name: 'Service.method', kind: 'function', evidence: { start_line: 3, end_line: 4 } }], imports: [{ kind: 'from', module: 'utils', level: 2, scope: 'Service', evidence: { start_line: 1 }, names: [{ name: 'helper', alias: 'h' }] }] }],
+    skipped_counts: { sensitive_content: 1 }, warnings: [{ code: 'structure_skipped_sources' }], limitations: ['python_only'] } }))
+  for (const value of ['Service.method', '行 3–4', 'from ..utils import helper as h', '部分来源未覆盖', '不执行项目源码', '&lt;script&gt;']) assert.ok(html.includes(value), value)
+  assert.ok(!html.includes('<script>'))
 })

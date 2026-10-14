@@ -29,8 +29,23 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
     async def test_only_read_tools_are_discoverable(self):
         async with Client(self.server()) as client:
             tools = await client.list_tools()
-        self.assertEqual({t.name for t in tools}, {"project_overview", "read_file", "keyword_search", "indexed_search", "confirmed_knowledge"})
+        self.assertEqual({t.name for t in tools}, {"project_overview", "read_file", "keyword_search", "indexed_search", "confirmed_knowledge", "project_structure", "symbol_lookup"})
         self.assertTrue(all(t.annotations.read_only_hint for t in tools))
+
+    async def test_structure_lookup_and_read_preserve_same_source_without_execution(self):
+        (self.repo / "app.py").write_text("raise RuntimeError('never execute')\nclass Service:\n    def method(self):\n        return 1\n")
+        server = self.server()
+        async with Client(server) as client:
+            structure = await client.call_tool("project_structure", {})
+            found = await client.call_tool("symbol_lookup", {"query": "Service.method"})
+            evidence = found.data["data"]["matches"][0]["evidence"]
+            read = await client.call_tool("read_file", {key: evidence[key] for key in ("path", "commit", "start_line", "end_line")})
+            invalid = await client.call_tool("symbol_lookup", {"query": ""})
+        self.assertTrue(structure.data["ok"])
+        self.assertEqual(evidence["commit"], structure.data["data"]["commit"])
+        self.assertEqual(evidence["content_sha256"], read.data["data"]["content_sha256"])
+        self.assertIn("return 1", read.data["data"]["content"])
+        self.assertEqual(invalid.data["error"]["code"], "invalid_symbol_query")
 
     async def test_read_and_search_return_source(self):
         async with Client(self.server()) as client:

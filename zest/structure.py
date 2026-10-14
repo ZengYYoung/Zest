@@ -17,6 +17,7 @@ MAX_NODES = 20000
 MAX_FILE_DECLARATIONS = 200
 MAX_DECLARATIONS = 3000
 MAX_SECONDS = 30
+MAX_PATH_LENGTH = 1024
 
 
 def _name(value, limit=200):
@@ -111,6 +112,8 @@ def build_structure(project, *, commit=None):
                 break
             result["files_considered"] += 1
             try:
+                if len(path) > MAX_PATH_LENGTH:
+                    raise FileReadError("structure_path_budget", "路径长度超过结构元数据预算。")
                 _validate_path(path)
                 raw = load_text_blob(root, entry)
                 if result["bytes_read"] + len(raw) > MAX_BYTES:
@@ -135,3 +138,20 @@ def build_structure(project, *, commit=None):
     if skips:
         result["warnings"].append({"code": "structure_skipped_sources"})
     return result
+
+
+def lookup_symbols(project, query, *, commit=None, limit=10):
+    if (not isinstance(query, str) or not query.strip() or len(query) > 200
+            or isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20):
+        raise FileReadError("invalid_symbol_query", "符号查询须为非空且不超过 200 字符，数量为 1—20。")
+    structure = build_structure(project, commit=commit)
+    needle = query.strip().casefold()
+    matches = []
+    for module in structure["modules"]:
+        for symbol in module["symbols"]:
+            if needle in symbol["lexical_name"].casefold() or needle in module["path"].casefold():
+                matches.append(symbol)
+    return {"project_id": project["id"], "commit": structure["commit"], "query": query,
+            "matches": matches[:limit], "truncated": len(matches) > limit,
+            "warnings": structure["warnings"], "skipped_counts": structure["skipped_counts"],
+            "limitations": structure["limitations"]}

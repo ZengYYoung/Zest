@@ -48,6 +48,18 @@ def create_server(project_id, state_dir):
         return result(lambda: RetrievalIndex(state_dir).search(project, query, commit=commit, limit=limit))
 
     @server.tool(annotations=annotations)
+    def project_structure(commit: str | None = None) -> dict:
+        """固定版本的 Python AST 声明地图，不导入源码或推断真实运行依赖。"""
+        from .structure import build_structure
+        return result(lambda: build_structure(project, commit=commit))
+
+    @server.tool(annotations=annotations)
+    def symbol_lookup(query: str, commit: str | None = None, limit: int = 10) -> dict:
+        """按词法名称或路径查询 Python 符号，返回精确版本/行段；原文另用 read_file 读取。"""
+        from .structure import lookup_symbols
+        return result(lambda: lookup_symbols(project, query, commit=commit, limit=limit))
+
+    @server.tool(annotations=annotations)
     def confirmed_knowledge(commit: str | None = None) -> dict:
         """返回该版本适用的已确认知识，不返回草稿或失效记录。"""
         def query():

@@ -233,7 +233,9 @@ uv sync --extra ai --extra mcp
 uv run --extra ai --extra mcp zest mcp serve <project-id>
 ```
 
-服务仅使用 stdio，绑定一个已登记项目，暴露 project_overview、read_file、keyword_search、indexed_search、confirmed_knowledge 五个只读工具。工具不能指定另一仓库、运行 Shell、修改文件或批准任务。路径、版本和内容规则复用已有模块。
+服务仅使用 stdio，绑定一个已登记项目，暴露 project_overview、read_file、keyword_search、indexed_search、confirmed_knowledge、project_structure、symbol_lookup 七个只读工具。工具不能指定另一仓库、运行 Shell、修改文件或批准任务。路径、版本和内容规则复用已有模块。
+
+project_structure 返回 Python 声明地图；symbol_lookup 按词法名称或路径查询，最多返回 20 项固定版本/行段信息。可再将返回的 path/commit/start_line/end_line 交给 read_file 读取原文（长符号须自行限制至 200 行），核对版本、blob 与原文件哈希。不自动授予模型新的上下文范围，也不推断实际调用关系。
 
 工具结果统一为 `{ok: true, data: ...}` 或 `{ok: false, error: ...}`；annotations 是提示而不是权限系统。已验证 FastMCP 内存客户端、stdio 子进程，以及 LangChain MCPAdapter 的工具发现与调用。LangChain MCP namespace 当前为 beta，依赖由 uv.lock 锁定。
 

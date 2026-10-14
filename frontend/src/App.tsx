@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { projectName, readApi, shortCommit, statusLabels, validateConnection, type Connection, type Project, type Row } from './api.ts'
 import { RecordDetail } from './RecordDetail.tsx'
+import { ProjectStructure } from './ProjectStructure.tsx'
 
-type Tab = 'overview' | 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases'
-const tabs: [Tab, string, string][] = [['overview', '项目概览', '◈'], ['tasks', '调查与建议', '◎'], ['repairs', '候选修改', '⌘'], ['verifications', '测试验证', '✓'], ['knowledge', '项目知识', '◇'], ['releases', '版本历史', '↺']]
+type Tab = 'overview' | 'structure' | 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases'
+const tabs: [Tab, string, string][] = [['overview', '项目概览', '◈'], ['structure', '源码地图', '⌁'], ['tasks', '调查与建议', '◎'], ['repairs', '候选修改', '⌘'], ['verifications', '测试验证', '✓'], ['knowledge', '项目知识', '◇'], ['releases', '版本历史', '↺']]
 
 function Status({ value }: { value: unknown }) {
   const key = String(value || 'unknown')
@@ -63,9 +64,9 @@ export function App() {
     const controller = new AbortController()
     recordRequest.current?.abort(); fileRequest.current?.abort()
     setLoading(true); setError(''); setDetail(null); setFile(null); setData(null)
-    const paths = { overview: `/api/projects/${projectId}/overview`, tasks: `/api/tasks?project_id=${projectId}`,
+    const paths = { overview: `/api/projects/${projectId}/overview`, structure: `/api/projects/${projectId}/structure`, tasks: `/api/tasks?project_id=${projectId}`,
       repairs: `/api/projects/${projectId}/repairs`, verifications: `/api/projects/${projectId}/verifications`, knowledge: `/api/projects/${projectId}/knowledge`, releases: `/api/projects/${projectId}/releases` }
-    readApi(connection, paths[tab], controller.signal).then(value => { setData(value); setLoading(false) }).catch(error => {
+    readApi(connection, paths[tab], controller.signal, tab === 'structure' ? 60000 : 15000).then(value => { setData(value); setLoading(false) }).catch(error => {
       if (error instanceof Error && error.name === 'AbortError') return
       setLoading(false); setError(error instanceof Error ? error.message : '读取失败。')
     })
@@ -136,13 +137,14 @@ export function App() {
             <JsonDetails value={overview} title="查看概览来源、声明与提示" /></section>
           <div className="notice">当前选定源码与工作区分别报告。这里的版本选择不代表运行服务已经发布。</div>
         </>}
-        {tab !== 'overview' && <section className="panel"><div className="panel-heading"><h2>{tabs.find(([key]) => key === tab)?.[1]}</h2><span className="muted">{rows.length} 条记录</span></div>
+        {tab === 'structure' && data !== null && <ProjectStructure key={projectId} value={data} />}
+        {tab !== 'overview' && tab !== 'structure' && <section className="panel"><div className="panel-heading"><h2>{tabs.find(([key]) => key === tab)?.[1]}</h2><span className="muted">{rows.length} 条记录</span></div>
           {!rows.length ? <div className="empty compact"><h3>还没有相关记录</h3><p>通过 CLI 完成调查、维护或知识确认后，记录会在这里展示。</p></div> : <div className="table-wrap"><table><thead><tr><th>记录</th><th>状态</th><th>类型 / 来源</th><th>创建时间</th><th /></tr></thead><tbody>
             {rows.map((row, index) => <tr key={String(row.id || row.task_id || index)}><td><strong title={String(row.title || row.task_id || row.id)}>{String(row.title || row.task_id || row.id).slice(0, row.title ? 36 : 12)}</strong></td><td><Status value={row.status} /></td>
               <td>{String(row.purpose === 'repair_proposal' ? '修复 / 开发建议' : row.purpose === 'question' ? '调查问答' : row.kind || row.operation || '候选修改')}</td><td>{row.created_at ? new Date(String(row.created_at)).toLocaleString('zh-CN', { hour12: false }) : '—'}</td><td><button onClick={() => openRecord(row)}>查看 →</button></td></tr>)}
           </tbody></table></div>}
           <div className="notice">这个工作台目前只展示记录。模型数据批准、具体修改、验证与版本选择仍通过 CLI 独立进行。</div></section>}
-        {detail && tab !== 'overview' && <RecordDetail kind={tab} value={detail} onClose={() => { recordRequest.current?.abort(); setDetail(null) }} />}
+        {detail && tab !== 'overview' && tab !== 'structure' && <RecordDetail kind={tab} value={detail} onClose={() => { recordRequest.current?.abort(); setDetail(null) }} />}
       </>}
       <footer>Zest · 为一个项目保留连续的上下文<span>有来源 · 可审阅 · 有记录</span></footer>
     </main>

@@ -7,7 +7,7 @@ from tests import test_projects as fixtures
 from zest.files import FileReadError
 from zest.git import inspect_repository, managed_ref
 from zest.storage import ProjectRegistry
-from zest.structure import build_structure
+from zest.structure import build_structure, lookup_symbols
 
 
 class PythonStructureTest(unittest.TestCase):
@@ -104,3 +104,22 @@ class PythonStructureTest(unittest.TestCase):
         self.assertIsNone(result["commit"])
         self.assertEqual(result["modules"], [])
         self.assertEqual(result["warnings"], [{"code": "unborn_repository"}])
+
+    def test_symbol_lookup_filters_scopes_and_paths_with_bounded_queries(self):
+        project, commit = self.project("class Service:\n    def method(self): pass\n")
+        record = lookup_symbols(project, "SERVICE.METHOD")
+        self.assertEqual([match["lexical_name"] for match in record["matches"]], ["Service.method"])
+        self.assertEqual(record["matches"][0]["evidence"]["commit"], commit)
+        bounded = lookup_symbols(project, "app.py", limit=1)
+        self.assertEqual(len(bounded["matches"]), 1)
+        self.assertTrue(bounded["truncated"])
+        for query, limit in (("", 1), ("x" * 201, 1), ("x", True), ("x", 21)):
+            with self.assertRaises(FileReadError):
+                lookup_symbols(project, query, limit=limit)
+
+    def test_metadata_path_budget_does_not_repeat_unbounded_git_names(self):
+        project, _ = self.project()
+        with patch("zest.structure.MAX_PATH_LENGTH", 2):
+            record = build_structure(project)
+        self.assertEqual(record["modules"], [])
+        self.assertEqual(record["skipped_counts"]["structure_path_budget"], 1)
