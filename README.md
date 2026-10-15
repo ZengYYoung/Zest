@@ -33,6 +33,8 @@ uv run zest cognition dossier <run-id> --format text
 
 完整原文与读取记录保留，模型上下文去除重复表达；末轮保留报告机会。完整请求体默认 32000 字符，适度超限先暂停，审阅后可批准本次扩展至最高 48000。[上下文、批准与恢复](docs/COGNITION_CONTEXT.md)
 
+最近真实复测停在规划来源清单的数量校验，尚未形成可评估档案；原生类型/格式通过不代表业务校验通过。[实测结果与下一讨论点](docs/COGNITION_ACCEPTANCE_RETEST.md)
+
 ## 本地项目摸底
 
 ```bash
