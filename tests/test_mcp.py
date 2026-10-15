@@ -42,6 +42,27 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.data["data"]["model_calls"], 0)
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.state_dir.iterdir() if p.is_file()})
 
+    async def test_management_inventory_exposes_finished_followups_without_mutation(self):
+        from tests.test_management_context import ManagementContextTest
+        from unittest.mock import patch
+        (self.repo / "app.py").write_text("def add(a, b):\n    return a + b\n")
+        server = self.server()
+        project = ProjectRegistry(self.state_dir).get_project_readonly(self.project_id)
+        runs = [ManagementContextTest.seed(self, project, status="partial", finding_status=status,
+                                           destination=self.state_dir)
+                for status in ("pending_review", "needs_investigation")]
+        before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in self.root.rglob("*") if p.is_file()}
+        with patch("zest.models.DeepSeekModel.complete", side_effect=AssertionError("No model")):
+            async with Client(server) as client:
+                response = await client.call_tool("project_management_context", {})
+        self.assertTrue(response.data["ok"])
+        data = response.data["data"]
+        self.assertEqual(data["cognition"]["todos"], [])
+        self.assertEqual({a["run_id"] for a in data["cognition"]["followup_actions"]}, set(runs))
+        self.assertEqual({a["action"] for a in data["cognition"]["followup_actions"]}, {"review_finding", "investigate_finding"})
+        self.assertEqual(data["model_calls"], 0)
+        self.assertEqual(before, {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in self.root.rglob("*") if p.is_file()})
+
     async def test_structure_lookup_and_read_preserve_same_source_without_execution(self):
         (self.repo / "app.py").write_text("raise RuntimeError('never execute')\nclass Service:\n    def method(self):\n        return 1\n")
         server = self.server()

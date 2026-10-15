@@ -287,6 +287,160 @@ class ManagementContextTest(unittest.TestCase):
         self.assertEqual(json.loads(out)["target_commit"], project["git"]["head_commit"])
         self.assertEqual(before, self.snapshot())
 
+    def test_finished_unresolved_observations_have_stable_readonly_followups(self):
+        project = self.project()
+        expected = {}
+        for status, finding_status, kind in (
+            ("partial", "pending_review", "observed"),
+            ("completed", "needs_investigation", "observed"),
+            ("partial", "needs_investigation", "inferred"),
+            ("partial", "pending_review", "inferred"),
+            ("partial", "invalidated", "observed"),
+            ("completed", "auto_reviewed", "observed"),
+            ("reviewing", "pending_review", "observed"),
+            ("failed", "pending_review", "observed"),
+        ):
+            run = self.seed(project, status=status, finding_status=finding_status, kind=kind)
+            if status in ("completed", "partial") and kind == "observed" and finding_status in ("pending_review", "needs_investigation"):
+                expected[run] = "review_finding" if finding_status == "pending_review" else "investigate_finding"
+        before = self.snapshot()
+        with patch("zest.models.DeepSeekModel.complete", side_effect=AssertionError("No model")), \
+             patch("zest.cognition.start_worker", side_effect=AssertionError("No worker")), \
+             patch.object(CognitionStore, "recover", side_effect=AssertionError("No recovery")):
+            first = build_management_context(self.state_dir, project["id"])
+            second = build_management_context(self.state_dir, project["id"])
+        actions = first["cognition"]["followup_actions"]
+        self.assertEqual(actions, second["cognition"]["followup_actions"])
+        self.assertEqual({a["run_id"]: a["action"] for a in actions}, expected)
+        self.assertEqual(len(first["cognition"]["todos"]), 2)
+        for action in actions:
+            self.assertEqual(action["id"], action["run_id"] + "/T1:F1")
+            self.assertTrue(action["saved_evidence_identity_valid"])
+            self.assertEqual(action["evidence"][0]["path"], "app.py")
+            self.assertEqual(action["inspect_command"], ["zest", "--state-dir", str(self.state_dir.resolve()),
+                "cognition", "show", action["run_id"], "--format", "json"])
+        self.assertEqual(before, self.snapshot())
+
+    def test_followups_preserve_attribute_review_both_conflict_sides_and_stop_reason(self):
+        project = self.project()
+        run = self.seed(project, status="partial", finding_status="needs_investigation")
+        review = {"reason": "生命周期陈述有矛盾。", "supported": False,
+                  "checks": [{"attribute": "生命周期", "verdict": "contradicted"}],
+                  "conflicts": [{"reference_id": "T1:F2", "reason": "相同条件下取值不同。"},
+                                {"reference_id": "T1:U1", "reason": "未知项中有相反陈述。"}]}
+        linked = {"reason": "存在关联冲突。", "supported": False,
+                  "conflict_links": [{"reference_id": "T1:F1", "reason": "相同条件下取值不同。"}]}
+        with CognitionStore(project["resource_dir"]).open(write=True) as conn, conn:
+            conn.execute("UPDATE cognition_findings SET review=? WHERE run_id=?", (canonical(review), run))
+            conn.execute("INSERT INTO cognition_findings SELECT run_id,'T1:F2',job_id,finding,status,? FROM cognition_findings WHERE run_id=?",
+                         (canonical(linked), run))
+            conn.execute("UPDATE cognition_runs SET error=? WHERE id=?", (canonical({"code": "cognition_call_budget"}), run))
+        before = self.snapshot()
+        context = build_management_context(self.state_dir, project["id"])
+        actions = {a["finding_id"]: a for a in context["cognition"]["followup_actions"]}
+        self.assertEqual(actions["T1:F1"]["review"], review)
+        self.assertEqual(actions["T1:F2"]["review"], linked)
+        self.assertEqual(actions["T1:F1"]["conflicts"][0]["reference_id"], "T1:F2")
+        self.assertEqual(actions["T1:F2"]["conflicts"][0]["relation"], "conflict_links")
+        self.assertTrue(all(a["run_error"]["code"] == "cognition_call_budget" for a in actions.values()))
+        self.assertIn("未解决冲突", format_management_context(context))
+        self.assertIn("cognition_call_budget", format_management_context(context))
+        self.assertEqual(before, self.snapshot())
+
+    def test_broken_followup_evidence_requires_inspection_and_malformed_conflicts_fail(self):
+        project = self.project()
+        run = self.seed(project, status="partial", finding_status="pending_review")
+        store = CognitionStore(project["resource_dir"])
+        with store.open(write=True) as conn, conn:
+            finding = json.loads(conn.execute("SELECT finding FROM cognition_findings WHERE run_id=?", (run,)).fetchone()[0])
+            finding["evidence"][0]["evidence"]["blob_id"] = "0" * 40
+            conn.execute("UPDATE cognition_findings SET finding=? WHERE run_id=?", (canonical(finding), run))
+        before = self.snapshot()
+        action = build_management_context(self.state_dir, project["id"])["cognition"]["followup_actions"][0]
+        self.assertEqual(action["action"], "inspect_saved_evidence")
+        self.assertFalse(action["saved_evidence_identity_valid"])
+        self.assertEqual(action["evidence"], [])
+        self.assertEqual(before, self.snapshot())
+        with store.open(write=True) as conn, conn:
+            conn.execute("UPDATE cognition_findings SET review=? WHERE run_id=?", (canonical({"conflicts": "broken"}), run))
+        before = self.snapshot()
+        with self.assertRaises(FileReadError) as caught:
+            build_management_context(self.state_dir, project["id"])
+        self.assertEqual(caught.exception.code, "cognition_record_corrupt")
+        self.assertEqual(before, self.snapshot())
+
+    def test_followups_exclude_other_versions_and_other_projects(self):
+        project = self.project()
+        old = self.seed(project, status="partial", finding_status="pending_review")
+        (self.repo / "next.txt").write_text("A new fixed version\n")
+        commit = self.commit()
+        project = ProjectRegistry(self.state_dir).register(inspect_repository(self.repo), workspace=True)
+        current = self.seed(project, commit=commit, status="partial", finding_status="pending_review")
+        other_root = self.root / "second-project"
+        self.git("clone", str(self.repo), str(other_root))
+        other = ProjectRegistry(self.state_dir).register(inspect_repository(other_root), workspace=True)
+        foreign = self.seed(other, status="partial", finding_status="pending_review")
+        before = self.snapshot()
+        result = build_management_context(self.state_dir, project["id"])
+        self.assertEqual([a["run_id"] for a in result["cognition"]["followup_actions"]], [current])
+        self.assertIn(old, [r["id"] for r in result["cognition"]["historical_runs"]])
+        self.assertNotIn(foreign, json.dumps(result))
+        self.assertEqual(before, self.snapshot())
+
+    def test_followup_disappears_when_finding_state_is_resolved_or_invalidated(self):
+        project = self.project()
+        run = self.seed(project, status="partial", finding_status="pending_review")
+        first = build_management_context(self.state_dir, project["id"])["cognition"]["followup_actions"]
+        self.assertEqual(len(first), 1)
+        store = CognitionStore(project["resource_dir"])
+        for status in ("auto_reviewed", "invalidated"):
+            with store.open(write=True) as conn, conn:
+                conn.execute("UPDATE cognition_findings SET status=? WHERE run_id=?", (status, run))
+            before = self.snapshot()
+            self.assertEqual(build_management_context(self.state_dir, project["id"])["cognition"]["followup_actions"], [])
+            self.assertEqual(before, self.snapshot())
+
+    def test_cli_reports_finished_followups_with_existing_inspection_command(self):
+        project = self.project()
+        run = self.seed(project, status="partial", finding_status="pending_review")
+        before = self.snapshot()
+        code, out, err = self.cli("project", "context", project["id"], "--format", "text")
+        self.assertEqual(code, 0, err)
+        self.assertIn("后续行动（已结束调查）", out)
+        self.assertIn("需要核对", out)
+        self.assertIn("尚未完成原文核对", out)
+        self.assertIn("来源：app.py:2", out)
+        self.assertIn(f"cognition show {run}", out)
+        self.assertIn("另行准备和批准", out)
+        code, out, err = self.cli("project", "context", project["id"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["cognition"]["followup_actions"][0]["run_id"], run)
+        self.assertEqual(before, self.snapshot())
+
+    @unittest.skipUnless(importlib.util.find_spec("langgraph") and importlib.util.find_spec("fastmcp"), "ai/mcp extras required")
+    def test_followup_inspection_command_reads_saved_original_and_review_without_calls(self):
+        project = self.project()
+        model = OfflineCognitionModel()
+        store = CognitionStore(self.state_dir)
+        settings = model.settings
+        run = store.create(project["id"], target={"provider": settings.provider, "model": settings.name, "base_url": settings.base_url})
+        store.decide(run["id"], approved=True, approval_sha256=run["approval_sha256"])
+        result = CognitionEngine(self.state_dir, model=model).run(run["id"])
+        finding = result["findings"][0]
+        with CognitionStore(project["resource_dir"]).open(write=True) as conn, conn:
+            conn.execute("UPDATE cognition_findings SET status='pending_review' WHERE run_id=? AND id=?", (run["id"], finding["id"]))
+            conn.execute("UPDATE cognition_runs SET status='partial' WHERE id=?", (run["id"],))
+        before = self.snapshot()
+        calls = len(model.calls)
+        action = build_management_context(self.state_dir, project["id"])["cognition"]["followup_actions"][0]
+        code, out, err = self.cli(*action["inspect_command"][3:])
+        self.assertEqual(code, 0, err)
+        saved = next(f for f in json.loads(out)["findings"] if f["id"] == action["finding_id"])
+        self.assertEqual(saved["finding"]["evidence"], finding["finding"]["evidence"])
+        self.assertEqual(saved["review"], finding["review"])
+        self.assertEqual(len(model.calls), calls)
+        self.assertEqual(before, self.snapshot())
+
     @unittest.skipUnless(importlib.util.find_spec("langgraph") and importlib.util.find_spec("fastmcp"), "ai/mcp extras required")
     def test_offline_cognition_production_records_are_usable_as_management_context(self):
         project = self.project()

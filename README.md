@@ -16,7 +16,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 初始化已接入项目时只校验和连接，保留原有管理状态、批准与自定义内容。`.zest/AGENTS.md` 提供管理导航，索引引用原位文件；原生 README/docs 不另建副本。索引缓存及批准/证据审计保留必要原文。旧项目缺少入口可用 `zest project guide <project-id>` 显式补齐，已有入口不覆盖；新认知包将管理入口作为单独线索冻结后审阅，旧批准不变。
 
-`zest project context <project-id> --format text --progress` 只读汇总当前版本可用的记忆、六部分认知、原生文件索引与调查待办，历史与待核实内容单独标明；同样可通过项目 MCP 的 `project_management_context` 查询。不调用模型、重建索引或自动恢复任务。[管理上下文总览](docs/MANAGEMENT_CONTEXT.md)
+`zest project context <project-id> --format text --progress` 只读汇总当前版本可用的记忆、六部分认知、原生文件索引、调查待办与已结束调查的后续行动，历史与待核实内容单独标明；同样可通过项目 MCP 的 `project_management_context` 查询。不调用模型、重建索引或自动恢复任务。[管理上下文总览](docs/MANAGEMENT_CONTEXT.md)
 
 ## 交互式终端
 

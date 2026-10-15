@@ -21,6 +21,32 @@ FINISHED = {"completed", "partial"}
 INACTIVE = FINISHED | {"rejected"}
 
 
+def _followup(record, finding):
+    """Derive navigation from saved state, without creating an executable task."""
+    review = finding["review"]
+    if review is not None and not isinstance(review, dict):
+        raise ValueError("invalid saved review")
+    review = review or {}
+    reason = review.get("reason") or ("尚未完成原文核对。" if finding["status"] == "pending_review"
+                                     else "原文核对尚未通过，需要补充调查。")
+    text(reason)
+    conflicts = []
+    for key in ("conflicts", "conflict_links"):
+        values = review.get(key, [])
+        if not isinstance(values, list):
+            raise ValueError("invalid saved conflicts")
+        for value in values:
+            text(value["reference_id"], 160)
+            text(value["reason"])
+            conflicts.append({"run_id": record["id"], "reference_id": value["reference_id"],
+                              "reason": value["reason"], "relation": key})
+    action = ("inspect_saved_evidence" if not finding["saved_evidence_identity_valid"] else
+              "review_finding" if finding["status"] == "pending_review" else "investigate_finding")
+    return {**finding, "id": f"{record['id']}/{finding['finding_id']}", "commit": record["commit"],
+            "run_status": record["status"], "run_error": record.get("error"),
+            "action": action, "reason": reason, "conflicts": conflicts}
+
+
 def _proofs(finding, catalog, commit):
     """Only check saved identities; this does not re-read Git or review meaning."""
     references = []
@@ -42,7 +68,7 @@ def _proofs(finding, catalog, commit):
 def _cognition(records, target):
     sections = [{"id": key, "title": title, "facts": [], "pending": []} for key, title, _ in SECTIONS]
     by_section = {section["id"]: section for section in sections}
-    runs, history, todos, gaps = [], [], [], []
+    runs, history, todos, gaps, followups = [], [], [], [], []
     try:
         for record in records:
             summary = {key: record[key] for key in ("id", "commit", "status", "created_at", "updated_at", "call_count")}
@@ -64,11 +90,16 @@ def _cognition(records, target):
                 proofs, valid = _proofs(finding, record["catalog"], target)
                 fact = (record["status"] in FINISHED and item["status"] == "auto_reviewed"
                         and finding["kind"] == "observed" and valid)
-                section["facts" if fact else "pending"].append({
+                entry = {
                     "run_id": record["id"], "finding_id": item["id"], "job_id": item["job_id"],
+                    "section": finding["section"],
                     "statement": finding["statement"], "kind": finding["kind"], "status": item["status"],
                     "evidence": proofs, "saved_evidence_identity_valid": valid,
-                    "review": item["review"], "invalidated": item["status"] == "invalidated"})
+                    "review": item["review"], "invalidated": item["status"] == "invalidated"}
+                section["facts" if fact else "pending"].append(entry)
+                if (record["status"] in FINISHED and finding["kind"] == "observed"
+                        and item["status"] in ("pending_review", "needs_investigation")):
+                    followups.append(_followup(record, entry))
             for gap in (record["plan"] or {}).get("gaps", []):
                 text(gap["question"])
                 gaps.append({"run_id": record["id"], "section": gap["section"], "question": gap["question"], "kind": "plan_gap"})
@@ -87,7 +118,7 @@ def _cognition(records, target):
                     gaps.append({"run_id": record["id"], "job_id": job["id"],
                                  "sections": job["spec"]["sections"], "kind": kind, "question": question})
         return {"current_runs": runs, "historical_runs": history, "sections": sections,
-                "gaps": gaps, "todos": todos,
+                "gaps": gaps, "todos": todos, "followup_actions": followups,
                 "coverage": {"sections_with_facts": sum(bool(s["facts"]) for s in sections), "total_sections": len(sections)},
                 "evidence_check": "saved_package_identity_only_not_new_source_or_semantic_review"}
     except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as exc:
@@ -129,6 +160,9 @@ def build_management_context(state_dir, project_id, *, progress=None):
     result["memory"] = {"applicable": applicable, "other": other}
     emit("cognition")
     result["cognition"] = _cognition(CognitionStore(state_dir).management_records(project_id), target)
+    for action in result["cognition"]["followup_actions"]:
+        action["inspect_command"] = ["zest", "--state-dir", str(Path(state_dir).resolve()), "cognition", "show",
+                                     action["run_id"], "--format", "json"]
     emit("index")
     result["index"] = {"status": "no_committed_target", "files": []}
     if target is not None:
@@ -147,6 +181,7 @@ def build_management_context(state_dir, project_id, *, progress=None):
 
 
 def format_management_context(record):
+    from shlex import join
     from .terminal import display_text
     from .cognition_views import LABELS
     actions = {"inspect_saved_requests_before_explicit_recovery": "核对保存的请求，再决定是否显式恢复",
@@ -181,6 +216,26 @@ def format_management_context(record):
                  for r in record["cognition"]["todos"])
     if not record["cognition"]["todos"]:
         lines.append("没有登记中的调查待办。")
+    lines.extend(["", "后续行动（已结束调查）："])
+    followups = record["cognition"].get("followup_actions", [])
+    action_names = {"review_finding": "需要核对", "investigate_finding": "需要补查",
+                    "inspect_saved_evidence": "先核对保存的来源身份"}
+    for action in followups:
+        lines.append("- " + display_text(f"{action_names[action['action']]} · {action['run_id']} / {action['finding_id']} · {action['statement']}"))
+        lines.append("  原因：" + display_text(action["reason"]))
+        if action["run_error"]:
+            lines.append("  调查停止原因：" + display_text(action["run_error"]))
+        lines.extend("  来源：" + display_text(f"{p['path']}:{p['start_line']}–{p['end_line']} · {p['commit']}")
+                     for p in action["evidence"])
+        if not action["saved_evidence_identity_valid"]:
+            lines.append("  保存的来源身份不完整或不匹配，需先检查。")
+        lines.extend("  未解决冲突：" + display_text(f"{c['run_id']} / {c['reference_id']} · {c['reason']}")
+                     for c in action["conflicts"])
+        lines.append("  查看：" + display_text(join(action["inspect_command"])))
+    if not followups:
+        lines.append("没有符合当前版本与状态条件的后续行动；未知和推测仍见原栏目。")
+    else:
+        lines.append("以上为只读建议；继续核对或补查须另行准备和批准，不恢复旧调查或重发请求。")
     lines.append(f"历史版本调查：{len(record['cognition']['historical_runs'])} 次；没有移入当前事实。")
     lines.append("自动核对仍可能出错；此处仅检查保存的来源身份，未重新核对原文或证明实际运行状态。")
     return "\n".join(lines)
