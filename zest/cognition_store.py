@@ -460,6 +460,7 @@ class CognitionStore:
 
     def dossier(self, run_id):
         from .survey import SECTIONS
+        from .cognition_context import material_request_text
         record = self.show(run_id)
         parts = [{"id": key, "title": title, "facts": [], "pending": []} for key, title, _ in SECTIONS]
         lookup = {part["id"]: part for part in parts}
@@ -472,8 +473,15 @@ class CognitionStore:
                     for rejected in (job["result"].get("report_validation") or {}).get("rejected_findings", []):
                         lookup[section]["pending"].append({"question": f"报告候选未接收：{rejected['field']} · {rejected['code']} · {rejected['message']}",
                                                            "report_rejection": True, "task_id": job["id"]})
+                    for rejected in (job["result"].get("report_validation") or {}).get("rejected_material_requests", []):
+                        lookup[section]["pending"].append({"question": f"资料需求未接收：{rejected['field']} · {rejected['code']} · {rejected['message']}",
+                                                           "material_request_rejection": True, "task_id": job["id"]})
                     lookup[section]["pending"].extend({"question": value} for value in job["result"]["report"]["unknowns"])
-                    lookup[section]["pending"].extend({"question": value, "scope_expansion": True} for value in job["result"]["report"].get("scope_requests", []))
+                    for key in ("in_scope_requests", "scope_requests"):
+                        lookup[section]["pending"].extend({"question": material_request_text(value),
+                            "scope_expansion": key == "scope_requests" and not isinstance(value, str),
+                            "legacy_material_request": isinstance(value, str), "task_id": job["id"]}
+                            for value in job["result"]["report"].get(key, []))
         return {"run_id": run_id, "project_id": record["project_id"], "commit": record["commit"], "status": record["status"],
                 "sections": parts, "plan_gaps": record["plan"]["gaps"] if record["plan"] else [],
                 "limitations": ["automatic_review_not_human_confirmation", "static_snapshot_not_runtime_verification"]}

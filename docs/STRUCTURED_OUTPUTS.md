@@ -32,6 +32,8 @@ model.with_structured_output(
 
 调查输出使用 `response` 包裹互斥变体：`kind=actions` 提供动作，`kind=report` 提供完整报告。适配器映射回已有内部 actions/report 协议。工具默认值显式表达；read 的 `end_line=0` 表示已有工具的默认读取窗口。这样避免含糊的可空字段，同时保持原工具权限和固定版本证据。
 
+M046 将报告资料需求统一为 `MaterialRequest`，显式返回 source_id、path、reason；列表字段为 material_requests，取代旧自由文本 scope_requests。包外 source_id 用空字符串表达，所有字段继续必填且有描述。程序依据固定目录分类/留痕，派生 in_scope_requests/scope_requests；这些派生记录不是新的模型输出。旧响应/历史只读保留，新 schema/指令阻止旧批准执行，详见 [资料需求分类](COGNITION_MATERIAL_REQUESTS.md)。
+
 ## 实际目标与批准
 
 DeepSeek 的原生 strict 工具调用使用官方 `/beta` 接口。配置根地址 `https://api.deepseek.com` 时，在准备预览前就解析为 `https://api.deepseek.com/beta`；doctor 显示配置地址及实际目标。自定义地址保持原值，其 strict 兼容性需另行确认。[供应商 strict 契约](https://api-docs.deepseek.com/guides/tool_calls/)

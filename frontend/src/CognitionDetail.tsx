@@ -3,6 +3,12 @@ import { shortCommit, statusLabels, type Row } from './api.ts'
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(object) : []
 const text = (value: unknown) => typeof value === 'string' ? value : '—'
+const materialRequest = (value: unknown) => {
+  if (typeof value === 'string') return `历史资料需求（未分类）：${value}`
+  const entry = object(value)
+  const prefix = entry.location === 'outside_package' ? '包外资料需另行批准' : entry.location === 'approved_read' ? '包内待补读（已有读取窗口）' : '包内待补读（尚未读取）'
+  return `${prefix}：${text(entry.path)} · ${text(entry.reason)}`
+}
 const sections = [['purpose', '项目目标与业务边界'], ['architecture', '模块与架构关系'], ['flows', '核心业务流程'], ['dependencies', '数据与外部依赖'], ['development', '开发与验证方式'], ['constraints', '约束与认知缺口']]
 
 export function CognitionDetail({ value, onClose }: { value: unknown; onClose(): void }) {
@@ -21,14 +27,15 @@ export function CognitionDetail({ value, onClose }: { value: unknown; onClose():
       {text(item.actor)} / {Number(item.sequence)}：完整请求 {Number(item.chars)} 字符，默认 {Number(item.default_chars)}，超出 {Number(item.over_percent)}%。尚未外发，请在终端或 CLI 审阅并决定本次扩展。
     </p>)}
     <h3>初步认知 · 待深入核对</h3><ul>{rows(plan.overview).map((entry, i) => <li key={i}>{text(entry.statement)} · {entry.kind === 'inferred' ? '推测' : '初步观察'}</li>)}</ul>
-    <h3>调查任务</h3>{jobs.map(job => { const spec = object(job.spec), report = object(object(job.result).report), rejected = rows(object(object(job.result).report_validation).rejected_findings)
+    <h3>调查任务</h3>{jobs.map(job => { const spec = object(job.spec), report = object(object(job.result).report), audit = object(object(job.result).report_validation), rejected = rows(audit.rejected_findings)
       return <details className="source-entry" key={text(job.id)}><summary><strong>{text(job.id)} · {text(spec.title)}</strong><span>{statusLabels[text(job.status)] || text(job.status)}</span></summary>
         <p>{text(spec.goal)}</p><p className="review-note">成果：{text(spec.deliverable)}</p>
         <p>依赖：{Array.isArray(spec.depends_on) && spec.depends_on.length ? spec.depends_on.join('、') : '无'}</p>
         <ul>{Array.isArray(spec.acceptance) && spec.acceptance.map((v, i) => <li key={i}>{text(v)}</li>)}</ul>
         <ul>{Array.isArray(report.unknowns) && report.unknowns.map((v, i) => <li key={i}>待核实：{text(v)}</li>)}</ul>
         <ul>{rejected.map((issue, i) => <li key={i}>候选未接收：{text(issue.field)} · {text(issue.code)} · {text(issue.message)}</li>)}</ul>
-        <ul>{Array.isArray(report.scope_requests) && report.scope_requests.map((v, i) => <li key={i}>需要扩大授权：{text(v)}</li>)}</ul>
+        <ul>{rows(audit.rejected_material_requests).map((issue, i) => <li key={i}>资料需求未接收：{text(issue.field)} · {text(issue.code)} · {text(issue.message)}</li>)}</ul>
+        <ul>{['in_scope_requests', 'scope_requests'].flatMap(key => Array.isArray(report[key]) ? report[key].map((v, i) => <li key={`${key}-${i}`}>{materialRequest(v)}</li>) : [])}</ul>
       </details> })}
     {sections.map(([id, title]) => <div key={id}><h3>{title}</h3>
       {!findings.some(item => object(item.finding).section === id) && <p className="review-note">尚无可展示发现，保持未知。</p>}

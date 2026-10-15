@@ -31,6 +31,30 @@ def scope_review(envelope):
             "message": "资料较多或本轮摸底/目录不完整，请先确认按模块调查，或只批准当前已展示的固定资料包。" if reasons else "当前资料范围可直接审阅。"}
 
 
+def approved_materials(envelope):
+    """Complete, minimal authorization inventory, distinct from read evidence."""
+    return [{"id": source["id"], "path": source["evidence"]["path"]} for source in envelope["files"]]
+
+
+def read_source_ids(results):
+    """A successful window/empty observation is a read, never a full-file claim."""
+    return sorted({item["result"]["data"]["source_id"] for item in results
+                   if item["tool"] == "read" and item["result"].get("ok")})
+
+
+def material_request_text(request):
+    """Format only stored data; legacy free text is never reclassified."""
+    if isinstance(request, str):
+        return "历史资料需求（未分类）：" + request
+    if request["location"] == "outside_package":
+        prefix = "包外资料需另行批准："
+    elif request["location"] == "approved_read":
+        prefix = "包内待补读（已有读取窗口）："
+    else:
+        prefix = "包内待补读（尚未读取）："
+    return prefix + request["path"] + " · " + request["reason"]
+
+
 def compact_proof(proof):
     """Text and its physical range replace the redundant per-line text copy."""
     return {key: value for key, value in proof.items() if key != "lines"}

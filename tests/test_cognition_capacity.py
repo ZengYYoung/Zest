@@ -109,14 +109,14 @@ class CapacityContractTest(unittest.TestCase):
         evidence = {f"R{i}": {"text": "read original"} for i in range(1, 13)}
         report = {"status": "partial", "findings": [{"section": "flows", "kind": "observed", "statement": f"发现 {i}",
             "citations": list(evidence)} for i in range(12)], "unknowns": [f"未知 {i}" for i in range(16)],
-            "scope_requests": [f"包外需求 {i}" for i in range(8)]}
-        self.assertEqual(validate_report(report, evidence), report)
+            "material_requests": [{"source_id": "", "path": f"outside/{i}.md", "reason": f"包外需求 {i}"} for i in range(8)]}
+        self.assertEqual(validate_report(report, evidence, []), report)
         outputs.model_for("project_report").model_validate({"response": {"kind": "report", "report": report}})
         self.assertEqual(POLICY["recommended_report_findings"], 6)
         self.assertEqual(POLICY["max_response_chars"], 32000)
         for bad in (["R1", "R1"], ["R13"], []):
             changed = copy.deepcopy(report); changed["findings"][0]["citations"] = bad
-            with self.assertRaises(FileReadError): validate_report(changed, evidence)
+            with self.assertRaises(FileReadError): validate_report(changed, evidence, [])
 
     def test_reserved_report_budget_is_larger_without_changing_other_calls(self):
         settings = fixtures.OfflineCognitionModel().settings
@@ -159,7 +159,7 @@ class CapacityEngineTest(unittest.TestCase):
             evidence = {f"R{i + 1}": tools.read(source["id"], job * 12 + i + 1, job * 12 + i + 1) for i in range(12)}
             report = {"status": "completed", "findings": [{"section": sections[job * 3 + i], "kind": "observed",
                 "statement": "观察到固定原文注释", "citations": [f"R{r + 1}" for r in range(i * 4, i * 4 + 4)]} for i in range(3)],
-                "unknowns": [], "scope_requests": []}
+                "unknowns": [], "material_requests": []}
             validate_report(report, evidence)
             self.store.publish_job(record["id"], f"T{job + 1}", {"report": report, "evidence": evidence})
         self.engine.review(record["id"], envelope)

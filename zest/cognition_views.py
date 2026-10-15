@@ -2,6 +2,7 @@
 
 import time
 from .terminal import display_text
+from .cognition_context import material_request_text
 
 TERMINAL_STATUSES = {"completed", "partial", "failed", "pending_execution", "rejected", "awaiting_context_approval"}
 LABELS = {"awaiting_approval": "等待资料包批准", "queued": "已入队", "planning": "制定调查计划",
@@ -27,8 +28,11 @@ def format_cognition(record):
         if job["result"]:
             for rejected in (job["result"].get("report_validation") or {}).get("rejected_findings", []):
                 lines.append("    候选未接收：" + display_text(f"{rejected['field']} · {rejected['code']} · {rejected['message']}"))
+            for rejected in (job["result"].get("report_validation") or {}).get("rejected_material_requests", []):
+                lines.append("    资料需求未接收：" + display_text(f"{rejected['field']} · {rejected['code']} · {rejected['message']}"))
             lines.extend("    待补充：" + display_text(item) for item in job["result"]["report"]["unknowns"])
-            lines.extend("    待扩展授权：" + display_text(item) for item in job["result"]["report"]["scope_requests"])
+            for key in ("in_scope_requests", "scope_requests"):
+                lines.extend("    " + display_text(material_request_text(item)) for item in job["result"]["report"].get(key, []))
     if record["error"]:
         lines.append("错误：" + display_text(record["error"]))
     for request in record.get("context_requests", []):

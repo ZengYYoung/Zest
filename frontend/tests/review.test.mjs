@@ -9,6 +9,19 @@ import { CognitionDetail } from '../src/CognitionDetail.tsx'
 const render = (kind, value) => renderToStaticMarkup(createElement(RecordDetail, { kind, value, onClose() {} }))
 const sourceRecord = { id: 'E1', evidence: { path: 'app.py', commit: 'a'.repeat(40), start_line: 4, end_line: 5 }, content: 'def add(a,b):\n    return a-b\n', content_sha256: 'c'.repeat(64) }
 
+test('material requests distinguish approved reads, unread sources, outside needs and legacy text', () => {
+  const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: { jobs: [{ id: 'T1', result: {
+    report: { in_scope_requests: [{ path: 'app.py', reason: '续读', location: 'approved_read' },
+      { path: 'unread.py', reason: '<script>定位</script>', location: 'approved_unread' }],
+      scope_requests: [{ path: 'operations/run.log', reason: '运行证据', location: 'outside_package' }, '旧自由文本'] },
+    report_validation: { rejected_material_requests: [{ field: 'report.material_requests[3]', code: 'invalid_cognition_material_request', message: '路径不匹配' }] },
+  } }] } }))
+  for (const value of ['包内待补读（已有读取窗口）', '包内待补读（尚未读取）', '包外资料需另行批准',
+    '历史资料需求（未分类）', '资料需求未接收', 'app.py', 'unread.py', 'operations/run.log', '路径不匹配', '&lt;script&gt;']) assert.ok(html.includes(value), value)
+  assert.ok(!html.includes('<script>'))
+  assert.ok(!html.includes('<button>批准'))
+})
+
 test('rejected candidates are shown as receipt issues without becoming reviewed facts', () => {
   const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: { jobs: [
     { id: 'T1', status: 'partial', result: { report_validation: { rejected_findings: [

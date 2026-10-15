@@ -213,7 +213,7 @@ class ContextApprovalTest(unittest.TestCase):
             if purpose == "project_report":
                 self.model.calls.append((purpose, payload))
                 return {"text": json.dumps({"actions": [], "report": {"status": "partial", "findings": [],
-                    "unknowns": ["没有已读原文，保留调查缺口。"], "scope_requests": []}})}
+                    "unknowns": ["没有已读原文，保留调查缺口。"], "material_requests": []}})}
             return original(payload, purpose=purpose)
         extended = COGNITION_PROMPTS["project_research"] + "x" * 45000
         with patch.dict(COGNITION_PROMPTS, {"project_research": extended}), patch.dict(PROMPTS, {"project_research": extended}):

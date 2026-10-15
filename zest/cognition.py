@@ -15,7 +15,7 @@ from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, k
                                   text, validate_plan, partition_report)
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
-from .cognition_context import compact_proof, compact_results, review_payload, material_catalog
+from .cognition_context import compact_proof, compact_results, review_payload, material_catalog, approved_materials, read_source_ids
 from .files import FileReadError
 from .models import DeepSeekModel, ModelSettings, model_target, output_contract, safe_model_receipt, prepare_model_request
 
@@ -233,7 +233,8 @@ class CognitionEngine:
         def reason(state):
             if state["turns"] >= envelope["policy"]["max_turns_per_task"]:
                 return {"report": {"status": "partial", "findings": [], "unknowns": ["调查已达本任务模型轮次预算。"], "scope_requests": []}}
-            payload = {"task": spec, "overview": plan["overview"], "material_catalog": self.catalog(envelope),
+            payload = {"task": spec, "overview": plan["overview"], "material_catalog": approved_materials(envelope),
+                       "read_source_ids": read_source_ids(state["tool_results"]),
                        "shared_knowledge": self.knowledge_hints(envelope),
                        "dependency_reports": [{"task_id": job["id"], "report": job["result"]["report"]}
                                               for job in self.store.show(run_id)["jobs"]
@@ -244,9 +245,7 @@ class CognitionEngine:
                        or payload["remaining_tool_actions"] == 0)
             payload["report_required"] = closing
             def closing_view():
-                read_ids = {proof["source_id"] for proof in state["evidence"].values()}
                 return {**payload, "report_required": True, "remaining_tool_actions": 0,
-                        "material_catalog": [item for item in payload["material_catalog"] if item["id"] in read_ids],
                         "tool_results": [item for item in payload["tool_results"] if item["tool"] == "read"]}
             if closing:
                 payload = closing_view()
@@ -268,7 +267,7 @@ class CognitionEngine:
             if output["report"] is not None:
                 if actions:
                     raise FileReadError("invalid_cognition_output", "结束报告不能同时请求工具。")
-                report, audit = partition_report(output["report"], state["evidence"])
+                report, audit = partition_report(output["report"], state["evidence"], approved_materials(envelope), payload["read_source_ids"])
                 return {"turns": state["turns"] + 1, "report": report, "report_validation": audit}
             if not actions:
                 raise FileReadError("invalid_cognition_output", "调查既未请求工具也未交付报告。")

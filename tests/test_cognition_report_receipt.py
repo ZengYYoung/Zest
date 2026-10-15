@@ -19,7 +19,7 @@ from zest.git import inspect_repository
 def report(citations):
     return {"status": "completed", "findings": [
         {"section": "flows", "kind": "observed", "statement": "固定代码返回加法。", "citations": refs}
-        for refs in citations], "unknowns": [], "scope_requests": []}
+        for refs in citations], "unknowns": [], "material_requests": []}
 
 
 class ReportReceiptTest(unittest.TestCase):
@@ -61,17 +61,17 @@ class ReportReceiptTest(unittest.TestCase):
         self.assertEqual(accepted["status"], "partial")
         self.assertEqual(len(audit["rejected_findings"]), 2)
         self.assertTrue(accepted["unknowns"])
-        validate_report(accepted, {})
+        validate_report({key: accepted[key] for key in original}, {})
 
     def test_no_rejection_keeps_existing_report_behavior(self):
         original = report([["R1"]])
         accepted, audit = partition_report(original, {"R1": {"text": "body"}})
-        self.assertEqual(accepted, original)
+        self.assertEqual(accepted, {**original, "in_scope_requests": [], "scope_requests": []})
         self.assertEqual(audit["rejected_findings"], [])
 
     def test_whole_report_contract_is_never_repaired(self):
-        missing = report([["R1"]]); missing.pop("scope_requests")
-        bad_scopes = report([["R1"]]); bad_scopes["scope_requests"] = "not a list"
+        missing = report([["R1"]]); missing.pop("material_requests")
+        bad_scopes = report([["R1"]]); bad_scopes["material_requests"] = "not a list"
         bad_unknowns = report([["R1"]]); bad_unknowns["unknowns"] = "not a list"
         for value in (missing, bad_scopes, bad_unknowns):
             with self.subTest(value=value), self.assertRaises(FileReadError):

@@ -32,7 +32,9 @@ class ModelOutputContractTest(unittest.TestCase):
                 {"tool": "read", "args": {"source_id": "S1", "start_line": 1, "end_line": 0}},
                 {"tool": "symbols", "args": {"query": "main"}}]}},
             "project_report": {"response": {"kind": "report", "report": {
-                "status": "partial", "findings": [], "unknowns": ["尚缺证据。"], "scope_requests": []}}},
+                "status": "partial", "findings": [], "unknowns": ["尚缺证据。"], "material_requests": [
+                    {"source_id": "S1", "path": "app.py", "reason": "需要续读。"},
+                    {"source_id": "", "path": "operations/run.log", "reason": "需要运行证据。"}]}}},
             "project_review": {"judgments": [{"finding_id": "T1-F1", "supported": True, "reason": "原文直接支持。"}]},
         }
 
@@ -53,7 +55,7 @@ class ModelOutputContractTest(unittest.TestCase):
     def test_report_preserves_evidence_and_partial_status(self):
         report = {"status": "partial", "findings": [
             {"section": "flows", "kind": "observed", "statement": "入口调用导入。", "citations": ["R1"]}],
-            "unknowns": ["未运行验证。"], "scope_requests": []}
+            "unknowns": ["未运行验证。"], "material_requests": []}
         wire = {"response": {"kind": "report", "report": report}}
         parsed = ProjectResearchResponse.model_validate(wire)
         self.assertEqual(output_to_protocol(parsed), {"actions": [], "report": report})
@@ -113,6 +115,15 @@ class ModelOutputContractTest(unittest.TestCase):
         wire["changes"] = [{"source_id": "E1", "content": "body", "old_text": "old", "new_text": "new"}]
         with self.assertRaises(ValidationError):
             model_for("repair_proposal").model_validate(wire)
+
+    def test_material_requests_require_named_fields_and_never_accept_legacy_text(self):
+        for request in ("请读取 app.py", {"path": "app.py", "reason": "缺少 source_id"},
+                        {"source_id": None, "path": "app.py", "reason": "不允许可空类型"},
+                        {"source_id": "S1", "path": "app.py", "reason": "不允许模型批准", "approved": True}):
+            wire = self.wire_examples()["project_report"]
+            wire["response"]["report"]["material_requests"] = [request]
+            with self.subTest(request=request), self.assertRaises(ValidationError):
+                model_for("project_report").model_validate(wire)
 
     def test_research_response_variants_are_exclusive_and_required(self):
         wire = self.wire_examples()["project_research"]

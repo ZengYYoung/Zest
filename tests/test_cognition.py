@@ -66,7 +66,7 @@ class OfflineCognitionModel:
                 ref = next(result["citation_id"] for result in payload["tool_results"] if result["tool"] == "read")
                 value = {"actions": [], "report": {"status": "completed", "findings": [
                     {"section": section, "kind": "observed", "statement": "观察版本中的 add 函数返回 a + b。", "citations": [ref]}
-                    for section in payload["task"]["sections"]], "unknowns": [], "scope_requests": []}}
+                    for section in payload["task"]["sections"]], "unknowns": [], "material_requests": []}}
         elif purpose == "project_review":
             value = {"judgments": [{"finding_id": finding["finding_id"], "supported": not self.reject,
                                      "reason": "原文包含加法返回表达式。" if not self.reject else "需要补充核对。"} for finding in payload["findings"]]}
@@ -304,7 +304,7 @@ class CognitionTest(unittest.TestCase):
         self.assertEqual(dependent_calls[0]["dependency_reports"][0]["task_id"], "T1")
         for invalid in (["fake"], []):
             with self.assertRaises(FileReadError):
-                validate_report({"status": "completed", "findings": [{"section": "flows", "kind": "observed", "statement": "事实", "citations": invalid}], "unknowns": [], "scope_requests": []}, {})
+                validate_report({"status": "completed", "findings": [{"section": "flows", "kind": "observed", "statement": "事实", "citations": invalid}], "unknowns": [], "material_requests": []}, {})
 
     def test_related_changes_wait_without_blocking_unrelated_files_or_questions(self):
         from zest.tasks import TaskRunner
