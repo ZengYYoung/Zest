@@ -40,11 +40,12 @@ def compact_results(results):
     output, seen = [], set()
     for result in results:
         if result["tool"] == "read" and result["result"].get("ok"):
-            ref = result["citation_id"]
+            data = compact_proof(result["result"]["data"])
+            ref = result.get("citation_id") or ("observation", canonical(data))
             if ref in seen:
                 continue
             seen.add(ref)
-            result = {**result, "result": {**result["result"], "data": compact_proof(result["result"]["data"])}}
+            result = {**result, "result": {**result["result"], "data": data}}
         output.append(result)
     # Locations are hints, not evidence. Keep every original-text proof visible.
     while len(canonical(output)) > POLICY["evidence_warning_chars"]:

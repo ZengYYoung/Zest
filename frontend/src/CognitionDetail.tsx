@@ -21,12 +21,13 @@ export function CognitionDetail({ value, onClose }: { value: unknown; onClose():
       {text(item.actor)} / {Number(item.sequence)}：完整请求 {Number(item.chars)} 字符，默认 {Number(item.default_chars)}，超出 {Number(item.over_percent)}%。尚未外发，请在终端或 CLI 审阅并决定本次扩展。
     </p>)}
     <h3>初步认知 · 待深入核对</h3><ul>{rows(plan.overview).map((entry, i) => <li key={i}>{text(entry.statement)} · {entry.kind === 'inferred' ? '推测' : '初步观察'}</li>)}</ul>
-    <h3>调查任务</h3>{jobs.map(job => { const spec = object(job.spec), report = object(object(job.result).report)
+    <h3>调查任务</h3>{jobs.map(job => { const spec = object(job.spec), report = object(object(job.result).report), rejected = rows(object(object(job.result).report_validation).rejected_findings)
       return <details className="source-entry" key={text(job.id)}><summary><strong>{text(job.id)} · {text(spec.title)}</strong><span>{statusLabels[text(job.status)] || text(job.status)}</span></summary>
         <p>{text(spec.goal)}</p><p className="review-note">成果：{text(spec.deliverable)}</p>
         <p>依赖：{Array.isArray(spec.depends_on) && spec.depends_on.length ? spec.depends_on.join('、') : '无'}</p>
         <ul>{Array.isArray(spec.acceptance) && spec.acceptance.map((v, i) => <li key={i}>{text(v)}</li>)}</ul>
         <ul>{Array.isArray(report.unknowns) && report.unknowns.map((v, i) => <li key={i}>待核实：{text(v)}</li>)}</ul>
+        <ul>{rejected.map((issue, i) => <li key={i}>候选未接收：{text(issue.field)} · {text(issue.code)} · {text(issue.message)}</li>)}</ul>
         <ul>{Array.isArray(report.scope_requests) && report.scope_requests.map((v, i) => <li key={i}>需要扩大授权：{text(v)}</li>)}</ul>
       </details> })}
     {sections.map(([id, title]) => <div key={id}><h3>{title}</h3>

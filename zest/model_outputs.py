@@ -178,7 +178,7 @@ class ResearchFinding(OutputModel):
     section: Section = Field(description="该发现所属的六部分档案 ID。")
     kind: FindingKind = Field(description="observed 为原文直接支持的事实；inferred 为明确标注、仍待核实的推测。")
     statement: str = Field(description="中文发现，限定在固定版本的原文支持范围；静态配置不能描述为生产运行事实。")
-    citations: list[str] = Field(description="至少一个实际 read 返回且含非空原文的唯一 R 证据编号，按结论所需引用、不设额外数量上限；不能虚构、重复或引用未读来源。")
+    citations: list[str] = Field(description="至少一个实际 read 返回且含非空原文的唯一 R 证据编号，按结论所需引用、不设额外数量上限；空文件/空窗口观察没有正文引用编号，不得引用或自行编造编号。")
 
 
 class InvestigationReport(OutputModel):

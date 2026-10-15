@@ -66,10 +66,14 @@ class PackageTools:
             selected.append({"number": number, "text": value})
             size += len(value) + 1
         actual_end = selected[-1]["number"] if selected else None
-        return {"source_id": source_id, "evidence": {**source["evidence"], "start_line": start_line if selected else None,
+        result = {"source_id": source_id, "evidence": {**source["evidence"], "start_line": start_line if selected else None,
                                                      "end_line": actual_end}, "lines": selected,
                 "text": "\n".join(line["text"] for line in selected),
                 "more_after": bool(lines) and (actual_end or 0) < len(lines)}
+        if not result["text"]:
+            result["observation"] = {"kind": "empty_file" if not source["body"] else "empty_text_window",
+                                     "file_size_bytes": len(source["body"].encode()), "can_cite_as_text": False}
+        return result
 
     def list_files(self, query="", offset=0):
         if not isinstance(query, str) or len(query) > 200 or type(offset) is not int or offset < 0:

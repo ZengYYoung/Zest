@@ -9,6 +9,16 @@ import { CognitionDetail } from '../src/CognitionDetail.tsx'
 const render = (kind, value) => renderToStaticMarkup(createElement(RecordDetail, { kind, value, onClose() {} }))
 const sourceRecord = { id: 'E1', evidence: { path: 'app.py', commit: 'a'.repeat(40), start_line: 4, end_line: 5 }, content: 'def add(a,b):\n    return a-b\n', content_sha256: 'c'.repeat(64) }
 
+test('rejected candidates are shown as receipt issues without becoming reviewed facts', () => {
+  const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: { jobs: [
+    { id: 'T1', status: 'partial', result: { report_validation: { rejected_findings: [
+      { field: 'report.findings[0]', code: 'invalid_cognition_reference', message: '引用为空' },
+    ] } } },
+  ] } }))
+  for (const value of ['候选未接收', 'report.findings[0]', 'invalid_cognition_reference', '引用为空']) assert.ok(html.includes(value), value)
+  assert.ok(!html.includes('<button>批准'))
+})
+
 test('large or incomplete project scopes remain visible without Web approval controls', () => {
   const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: {
     scope_review: { requires_discussion: true, source_count: 200, catalog_count: 170,

@@ -12,7 +12,7 @@ import time
 from typing import TypedDict
 
 from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, keys, parse_response,
-                                  text, validate_plan, validate_report)
+                                  text, validate_plan, partition_report)
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
 from .cognition_context import compact_proof, compact_results, review_payload, material_catalog
@@ -29,6 +29,7 @@ class InvestigationState(TypedDict, total=False):
     report: dict
     spec: dict
     report_required: bool
+    report_validation: dict
 
 
 class CoordinationState(TypedDict, total=False):
@@ -267,7 +268,8 @@ class CognitionEngine:
             if output["report"] is not None:
                 if actions:
                     raise FileReadError("invalid_cognition_output", "结束报告不能同时请求工具。")
-                return {"turns": state["turns"] + 1, "report": validate_report(output["report"], state["evidence"])}
+                report, audit = partition_report(output["report"], state["evidence"])
+                return {"turns": state["turns"] + 1, "report": report, "report_validation": audit}
             if not actions:
                 raise FileReadError("invalid_cognition_output", "调查既未请求工具也未交付报告。")
             if closing:
@@ -284,9 +286,10 @@ class CognitionEngine:
             for value in output:
                 if value["tool"] == "read" and value["result"].get("ok"):
                     data = value["result"]["data"]
-                    ref = next((ref for ref, proof in evidence.items() if proof == data), f"R{len(evidence) + 1}")
-                    evidence[ref] = data
-                    value = {**value, "citation_id": ref}
+                    if data.get("text"):
+                        ref = next((ref for ref, proof in evidence.items() if proof == data), f"R{len(evidence) + 1}")
+                        evidence[ref] = data
+                        value = {**value, "citation_id": ref}
                 results.append(value)
             report_required = len(canonical(compact_results(results))) > envelope["policy"]["evidence_warning_chars"]
             self.store.event(run_id, actor, "tools_finished", {"actions": len(actions), "read_proofs": len(evidence)})
@@ -310,7 +313,8 @@ class CognitionEngine:
                     saved = compiled.get_state({"configurable": {"thread_id": f"{run_id}:{actor}"}}).values
                     raise
             self.store.publish_job(run_id, actor, {"report": result["report"], "evidence": result["evidence"],
-                                                   "tool_results": result["tool_results"], "turns": result["turns"]})
+                                                   "tool_results": result["tool_results"], "turns": result["turns"],
+                                                   "report_validation": result.get("report_validation")})
             self.store.event(run_id, actor, "investigation_finished", {"status": result["report"]["status"]})
         except FileReadError as exc:
             status = ("awaiting_context_approval" if exc.code == "cognition_context_approval_required" else

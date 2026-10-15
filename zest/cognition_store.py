@@ -353,10 +353,12 @@ class CognitionStore:
     def publish_job(self, run_id, job_id, result):
         self.job_status(run_id, job_id, result["report"]["status"], result)
         with self.open(write=True) as conn, conn:
-            for number, finding in enumerate(result["report"]["findings"], 1):
+            audit = result.get("report_validation") or {}
+            indices = audit.get("accepted_indices", list(range(len(result["report"]["findings"]))))
+            for index, finding in zip(indices, result["report"]["findings"], strict=True):
                 proofs = [result["evidence"][ref] for ref in finding["citations"]]
                 value = {**finding, "evidence": proofs}
-                finding_id = f"{job_id}:F{number}"
+                finding_id = f"{job_id}:F{index + 1}"
                 conn.execute("INSERT OR IGNORE INTO cognition_findings VALUES (?,?,?,?,?,?)",
                              (run_id, finding_id, job_id, canonical(value), "pending_review", None))
 
@@ -467,6 +469,9 @@ class CognitionStore:
         for job in record["jobs"]:
             if job["result"]:
                 for section in job["spec"]["sections"]:
+                    for rejected in (job["result"].get("report_validation") or {}).get("rejected_findings", []):
+                        lookup[section]["pending"].append({"question": f"报告候选未接收：{rejected['field']} · {rejected['code']} · {rejected['message']}",
+                                                           "report_rejection": True, "task_id": job["id"]})
                     lookup[section]["pending"].extend({"question": value} for value in job["result"]["report"]["unknowns"])
                     lookup[section]["pending"].extend({"question": value, "scope_expansion": True} for value in job["result"]["report"].get("scope_requests", []))
         return {"run_id": run_id, "project_id": record["project_id"], "commit": record["commit"], "status": record["status"],

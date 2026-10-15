@@ -25,6 +25,8 @@ def format_cognition(record):
     for job in record["jobs"]:
         lines.append(f"  {job['id']} · {LABELS.get(job['status'], job['status'])} · {display_text(job['spec']['title'])}")
         if job["result"]:
+            for rejected in (job["result"].get("report_validation") or {}).get("rejected_findings", []):
+                lines.append("    候选未接收：" + display_text(f"{rejected['field']} · {rejected['code']} · {rejected['message']}"))
             lines.extend("    待补充：" + display_text(item) for item in job["result"]["report"]["unknowns"])
             lines.extend("    待扩展授权：" + display_text(item) for item in job["result"]["report"]["scope_requests"])
     if record["error"]:
