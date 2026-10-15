@@ -2,6 +2,8 @@
 
 M050 为真实模型验收增加显式、可选的追踪出口。它不改变模型请求、提示词、Pydantic 类型、接收规则或恢复授权；普通问答和后台调查默认不上传追踪。
 
+M051 已完成一次具体批准下的模型请求、11 个追踪步骤上传与精确回读；本次格式/引用/资料分类通过，但不足以证明稳定性，见 [真实结果与修复方向](COGNITION_ACCEPTANCE_LANGSMITH.md)。
+
 ## 配置与调用
 
 在本地 `.env` 配置 `LANGSMITH_API_KEY`；可选 `LANGSMITH_ENDPOINT`、`LANGSMITH_PROJECT`。默认接口为 `https://api.smith.langchain.com`，默认项目为 `zest-structured-diagnostics`。配置本身不启用追踪，不要提交 `.env` 或把密钥写入对话。

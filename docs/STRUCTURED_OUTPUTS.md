@@ -40,6 +40,8 @@ M049 的一次具体批准复测收到原生工具参数末尾多一个 `}`：�
 
 M050 增加显式单次 LangSmith 诊断：先本地收集真实 LangChain 子步骤并保存安全响应，再检查和上传完整固定请求/响应与步骤关系。默认调用仍关闭云端追踪，配置环境变量不会自动上传；原生 JSON 错误不修补、不重发，见 [诊断与数据范围](MODEL_DIAGNOSTICS.md)。
 
+M051 在新具体批准下运行相同 10120 字符请求：本次 JSON/Pydantic 通过，9 条候选引用有效，4 项需求均包内，11 个追踪步骤云端回读一致。单次成功不证明历史原生 JSON 错误已修复；语义核对与完整认知质量未重新验收，见 [结果与后续判断](COGNITION_ACCEPTANCE_LANGSMITH.md)。
+
 ## 实际目标与批准
 
 DeepSeek 的原生 strict 工具调用使用官方 `/beta` 接口。配置根地址 `https://api.deepseek.com` 时，在准备预览前就解析为 `https://api.deepseek.com/beta`；doctor 显示配置地址及实际目标。自定义地址保持原值，其 strict 兼容性需另行确认。[供应商 strict 契约](https://api-docs.deepseek.com/guides/tool_calls/)
