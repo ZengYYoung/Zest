@@ -16,6 +16,7 @@ from .git import inspect_repository, managed_ref, read_direct_ref, verify_commit
 from .repairs import RepairStore, _git_write, digest
 from .storage import ProjectRegistry
 from .verification import VerificationStore, _candidate, collect_snapshot, COMMAND, POLICY, baseline_strategy
+from .resources import route_store
 
 
 SOURCE_POLICY = {"scope": "zest_managed_source", "worktree_checkout": False, "deploy_runtime": False,
@@ -67,6 +68,9 @@ def _validated_verification(state_dir, verification_id):
         raise FileReadError("release_verification_required", "验证证据结构损坏，未切换版本。") from exc
 
 
+@route_store(projects=("active",), lists=("list_operations",),
+             records={name: "release" for name in ("show", "decide", "recover")},
+             related={"promote": "verification", "rollback": "release"})
 class ReleaseStore:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()

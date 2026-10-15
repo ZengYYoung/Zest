@@ -11,7 +11,7 @@ M053：项目认知 Ctrl+U 中新增“版本更新”，只读比较选定版�
 ```bash
 uv sync --extra ai --extra mcp --extra tui
 uv run --extra ai --extra mcp --extra tui zest ui
-# 固定状态目录，与现有子命令/Web 使用同一份项目及任务
+# 固定登记入口，与子命令/Web 共用项目；新任务资源按项目进入各自 .zest/state
 uv run --extra ai --extra tui zest --state-dir /absolute/path/to/state ui
 ```
 

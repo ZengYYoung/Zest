@@ -62,6 +62,10 @@ class CognitionEngine:
         self.model = model
 
     def call(self, run_id, actor, sequence, purpose, payload, envelope):
+        from .resources import record_state
+        destination = record_state(self.store.state_dir, "cognition", run_id)
+        if destination != self.store.state_dir:
+            return CognitionEngine(destination, model=self.model).call(run_id, actor, sequence, purpose, payload, envelope)
         # Each physical attempt is durable and consumes the approved total budget.
         # Only _call_attempt can admit another attempt from a known invalid receipt.
         while True:
@@ -469,6 +473,10 @@ class CognitionEngine:
 
     def run(self, run_id):
         valid_id(run_id)
+        from .resources import record_state
+        destination = record_state(self.store.state_dir, "cognition", run_id)
+        if destination != self.store.state_dir:
+            return CognitionEngine(destination, model=self.model).run(run_id)
         with execution_lock(self.store.state_dir, f"run-{run_id}"):
             return self._run(run_id)
 
@@ -532,6 +540,34 @@ class CognitionEngine:
 
 
 def worker(state_dir, *, once=False, idle_seconds=30, model=None):
+    from .resources import resource_states
+    from .storage import ProjectRegistry
+    origin = Path(state_dir).resolve()
+    projects = ProjectRegistry(origin).list_projects_readonly()
+    # A project worker owns only its own queue. A catalog worker can service
+    # registered projects without changing their durable lock/checkpoint roots.
+    scopes = [origin] if any(p.get("resource_dir") == str(origin) for p in projects) else resource_states(origin)
+    if len(scopes) == 1:
+        return _worker_local(origin, once=once, idle_seconds=idle_seconds, model=model)
+    idle_since = time.monotonic()
+    while True:
+        processed = False
+        for directory in scopes:
+            try:
+                processed = _worker_local(directory, once=True, idle_seconds=idle_seconds, model=model) or processed
+            except FileReadError as exc:
+                if exc.code != "cognition_worker_busy":
+                    raise
+            if processed and once:
+                return
+        if processed:
+            idle_since = time.monotonic()
+        if once or time.monotonic() - idle_since >= idle_seconds:
+            return
+        time.sleep(0.5)
+
+
+def _worker_local(state_dir, *, once=False, idle_seconds=30, model=None):
     """Separate local process; no retries of requests with unknown outcomes."""
     engine = CognitionEngine(state_dir, model=model)
     with execution_lock(state_dir):
@@ -551,10 +587,10 @@ def worker(state_dir, *, once=False, idle_seconds=30, model=None):
                         os.chdir(previous)
                     idle_since = time.monotonic()
                     if once:
-                        return
+                        return True
                     continue
             if once or time.monotonic() - idle_since >= idle_seconds:
-                return
+                return False
             time.sleep(0.5)
 
 

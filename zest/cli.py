@@ -23,7 +23,7 @@ def _range_argument(value):
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="zest", description="Zest 项目维护 Agent")
     parser.add_argument("--state-dir", type=Path, default=Path.cwd() / ".zest",
-                        help="Zest 状态目录，默认当前目录下的 .zest")
+                        help="项目登记目录，默认当前目录下的 .zest；项目资源分别存于各项目的 .zest/state")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ui", help="进入交互式项目问答工作台，展示真实阶段与请求预览")
     doctor = commands.add_parser("doctor", help="只读检查本地环境，不调用模型或执行项目代码")
@@ -36,7 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     web_serve.add_argument("--port", type=int, default=8000)
     projects = commands.add_parser("project", help="登记和查询本地 Git 项目")
     actions = projects.add_subparsers(dest="action", required=True)
-    imported = actions.add_parser("import", help="只读采集 Git 状态并登记项目")
+    imported = actions.add_parser("import", help="登记项目并准备忽略的 .zest 资源目录，不执行项目")
     imported.add_argument("path", type=Path, help="本地 Git 仓库根目录")
     mapped = actions.add_parser("map", help="只读提取固定版本的 Python 模块、符号和 import 声明")
     mapped.add_argument("project_id")
@@ -309,7 +309,8 @@ def main(argv: list[str] | None = None) -> int:
                     approved=args.action == "context-approve", request_sha256=args.request_sha256)
                 if result["status"] == "queued" and not args.no_start:
                     from .cognition import start_worker
-                    result["worker"] = start_worker(args.state_dir)
+                    from .resources import record_state
+                    result["worker"] = start_worker(record_state(args.state_dir, "cognition", args.run_id))
             elif args.action == "dossier":
                 result = store.dossier(args.run_id)
             elif args.action == "invalidate":
@@ -320,12 +321,14 @@ def main(argv: list[str] | None = None) -> int:
             elif args.action == "recover":
                 result = store.recover(args.run_id)
                 from .cognition import start_worker
-                result["worker"] = start_worker(args.state_dir)
+                from .resources import record_state
+                result["worker"] = start_worker(record_state(args.state_dir, "cognition", args.run_id))
             else:
                 result = store.decide(args.run_id, approved=args.action == "approve", approval_sha256=getattr(args, "approval_sha256", None))
                 if args.action == "approve" and not args.no_start:
                     from .cognition import start_worker
-                    result["worker"] = start_worker(args.state_dir)
+                    from .resources import record_state
+                    result["worker"] = start_worker(record_state(args.state_dir, "cognition", args.run_id))
             if getattr(args, "format", "json") == "text":
                 print(format_dossier(result) if args.action == "dossier" else format_cognition(result))
             else:
@@ -452,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
                                     author_name=args.author_name, author_email=args.author_email)
         elif args.action == "import":
             # Validate and inspect first: invalid input must not create state.
-            result = registry.register(inspect_repository(args.path))
+            result = registry.register(inspect_repository(args.path), workspace=True)
         elif args.action == "list":
             result = registry.list_projects()
         else:

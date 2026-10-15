@@ -16,7 +16,7 @@ uv run --extra ai --extra mcp zest doctor --docker --image <已安装镜像名�
 
 doctor 仅读取版本、依赖和配置状态，绝不调用模型、自动下载镜像或运行项目代码；输出不含模型密钥。未检查 Docker 时 available 为 null，不代表失败或成功。配置有效不证明实际模型请求成功，镜像可读不证明项目测试通过。
 
-模型配置放在本地 `.env`，参考 `.env.example`。所有终端命令在 Zest 根目录执行；固定全局状态目录时，将 `--state-dir <目录>` 放在一级命令前，后续每一步使用同一个目录。状态目录位于被管理仓库内时必须被 Git 忽略。
+模型配置放在本地 `.env`，参考 `.env.example`。所有终端命令在 Zest 根目录执行；固定项目登记入口时，将 `--state-dir <目录>` 放在一级命令前，后续每一步使用同一个入口。项目新资源分别进入各项目 `.zest/state/`，内部忽略规则自动排除全部资源；旧历史仍按原位置兼容。[资源目录](PROJECT_RESOURCES.md)
 
 ## 2. 项目接入
 
@@ -37,7 +37,7 @@ zest knowledge show <返回的goal-note-id>
 zest knowledge confirm <goal-note-id>
 ```
 
-init 只创建 README、忽略规则和 Git 初始提交。父目录须存在、目标全新；需要 Git 作者配置，或同时提供 `--author-name` 与 `--author-email`。不会创建远程 GitHub 仓库或推送。
+init 创建 README、忽略规则、Git 初始提交和项目自身的 `.zest/` 资源目录。父目录须存在、目标全新；需要 Git 作者配置，或同时提供 `--author-name` 与 `--author-email`。不会创建远程 GitHub 仓库或推送。import 仅新增被忽略的资源文件夹，不改原生文件、根 `.gitignore`、暂存区或 HEAD；旧登记可再次 import 启用，保留 ID 和历史记录。
 
 接入后可以先做本地摸底，形成后续规划所需的固定版本材料：
 

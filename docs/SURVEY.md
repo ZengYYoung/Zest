@@ -22,7 +22,7 @@ uv run zest survey build <project-id> --commit <完整本地commit> --format tex
 uv run zest survey show <survey-id> > saved-survey.json
 ```
 
-所有命令沿用 `zest --state-dir /absolute/path/to/state ...`。`project import` 当前仍仅登记；本模块提供可供未来导入工作流调用的独立摸底步骤，没有自动启动模型任务。
+所有命令沿用 `zest --state-dir /absolute/path/to/state ...` 选择登记入口。`project import` 会登记并准备项目内忽略的 `.zest/` 资源目录，不自动摸底或启动模型任务。
 
 ## 2. 输入与成果
 
@@ -58,7 +58,7 @@ uv run zest survey show <survey-id> > saved-survey.json
 
 ## 4. 保存与历史
 
-状态目录内新增 `surveys.sqlite3`，新数据库权限为 0600。记录按独立 UUID 追加，重复采集不会覆盖旧记录。`list` 为本项目最近 100 项摘要，非完整分页；完整 ID 可读取更早记录。
+新接入项目在 `.zest/state/` 内生成 `surveys.sqlite3`，旧记录原位兼容，新数据库权限为 0600。记录按独立 UUID 追加，重复采集不会覆盖旧记录。每个历史来源的 `list` 为最近 100 项摘要，合并展示不等于完整分页；完整 ID 可读取更早记录。[项目资源说明](PROJECT_RESOURCES.md)
 
 保存前限制序列化记录为 8 MiB，保存内容 SHA256 并在读取时核对内容及身份一致性。这用于发现损坏，不是签名或对恶意数据库篡改的认证。
 

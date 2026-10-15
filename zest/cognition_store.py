@@ -14,6 +14,7 @@ from .files import FileReadError, _find_file, load_text_blob
 from .git import inspect_repository, verify_commit
 from .storage import ProjectRegistry
 from .survey import SurveyStore, _path
+from .resources import route_store
 
 MAX_ENVELOPE_BYTES = 16 * 1024 * 1024
 
@@ -71,6 +72,9 @@ def prepare_envelope(project, survey, target):
     return envelope
 
 
+@route_store(projects=("create",), lists=("list_runs",), contexts=("for_context",),
+             records={name: "cognition" for name in ("show", "decide", "context_requests", "decide_context",
+                       "worker_active", "invalidate", "reviewed_finding", "recover", "dossier")})
 class CognitionStore:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()
@@ -444,8 +448,6 @@ class CognitionStore:
 
     def pending_for_paths(self, project_id, commit, paths):
         """Conservative file overlap, not a complete semantic dependency analysis."""
-        if not self.db_path.exists():
-            return []
         pending = []
         for run in self.list_runs(project_id):
             if run["commit"] != commit or run["status"] not in ("queued", "planning", "investigating", "reviewing", "pending_execution"):

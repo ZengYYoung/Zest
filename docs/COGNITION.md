@@ -106,7 +106,7 @@ M038 起还保存实际完整请求体、URL、字符数和正文 SHA-256。适�
 
 状态：awaiting_approval → queued → planning → investigating → reviewing → completed/partial；错误为 failed，未知调用为 pending_execution。worker 消失时界面显示退出，不冒充仍在执行。completed 仅表示任务完成、六部分有经核对发现且计划无剩余缺口，不是完整理解证明。
 
-记录在本地独立数据库/文件中，创建权限 0600；默认 `.zest` 已忽略。授权哈希用于身份与损坏检查，不是防本地管理员篡改的签名。模型密钥只在执行时读取，不保存到包或请求记录；主图、子图、适配器关闭第三方自动 tracing。
+新接入项目的记录存于各项目 `.zest/state/` 内的独立数据库/文件，数据库创建权限 0600；`.zest/.gitignore` 忽略全部资源，不改变原生文件。旧记录按原位置/批准哈希兼容，worker 账本、锁和 checkpoint 跟随记录所属位置，见 [项目资源](PROJECT_RESOURCES.md)。授权哈希用于身份与损坏检查，不是防本地管理员篡改的签名。模型密钥只在执行时读取，不保存到包或请求记录；主图、子图、适配器关闭第三方自动 tracing。
 
 ## 支持后续维护
 

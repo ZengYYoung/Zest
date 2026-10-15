@@ -24,6 +24,8 @@ class ProjectRegistry:
     def _connect(self) -> sqlite3.Connection:
         conn = None
         try:
+            if self.db_path.is_symlink():
+                raise StorageError("项目登记数据库不能是符号链接。")
             self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             # New state files contain local paths: use restrictive permissions.
             try:
@@ -53,7 +55,11 @@ class ProjectRegistry:
                 columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}
                 if "mode" not in columns:
                     conn.execute("ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'import'")
-                conn.execute("PRAGMA user_version = 1")
+                for column in ("resource_dir", "legacy_state_dir"):
+                    if column not in columns:
+                        conn.execute(f"ALTER TABLE projects ADD COLUMN {column} TEXT")
+                if version == 0:
+                    conn.execute("PRAGMA user_version = 1")
             return conn
         except (OSError, sqlite3.Error, StorageError) as exc:
             if conn is not None:
@@ -70,15 +76,25 @@ class ProjectRegistry:
             raise StorageError("本地项目记录损坏。") from exc
         if row["mode"] not in ("import", "development"):
             raise StorageError("本地项目模式损坏。")
-        return {
+        result = {
             "id": row["id"], "mode": row["mode"], "root_path": row["root_path"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
             "git": state,
         }
+        if "resource_dir" in row.keys() and row["resource_dir"]:
+            result.update(resource_dir=row["resource_dir"], legacy_state_dir=row["legacy_state_dir"])
+        return result
 
-    def register(self, state: GitState, *, mode: str = "import") -> dict:
+    def register(self, state: GitState, *, mode: str = "import", workspace: bool = False) -> dict:
         if mode not in ("import", "development"):
             raise StorageError("项目模式不受支持。")
+        from .resources import preflight_workspace
+        identity = preflight_workspace(Path(state.root_path)) if workspace else None
+        if identity:
+            previous = ProjectRegistry(Path(state.root_path) / ".zest" / "state").get_project_readonly(identity["project_id"])
+            if previous:
+                mode = previous["mode"]
+        registration_id = identity["project_id"] if identity else str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         try:
             with closing(self._connect()) as conn, conn:
@@ -88,12 +104,50 @@ class ProjectRegistry:
                     ON CONFLICT(root_path) DO UPDATE SET
                         updated_at = excluded.updated_at,
                         git_state = excluded.git_state
-                """, (str(uuid4()), state.root_path, now, now,
+                """, (registration_id, state.root_path, now, now,
                       json.dumps(asdict(state), ensure_ascii=True), mode))
                 row = conn.execute("SELECT * FROM projects WHERE root_path = ?", (state.root_path,)).fetchone()
-                return self._record(row)
+                result = self._record(row)
+            return self.attach_workspace(result) if workspace else result
         except sqlite3.Error as exc:
             raise StorageError("保存项目状态失败，请检查数据库权限或稍后重试。") from exc
+
+    def attach_workspace(self, project):
+        from .resources import ensure_workspace
+        from .git import inspect_repository
+        destination, legacy = ensure_workspace(project, self.state_dir)
+        project = {**project, "resource_dir": str(destination), "legacy_state_dir": str(legacy),
+                   "git": asdict(inspect_repository(project["root_path"]))}
+        local = ProjectRegistry(destination)
+        with closing(local._connect()) as conn, conn:
+            existing = conn.execute("SELECT id FROM projects WHERE root_path=?", (project["root_path"],)).fetchone()
+            if existing and existing["id"] != project["id"]:
+                raise StorageError("项目资源登记身份冲突，未覆盖既有记录。")
+            conn.execute("""INSERT INTO projects(id,root_path,created_at,updated_at,git_state,mode,resource_dir,legacy_state_dir)
+                VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(root_path) DO UPDATE SET
+                updated_at=excluded.updated_at,git_state=excluded.git_state,
+                resource_dir=excluded.resource_dir,legacy_state_dir=excluded.legacy_state_dir""",
+                (project["id"], project["root_path"], project["created_at"], project["updated_at"], json.dumps(project["git"]),
+                 project["mode"], str(destination), str(legacy)))
+        with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE projects SET resource_dir=?,legacy_state_dir=?,git_state=? WHERE id=?",
+                         (str(destination), str(legacy), json.dumps(project["git"]), project["id"]))
+        return project
+
+    def list_projects_readonly(self) -> list[dict]:
+        if not self.db_path.exists():
+            return []
+        if self.db_path.is_symlink():
+            raise StorageError("只读项目状态不能是符号链接。")
+        try:
+            with closing(sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True)) as conn:
+                conn.row_factory = sqlite3.Row
+                if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
+                    raise StorageError("本地项目状态版本不兼容。")
+                return [self._record({"mode": "import", **dict(row)}) for row in
+                        conn.execute("SELECT * FROM projects ORDER BY created_at,id")]
+        except sqlite3.Error as exc:
+            raise StorageError("只读项目状态失败。") from exc
 
     def list_projects(self) -> list[dict]:
         if not self.db_path.exists():

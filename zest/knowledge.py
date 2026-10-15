@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from .files import CREDENTIAL_PATTERNS, FileReadError
 from .git import inspect_repository, selected_commit, verify_commit
+from .resources import route_store
 
 
 def _text(value, limit):
@@ -20,14 +21,26 @@ def _text(value, limit):
     return value
 
 
+@route_store(projects=("add",), lists=("list_notes",), contexts=("for_context",),
+             records={name: "knowledge" for name in ("get", "confirm", "invalidate")},
+             stable={"add": ("knowledge", "note_id")})
 class KnowledgeStore:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()
         self.db_path = self.state_dir / "knowledge.sqlite3"
 
     @contextmanager
-    def _open(self):
+    def _open(self, *, write=True):
         try:
+            if not write:
+                if self.db_path.is_symlink():
+                    raise FileReadError("knowledge_storage_error", "知识数据库不能是符号链接。")
+                with closing(sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True)) as conn:
+                    conn.row_factory = sqlite3.Row
+                    if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
+                        raise FileReadError("knowledge_version_error", "知识数据库版本不兼容。")
+                    yield conn
+                return
             self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             try:
                 fd = os.open(self.db_path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
@@ -50,7 +63,8 @@ class KnowledgeStore:
                     conn.execute("""CREATE TABLE IF NOT EXISTS note_events (
                         id INTEGER PRIMARY KEY, note_id TEXT NOT NULL REFERENCES notes(id),
                         action TEXT NOT NULL, created_at TEXT NOT NULL)""")
-                    conn.execute("PRAGMA user_version = 1")
+                    if version == 0:
+                        conn.execute("PRAGMA user_version = 1")
                 yield conn
         except (sqlite3.Error, OSError) as exc:
             raise FileReadError("knowledge_storage_error", "无法访问知识数据库，请检查权限及完整性。") from exc
@@ -100,13 +114,13 @@ class KnowledgeStore:
     def get(self, note_id):
         if not self.db_path.exists():
             raise FileReadError("knowledge_not_found", "未找到该知识记录。")
-        with self._open() as conn:
+        with self._open(write=False) as conn:
             return self._record(conn, note_id)
 
     def list_notes(self, project_id):
         if not self.db_path.exists():
             return []
-        with self._open() as conn:
+        with self._open(write=False) as conn:
             return [dict(row) for row in conn.execute("SELECT * FROM notes WHERE project_id=? ORDER BY created_at DESC LIMIT 100", (project_id,))]
 
     def confirm(self, note_id):
@@ -133,7 +147,7 @@ class KnowledgeStore:
     def for_context(self, project_id, commit):
         if not self.db_path.exists():
             return []
-        with self._open() as conn:
+        with self._open(write=False) as conn:
             records = [dict(row) for row in conn.execute("""SELECT * FROM notes
                 WHERE project_id=? AND status='confirmed' AND (scope='project' OR observed_commit=?)
                 ORDER BY updated_at DESC LIMIT 3""", (project_id, commit))]

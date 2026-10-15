@@ -95,7 +95,7 @@ def create_project(path, name, goal, state_dir, *, author_name=None, author_emai
         _git_create(root, "config", "user.email", author_email)
         _git_create(root, "add", "--", "README.md", ".gitignore")
         _git_create(root, "commit", "-m", "chore: initialize project baseline")
-        project = ProjectRegistry(state_dir).register(inspect_repository(root), mode="development")
+        project = ProjectRegistry(state_dir).register(inspect_repository(root), mode="development", workspace=True)
         note = KnowledgeStore(state_dir).add(project, "项目目标", goal, kind="decision", scope="project")
         return {"project": project, "goal_note": note, "created_files": ["README.md", ".gitignore"],
                 "warnings": ["goal_note_requires_confirmation"]}

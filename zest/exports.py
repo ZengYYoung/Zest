@@ -34,6 +34,10 @@ class SourceExporter:
         self.store = releases.ReleaseStore(state_dir)
 
     def export(self, project_id, destination):
+        from .resources import project_states
+        state_dir = project_states(self.store.state_dir, project_id)[0]
+        if state_dir != self.store.state_dir:
+            return SourceExporter(state_dir).export(project_id, destination)
         with RepairStore(self.store.state_dir)._lock(project_id):
             active = self.store.active(project_id)
             commit = active["managed_commit"]

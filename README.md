@@ -10,6 +10,10 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 已确认同时保留 Web 与 CLI，前端已改为白色主调的简约设计。CLI 已提供以对话和真实阶段时间线为主的交互式问答工作台；现有子命令继续保留。新模块或重要设计先讨论方案再实现，范围与顺序见 [Web 与 CLI 功能开发文档](docs/INTERFACE_PLAN.md)。
 
+## 项目资源目录
+
+项目通过 `project init/import` 接入后，自动生成自己的 **`.zest/` 资源目录**，存放记忆、索引、调查和任务记录。目录内部的 `.gitignore` 忽略全部资源，不改动项目原有文件、根忽略规则或 Git 版本。旧记录保留原位兼容，已有登记可再次导入启用。[项目资源目录](docs/PROJECT_RESOURCES.md)
+
 ## 交互式终端
 
 ```bash
@@ -116,7 +120,7 @@ python3 -m zest project read <project-id> README.md --end-line 20
 
 最多检查 100 个 Python 文件/4 MiB/4096 个树条目、单文件 20000 语法节点/200 声明、合计 3000 声明，沿用 256 KiB 文本/凭据/链接规则；解析器使用当前 Python 语法，不兼容语法及超预算文件计为跳过。30 秒为操作间检查预算，不是独立解析沙箱或硬终止保证；warnings/skipped_counts 和 python_only 限制说明未覆盖部分，不能称为理解了整个项目。[Python AST](https://docs.python.org/3.14/library/ast.html)
 
-默认状态存储在**运行命令时所在目录**下的 `.zest/state.sqlite3`，已被本仓库忽略。切换目录会使用不同的默认状态库；需要固定位置时，将全局参数放在 `project` 前：
+默认项目登记保存在**运行命令时所在目录**下的 `.zest/state.sqlite3`；新接入项目的资源分别存于**各项目根目录**的 `.zest/state/`。切换启动目录会使用不同的默认登记入口；需要固定入口时，将全局参数放在 `project` 前：
 
 ```bash
 python3 -m zest --state-dir /absolute/path/to/zest-state project import /absolute/path/to/project
@@ -235,7 +239,7 @@ uv run --extra ai zest task reject <task-id>
 
 create 读取配置并准备上下文，不调用模型，LangGraph 在批准节点暂停。show 展示固定来源和目标接口；批准的哈希绑定实际模型 payload 与接口。approve 会发送这个固定上下文，不重新采集代码；接口或模型变化会阻止调用。
 
-任务存于 `.zest/tasks.sqlite3`，使用 SQLite checkpointer 和同步 checkpoint，等待批准状态可跨进程恢复。同一任务在 macOS/Linux 使用进程文件锁，已结束任务不能重复批准。密钥不进入 checkpoint，列表不输出来源正文。
+新接入项目的任务存于项目内 `.zest/state/tasks.sqlite3`，旧记录按原路径兼容；使用 SQLite checkpointer 和同步 checkpoint，等待批准状态可跨进程恢复。同一任务在 macOS/Linux 使用进程文件锁，已结束任务不能重复批准。密钥不进入 checkpoint，列表不输出来源正文。
 
 当前是本地前台任务，没有后台 Worker、多人权限或自动重试。执行过程中崩溃可能留下 pending_execution，需要后续恢复机制；不承诺外部模型调用恰好一次，也不自动重放可能已经计费的请求。
 
@@ -251,7 +255,7 @@ uv run --extra ai zest knowledge invalidate <note-id> --reason "已被新方案�
 
 新记录始终为 draft，确认后才进入问答。默认 scope=snapshot，仅适用于创建时的 commit；显式使用 `--scope project` 可以声明跨版本约束，包括尚无提交的新项目。类型支持 decision、constraint、maintenance。
 
-记录和状态事件保存在 `.zest/knowledge.sqlite3`；已失效记录不进入新问答，等待批准任务中引用的知识如果失效或变化也会阻止调用。当前不自动将聊天或模型推测写成确认事实，不自动解决冲突，不支持多人审批或正文覆盖编辑；纠错采用新草稿加旧记录失效。
+新接入项目的记录和状态事件保存在项目内 `.zest/state/knowledge.sqlite3`，旧记录原位兼容；已失效记录不进入新问答，等待批准任务中引用的知识如果失效或变化也会阻止调用。当前不自动将聊天或模型推测写成确认事实，不自动解决冲突，不支持多人审批或正文覆盖编辑；纠错采用新草稿加旧记录失效。
 
 完成验证后源码选择的操作可留存历史案例：
 
@@ -278,7 +282,7 @@ uv run --extra ai zest task create <project-id> "如何处理超时？" --retrie
 
 最多考虑 200 个文件、4 MiB 文本、2000 块，单块最多 6000 字符，构建时长软预算 30 秒。跳过范围写入 metadata；预算失败不替换已有索引。更新 commit 后显式重建，不能把旧索引当成当前版本。查询历史索引可指定完整 commit。
 
-索引保存在被忽略的 `.zest/index.sqlite3`，包含项目文本，须按私有数据处理。问答使用排序结果的路径/行号重新读取 Git 来源，仍需要明确批准后才能发送模型。没有向量数据库服务、语义模型或大仓库性能保证。
+新接入项目的索引保存在项目内被忽略的 `.zest/state/index.sqlite3`，旧版本索引仍可按原位置读取；包含项目文本，须按私有数据处理。问答使用排序结果的路径/行号重新读取 Git 来源，仍需要明确批准后才能发送模型。没有向量数据库服务、语义模型或大仓库性能保证。
 
 ## 本地只读 MCP
 

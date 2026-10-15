@@ -19,6 +19,7 @@ from .files import (CREDENTIAL_PATTERNS, FileReadError, _find_file,
                     _validate_path, load_text_blob)
 from .git import git_environment, inspect_repository, selected_commit, list_tree
 from .knowledge import _text
+from .resources import route_store
 
 
 MAX_PLAN_BYTES = 320 * 1024
@@ -199,6 +200,8 @@ def _git_write(root, index, *args, input_bytes=None):
     return completed.stdout.strip()
 
 
+@route_store(projects=("create",), lists=("list_repairs",), records={"show": "repair", "decide": "repair"},
+             stable={"create": ("repair", "source_task_id")})
 class RepairStore:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()

@@ -20,6 +20,10 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
 
     store = store or CognitionStore(state_dir)
     launch = launch or start_worker
+    from .resources import record_state
+
+    def launch_state(run_id):
+        return record_state(state_dir, "cognition", run_id)
 
     class ScopePreview(ModalScreen[bool | None]):
         BINDINGS = [("escape", "close", "返回")]
@@ -275,7 +279,7 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
                     if decision is not None:
                         await asyncio.to_thread(store.decide, run_id, approved=decision, approval_sha256=record["approval_sha256"])
                         if decision:
-                            await asyncio.to_thread(launch, state_dir)
+                            await asyncio.to_thread(launch, launch_state(run_id))
                         self.notice("已批准，后台 worker 已启动。可返回主对话。" if decision else "本次调查已拒绝。")
                 elif action == "context":
                     requests = await asyncio.to_thread(store.context_requests, run_id)
@@ -288,11 +292,11 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
                         record = await asyncio.to_thread(store.decide_context, run_id, request["actor"], request["sequence"],
                             approved=decision, request_sha256=request["request_sha256"])
                         if record["status"] == "queued":
-                            await asyncio.to_thread(launch, state_dir)
+                            await asyncio.to_thread(launch, launch_state(run_id))
                     self.notice("扩展决定已保存；尚未决定的请求继续等待。拒绝的请求不外发，已有证据保留。")
                 else:
                     await asyncio.to_thread(store.recover, run_id)
-                    await asyncio.to_thread(launch, state_dir)
+                    await asyncio.to_thread(launch, launch_state(run_id))
                     self.notice("已安全排队恢复；已保存响应会复用，不重试未知请求。")
             except (FileReadError, RepositoryError, StorageError, OSError) as exc:
                 self.notice(str(exc) if isinstance(exc, (FileReadError, RepositoryError, StorageError)) else "本地操作失败，可通过 CLI 核对状态。")

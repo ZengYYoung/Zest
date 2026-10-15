@@ -12,7 +12,7 @@ from .git import compare_commits, inspect_repository, selected_commit, verify_co
 from .storage import ProjectRegistry
 
 
-def _baseline(store, project_id, target, base_run_id):
+def _baseline_local(store, project_id, target, base_run_id, *, base_commit=None):
     if not store.db_path.exists():
         if base_run_id:
             raise FileReadError("cognition_not_found", "未找到指定认知基线。")
@@ -26,6 +26,10 @@ def _baseline(store, project_id, target, base_run_id):
                 raise FileReadError("cognition_scope_mismatch", "指定基线不存在或不属于当前项目。")
             if base["status"] not in ("completed", "partial"):
                 raise FileReadError("cognition_baseline_not_ready", "基线需为已结束的 completed/partial 调查。")
+        elif base_commit:
+            base = conn.execute("""SELECT * FROM cognition_runs WHERE project_id=? AND commit_id=?
+                AND status IN ('completed','partial') ORDER BY created_at DESC,id DESC LIMIT 1""",
+                (project_id, base_commit)).fetchone()
         else:
             base = conn.execute("""SELECT * FROM cognition_runs WHERE project_id=?
                 AND status IN ('completed','partial') ORDER BY (commit_id=?) DESC,created_at DESC,id DESC LIMIT 1""",
@@ -54,8 +58,29 @@ def _baseline(store, project_id, target, base_run_id):
                 findings.append({"run_id": run["id"], "finding_id": row["id"], "status": row["status"],
                                  "finding_sha256": digest(value),
                                  "value": value, "catalog": catalog})
-        return {"run_id": base["id"], "commit": base["commit_id"],
+        return {"run_id": base["id"], "commit": base["commit_id"], "created_at": base["created_at"],
                 "selection": "explicit" if base_run_id else "current_version_or_latest_finished"}, summaries, findings
+
+
+def _baseline(store, project_id, target, base_run_id):
+    from .resources import project_states, record_state
+    directories = project_states(store.state_dir, project_id)
+    if base_run_id:
+        base, _, _ = _baseline_local(CognitionStore(record_state(store.state_dir, "cognition", base_run_id)),
+                                     project_id, target, base_run_id)
+    else:
+        candidates = [_baseline_local(CognitionStore(directory), project_id, target, None)[0] for directory in directories]
+        base = max((b for b in candidates if b), key=lambda b: (b["commit"] == target, b["created_at"], b["run_id"]), default=None)
+    if base is None:
+        return None, [], []
+    runs, findings = [], []
+    for directory in directories:
+        _, local_runs, local_findings = _baseline_local(CognitionStore(directory), project_id, target, None, base_commit=base["commit"])
+        runs.extend(local_runs)
+        findings.extend(local_findings)
+    if len({r["run_id"] for r in runs}) != len(runs):
+        raise FileReadError("resource_record_conflict", "多个存储包含相同认知工作流，未猜测基线。")
+    return base, runs, findings
 
 
 def _finding(item, base, changes, available, version_changed):

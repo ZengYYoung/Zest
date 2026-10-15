@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from .files import FileReadError
 from .models import DeepSeekModel, ModelSettings
 from .qa import answer_context, model_payload, prepare_context
+from .resources import route_store
 
 
 class TaskState(TypedDict, total=False):
@@ -46,6 +47,7 @@ def approval_digest(context: dict, target: dict) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+@route_store(projects=("create",), all_lists=("list_tasks",), records={"show": "task", "decide": "task"})
 class TaskRunner:
     def __init__(self, state_dir, *, model=None):
         self.state_dir = Path(state_dir).resolve()

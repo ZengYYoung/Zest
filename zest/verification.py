@@ -17,6 +17,7 @@ from uuid import uuid4
 from .files import CREDENTIAL_PATTERNS, FileReadError, _validate_path, load_text_blob
 from .git import _git, list_tree, verify_commit
 from .repairs import RepairStore, digest
+from .resources import route_store
 
 
 MAX_FILES = 500
@@ -251,6 +252,8 @@ class DockerEngine:
         return result
 
 
+@route_store(lists=("list_verifications",), records={"show": "verification", "decide": "verification"},
+             related={"create": "repair"})
 class VerificationStore:
     def __init__(self, state_dir, *, engine=None):
         self.state_dir = Path(state_dir).resolve()

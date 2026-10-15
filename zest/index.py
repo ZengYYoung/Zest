@@ -14,6 +14,7 @@ import time
 
 from .files import BLOCKED_DIRECTORIES, CREDENTIAL_PATTERNS, FileReadError, _validate_path, load_text_blob
 from .git import inspect_repository, list_tree, verify_commit, selected_commit
+from .resources import route_store
 
 
 MAX_INDEX_FILES = 200
@@ -34,14 +35,24 @@ def vector(counts, idf):
     return {term: value / norm for term, value in values.items()} if norm else {}
 
 
+@route_store(projects=("build",), fallback={"search": ("index_missing", "index_stale")})
 class RetrievalIndex:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()
         self.db_path = self.state_dir / "index.sqlite3"
 
     @contextmanager
-    def _open(self):
+    def _open(self, *, write=True):
         try:
+            if not write:
+                if self.db_path.is_symlink():
+                    raise FileReadError("index_storage_error", "索引数据库不能是符号链接。")
+                with closing(sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True)) as conn:
+                    conn.row_factory = sqlite3.Row
+                    if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
+                        raise FileReadError("index_version_error", "检索索引版本不兼容。")
+                    yield conn
+                return
             self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             try:
                 fd = os.open(self.db_path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
@@ -58,7 +69,8 @@ class RetrievalIndex:
                     conn.execute("""CREATE TABLE IF NOT EXISTS indexes (
                         project_id TEXT NOT NULL, commit_id TEXT NOT NULL, created_at TEXT NOT NULL,
                         metadata TEXT NOT NULL, chunks TEXT NOT NULL, PRIMARY KEY(project_id,commit_id))""")
-                    conn.execute("PRAGMA user_version=1")
+                    if version == 0:
+                        conn.execute("PRAGMA user_version=1")
                 yield conn
         except (sqlite3.Error, OSError) as exc:
             raise FileReadError("index_storage_error", "无法访问检索索引，请检查权限及完整性。") from exc
@@ -139,7 +151,7 @@ class RetrievalIndex:
             raise FileReadError("invalid_commit", "需要本地存在的完整 commit。")
         if not self.db_path.exists():
             raise FileReadError("index_missing", "没有索引，请先执行 index build。")
-        with self._open() as conn:
+        with self._open(write=False) as conn:
             row = conn.execute("SELECT metadata,chunks FROM indexes WHERE project_id=? AND commit_id=?",
                                (project["id"], selected)).fetchone()
             if row is None:

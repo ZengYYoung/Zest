@@ -16,6 +16,7 @@ from .files import BLOCKED_DIRECTORIES, CREDENTIAL_PATTERNS, FileReadError, _val
 from .git import inspect_repository, list_tree, selected_commit, verify_commit
 from .overview import ENTRYPOINTS, MANIFESTS, _node_manifest, _python_manifest
 from .structure import build_structure
+from .resources import route_store
 
 
 MAX_FILES = 200
@@ -256,6 +257,7 @@ def collect_survey(project, *, commit=None, progress=None):
     return record
 
 
+@route_store(projects=("build",), lists=("list_surveys",), records={"show": "survey"})
 class SurveyStore:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()
