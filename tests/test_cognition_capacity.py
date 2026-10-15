@@ -105,16 +105,15 @@ class CapacityContractTest(unittest.TestCase):
         self.assertEqual(len(tools.symbols("needle_119")["matches"]), 1)
         with self.assertRaises(FileReadError): tools.read("outside")
 
-    def test_report_supports_six_findings_and_all_required_read_proofs(self):
+    def test_report_count_is_guidance_and_all_read_proofs_remain_validated(self):
         evidence = {f"R{i}": {"text": "read original"} for i in range(1, 13)}
         report = {"status": "partial", "findings": [{"section": "flows", "kind": "observed", "statement": f"发现 {i}",
-            "citations": list(evidence)} for i in range(6)], "unknowns": [f"未知 {i}" for i in range(16)],
+            "citations": list(evidence)} for i in range(12)], "unknowns": [f"未知 {i}" for i in range(16)],
             "scope_requests": [f"包外需求 {i}" for i in range(8)]}
         self.assertEqual(validate_report(report, evidence), report)
         outputs.model_for("project_report").model_validate({"response": {"kind": "report", "report": report}})
-        excessive = copy.deepcopy(report); excessive["findings"].append(copy.deepcopy(report["findings"][0]))
-        with self.assertRaises(FileReadError) as caught: validate_report(excessive, evidence)
-        self.assertIn("report.findings 实际 7 项", str(caught.exception))
+        self.assertEqual(POLICY["recommended_report_findings"], 6)
+        self.assertEqual(POLICY["max_response_chars"], 32000)
         for bad in (["R1", "R1"], ["R13"], []):
             changed = copy.deepcopy(report); changed["findings"][0]["citations"] = bad
             with self.assertRaises(FileReadError): validate_report(changed, evidence)

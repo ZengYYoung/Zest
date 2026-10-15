@@ -71,9 +71,9 @@ class ReportReceiptTest(unittest.TestCase):
 
     def test_whole_report_contract_is_never_repaired(self):
         missing = report([["R1"]]); missing.pop("scope_requests")
-        too_many = report([["R1"]] * 7)
+        bad_scopes = report([["R1"]]); bad_scopes["scope_requests"] = "not a list"
         bad_unknowns = report([["R1"]]); bad_unknowns["unknowns"] = "not a list"
-        for value in (missing, too_many, bad_unknowns):
+        for value in (missing, bad_scopes, bad_unknowns):
             with self.subTest(value=value), self.assertRaises(FileReadError):
                 partition_report(value, {"R1": {"text": "body"}})
 
@@ -83,6 +83,14 @@ class ReportReceiptTest(unittest.TestCase):
         with self.assertRaises(FileReadError) as caught:
             partition_report(value, {"R1": {"text": "body"}})
         self.assertEqual(caught.exception.code, "sensitive_cognition_output")
+
+    def test_many_findings_still_obey_full_response_size_budget(self):
+        value = report([["R1"]] * 80)
+        for finding in value["findings"]: finding["statement"] = "x" * 500
+        with self.assertRaises(FileReadError) as caught:
+            partition_report(value, {"R1": {"text": "body"}})
+        self.assertIn("report 实际", str(caught.exception))
+        self.assertIn("32000 字符", str(caught.exception))
 
 
 class EmptyReadModel(fixtures.OfflineCognitionModel):
@@ -157,3 +165,29 @@ class ReportReceiptEngineTest(unittest.TestCase):
         self.assertEqual(job["status"], "partial")
         self.assertEqual(job["result"]["report_validation"]["accepted_indices"], [1])
         self.assertEqual(job["result"]["report_validation"]["rejected_findings"][0]["index"], 0)
+
+    def test_over_six_candidates_reach_review_with_local_error_isolated(self):
+        self.setup_model(); record = self.approved(); complete = self.model.complete
+        def extended(payload, *, purpose="qa"):
+            value = complete(payload, purpose=purpose)
+            if purpose in ("project_research", "project_report"):
+                parsed = json.loads(value["text"])
+                if parsed["report"] is not None:
+                    parsed["report"] = report([["R1"]] * 8 + [["outside"]])
+                    for i, candidate in enumerate(parsed["report"]["findings"]):
+                        candidate["statement"] = f"离线候选 {i}：观察到 add 返回 a+b。"
+                    value["text"] = json.dumps(parsed, ensure_ascii=False)
+            return value
+        with patch.object(self.model, "complete", side_effect=extended):
+            result = self.engine.run(record["id"])
+        self.assertEqual(len(result["findings"]), 16)
+        self.assertTrue(all(f["status"] == "auto_reviewed" for f in result["findings"]))
+        for job in result["jobs"]:
+            self.assertEqual(job["status"], "partial")
+            audit = job["result"]["report_validation"]
+            self.assertEqual(audit["accepted_indices"], list(range(8)))
+            self.assertEqual(audit["rejected_findings"][0]["index"], 8)
+            self.assertEqual(len(audit["original_report"]["findings"]), 9)
+            self.assertNotIn(f"{job['id']}:F9", {f["id"] for f in result["findings"]})
+        self.assertEqual(len(self.model.calls), 9)
+        self.assertLessEqual(result["call_count"], result["policy"]["max_model_calls"])

@@ -185,7 +185,7 @@ class InvestigationReport(OutputModel):
     """Static findings and honest unresolved questions at task completion."""
 
     status: Literal["completed", "partial"] = Field(description="completed 表示目标已回答且无缺口；有未知、包外需求或未完成目标时为 partial。")
-    findings: list[ResearchFinding] = Field(description=f"最多 {POLICY['report_findings']} 项已读取原文支持的发现；没有可支持的发现时为空并交代未知。")
+    findings: list[ResearchFinding] = Field(description=f"建议约 {POLICY['recommended_report_findings']} 项独立、已读取原文支持的发现；条数不是硬上限，按证据需要给出，遵守完整响应字符/token 与总调用预算；无可支持发现时为空并交代未知。")
     unknowns: list[str] = Field(description=f"最多 {POLICY['report_unknowns']} 项尚未回答的问题或预算造成的缺口；保持未知，不能用推测充当事实。")
     scope_requests: list[str] = Field(description=f"最多 {POLICY['report_scope_requests']} 项需要包外资料的原因和范围；只提出需求，不读取或授权包外资料。")
 
