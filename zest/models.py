@@ -152,9 +152,11 @@ PROMPTS.update(COGNITION_PROMPTS)
 
 
 class DeepSeekModel:
-    def __init__(self, settings: ModelSettings, *, http_client=None):
+    def __init__(self, settings: ModelSettings, *, http_client=None, diagnostics=None):
         self.settings = settings
         self.http_client = http_client
+        # Explicit, local collection only. Environment variables never enable upload.
+        self.diagnostics = diagnostics
         # Caller-supplied test transports may be shared. Scope the capture hook
         # under one lock; normal requests each own a fresh client and stay parallel.
         import threading
@@ -215,7 +217,10 @@ class DeepSeekModel:
                 prompt = ChatPromptTemplate.from_messages([("system", PROMPTS[purpose]), ("human", "{payload}")])
                 # Do not inherit automatic third-party tracing of project text.
                 with tracing_context(enabled=False):
-                    response = (prompt | model).invoke({"payload": json.dumps(payload, ensure_ascii=False)})
+                    chain = prompt | model
+                    values = {"payload": json.dumps(payload, ensure_ascii=False)}
+                    response = (chain.invoke(values) if self.diagnostics is None else
+                                self.diagnostics.invoke(chain, values))
             raw = response["raw"]
             # Keep known responses even if schema parsing failed. Never store SDK error
             # reprs (Pydantic errors may echo project text), secrets or automatic retries.

@@ -2729,6 +2729,7 @@ ai = [
     { name = "langchain-deepseek" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
+    { name = "langsmith" },
     { name = "pydantic" },
     { name = "python-dotenv" },
 ]
@@ -2754,6 +2755,7 @@ requires-dist = [
     { name = "langchain-deepseek", marker = "extra == 'ai'", specifier = ">=1.1.1" },
     { name = "langgraph", marker = "extra == 'ai'", specifier = ">=1.2.15" },
     { name = "langgraph-checkpoint-sqlite", marker = "extra == 'ai'", specifier = ">=3.1.2" },
+    { name = "langsmith", marker = "extra == 'ai'", specifier = ">=0.14.8" },
     { name = "pydantic", marker = "extra == 'ai'", specifier = ">=2.12,<3" },
     { name = "python-dotenv", marker = "extra == 'ai'", specifier = ">=1.2.4" },
     { name = "python-dotenv", marker = "extra == 'web'", specifier = ">=1.2.4" },

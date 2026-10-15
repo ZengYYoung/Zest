@@ -38,6 +38,8 @@ M048 保持输出字段形状，强化 ResearchFinding/InvestigationReport 的�
 
 M049 的一次具体批准复测收到原生工具参数末尾多一个 `}`：实际 strict=true、工具名正确、输出低于预算，SDK 仍产生 invalid_tool_call。适配器保存原始供应商响应并标为已知无效，协议文本为空；没有修 JSON 或重发。原样 HTTP MockTransport 回放重现同一结果，元数据行为检查未达到，见 [M048 后复测](COGNITION_ACCEPTANCE_M048.md)。
 
+M050 增加显式单次 LangSmith 诊断：先本地收集真实 LangChain 子步骤并保存安全响应，再检查和上传完整固定请求/响应与步骤关系。默认调用仍关闭云端追踪，配置环境变量不会自动上传；原生 JSON 错误不修补、不重发，见 [诊断与数据范围](MODEL_DIAGNOSTICS.md)。
+
 ## 实际目标与批准
 
 DeepSeek 的原生 strict 工具调用使用官方 `/beta` 接口。配置根地址 `https://api.deepseek.com` 时，在准备预览前就解析为 `https://api.deepseek.com/beta`；doctor 显示配置地址及实际目标。自定义地址保持原值，其 strict 兼容性需另行确认。[供应商 strict 契约](https://api-docs.deepseek.com/guides/tool_calls/)
