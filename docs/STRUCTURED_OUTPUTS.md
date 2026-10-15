@@ -36,6 +36,8 @@ M046 将报告资料需求统一为 `MaterialRequest`，显式返回 source_id�
 
 M048 保持输出字段形状，强化 ResearchFinding/InvestigationReport 的具名类型说明：元数据由输入 metadata_observations 传递并由程序留存，不在 findings 重复输出；observed/inferred 均须实际非空 R 引用，不允许空数组或凑数量。Pydantic 和 with_structured_output 继续统一，后置逐条接收边界不放宽；描述/schema 哈希及指令变化阻止旧批准执行，详见 [元数据边界](COGNITION_REPORT_RECEIPT.md)。
 
+M049 的一次具体批准复测收到原生工具参数末尾多一个 `}`：实际 strict=true、工具名正确、输出低于预算，SDK 仍产生 invalid_tool_call。适配器保存原始供应商响应并标为已知无效，协议文本为空；没有修 JSON 或重发。原样 HTTP MockTransport 回放重现同一结果，元数据行为检查未达到，见 [M048 后复测](COGNITION_ACCEPTANCE_M048.md)。
+
 ## 实际目标与批准
 
 DeepSeek 的原生 strict 工具调用使用官方 `/beta` 接口。配置根地址 `https://api.deepseek.com` 时，在准备预览前就解析为 `https://api.deepseek.com/beta`；doctor 显示配置地址及实际目标。自定义地址保持原值，其 strict 兼容性需另行确认。[供应商 strict 契约](https://api-docs.deepseek.com/guides/tool_calls/)
