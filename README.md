@@ -16,6 +16,8 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 初始化已接入项目时只校验和连接，保留原有管理状态、批准与自定义内容。`.zest/AGENTS.md` 提供管理导航，索引引用原位文件；原生 README/docs 不另建副本。索引缓存及批准/证据审计保留必要原文。旧项目缺少入口可用 `zest project guide <project-id>` 显式补齐，已有入口不覆盖；新认知包将管理入口作为单独线索冻结后审阅，旧批准不变。
 
+`zest project context <project-id> --format text --progress` 只读汇总当前版本可用的记忆、六部分认知、原生文件索引与调查待办，历史与待核实内容单独标明；同样可通过项目 MCP 的 `project_management_context` 查询。不调用模型、重建索引或自动恢复任务。[管理上下文总览](docs/MANAGEMENT_CONTEXT.md)
+
 ## 交互式终端
 
 ```bash
@@ -293,7 +295,7 @@ uv sync --extra ai --extra mcp
 uv run --extra ai --extra mcp zest mcp serve <project-id>
 ```
 
-服务仅使用 stdio，绑定一个已登记项目，暴露 project_overview、read_file、keyword_search、indexed_search、confirmed_knowledge、project_structure、symbol_lookup 七个只读工具。工具不能指定另一仓库、运行 Shell、修改文件或批准任务。路径、版本和内容规则复用已有模块。
+服务仅使用 stdio，绑定一个已登记项目，暴露 project_overview、project_management_context、read_file、keyword_search、indexed_search、confirmed_knowledge、project_structure、symbol_lookup 八个只读工具。工具不能指定另一仓库、运行 Shell、修改文件或批准任务。路径、版本和内容规则复用已有模块。
 
 project_structure 返回 Python 声明地图；symbol_lookup 按词法名称或路径查询，最多返回 20 项固定版本/行段信息。可再将返回的 path/commit/start_line/end_line 交给 read_file 读取原文（长符号须自行限制至 200 行），核对版本、blob 与原文件哈希。不自动授予模型新的上下文范围，也不推断实际调用关系。
 

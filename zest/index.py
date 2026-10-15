@@ -35,7 +35,7 @@ def vector(counts, idf):
     return {term: value / norm for term, value in values.items()} if norm else {}
 
 
-@route_store(projects=("build",), fallback={"search": ("index_missing", "index_stale")})
+@route_store(projects=("build",), fallback={name: ("index_missing", "index_stale") for name in ("search", "inventory")})
 class RetrievalIndex:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()
@@ -141,6 +141,45 @@ class RetrievalIndex:
             conn.execute("INSERT OR REPLACE INTO indexes VALUES (?,?,?,?,?)",
                          (project["id"], commit, metadata["created_at"], json.dumps(metadata), json.dumps(chunks)))
         return metadata
+
+    def inventory(self, project, *, commit):
+        """List stored source references without returning cached original text."""
+        root = Path(project["root_path"])
+        if not verify_commit(root, commit):
+            raise FileReadError("invalid_commit", "索引总览需要有效的固定 commit。")
+        if not self.db_path.exists():
+            raise FileReadError("index_missing", "尚未建立索引。")
+        with self._open(write=False) as conn:
+            row = conn.execute("SELECT metadata,chunks FROM indexes WHERE project_id=? AND commit_id=?",
+                               (project["id"], commit)).fetchone()
+            if row is None:
+                raise FileReadError("index_stale", "当前版本没有索引，未使用历史版本索引。")
+            try:
+                metadata, chunks = json.loads(row[0]), json.loads(row[1])
+                if (metadata["backend"] != "lexical_tfidf" or metadata["project_id"] != project["id"]
+                        or metadata["commit"] != commit or not isinstance(chunks, list)
+                        or len(chunks) != metadata["chunk_count"] or len(chunks) > MAX_INDEX_CHUNKS):
+                    raise ValueError
+                files = {}
+                for chunk in chunks:
+                    source = chunk["evidence"]
+                    _validate_path(source["path"])
+                    if (source["commit"] != commit or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", source["blob_id"])
+                            or not re.fullmatch(r"[0-9a-f]{64}", chunk["content_sha256"])
+                            or type(source["start_line"]) is not int or type(source["end_line"]) is not int
+                            or not 0 < source["start_line"] <= source["end_line"] <= source["start_line"] + 39):
+                        raise ValueError
+                    reference = {"path": source["path"], "commit": commit, "blob_id": source["blob_id"],
+                                 "content_sha256": chunk["content_sha256"]}
+                    previous = files.setdefault(source["path"], {**reference, "windows": []})
+                    if any(previous[key] != value for key, value in reference.items()):
+                        raise ValueError
+                    previous["windows"].append({"start_line": source["start_line"], "end_line": source["end_line"]})
+            except (FileReadError, ValueError, TypeError, KeyError, AttributeError, RecursionError) as exc:
+                raise FileReadError("index_corrupted", "索引来源记录损坏，未生成总览。") from exc
+        return {"status": "available", "metadata": metadata,
+                "files": [files[path] for path in sorted(files)],
+                "content_reverified": False, "cached_text_included": False}
 
     def search(self, project, query, *, commit=None, limit=5):
         if not query.strip() or len(query) > 2000 or not 1 <= limit <= 20:

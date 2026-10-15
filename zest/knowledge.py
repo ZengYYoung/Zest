@@ -21,7 +21,7 @@ def _text(value, limit):
     return value
 
 
-@route_store(projects=("add",), lists=("list_notes",), contexts=("for_context",),
+@route_store(projects=("add",), lists=("list_notes", "management_records"), contexts=("for_context",),
              records={name: "knowledge" for name in ("get", "confirm", "invalidate")},
              stable={"add": ("knowledge", "note_id")})
 class KnowledgeStore:
@@ -122,6 +122,20 @@ class KnowledgeStore:
             return []
         with self._open(write=False) as conn:
             return [dict(row) for row in conn.execute("SELECT * FROM notes WHERE project_id=? ORDER BY created_at DESC LIMIT 100", (project_id,))]
+
+    def management_records(self, project_id):
+        """Full read-only inventory; context ranking/history limits do not apply."""
+        if not self.db_path.exists():
+            return []
+        with self._open(write=False) as conn:
+            records = [dict(row) for row in conn.execute(
+                "SELECT * FROM notes WHERE project_id=? ORDER BY created_at DESC,id", (project_id,))]
+        for record in records:
+            _text(record["title"], 200)
+            _text(record["body"], 8000)
+            if record["status"] not in ("draft", "confirmed", "invalidated") or record["scope"] not in ("snapshot", "project"):
+                raise FileReadError("knowledge_record_corrupt", "项目记忆状态或范围损坏，未生成总览。")
+        return records
 
     def confirm(self, note_id):
         now = datetime.now(timezone.utc).isoformat()

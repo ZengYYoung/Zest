@@ -52,6 +52,10 @@ def _parser() -> argparse.ArgumentParser:
     shown.add_argument("project_id", help="登记生成的项目 ID")
     guide = actions.add_parser("guide", help="显式补齐缺少的 .zest/AGENTS.md；不覆盖现有管理指引")
     guide.add_argument("project_id")
+    context = actions.add_parser("context", help="只读汇总当前版本的记忆、认知、索引和调查待办")
+    context.add_argument("project_id")
+    context.add_argument("--format", choices=("json", "text"), default="json")
+    context.add_argument("--progress", action="store_true")
     overview = actions.add_parser("overview", help="读取已登记项目当前 commit 的只读概览")
     overview.add_argument("project_id", help="登记生成的项目 ID")
     reader = actions.add_parser("read", help="读取已提交文本文件并返回行号和版本来源")
@@ -450,6 +454,16 @@ def main(argv: list[str] | None = None) -> int:
                 result = runner.decide(args.task_id, approved=args.action == "approve",
                                        payload_sha256=getattr(args, "payload_sha256", None))
             print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
+        if args.action == "context":
+            from .management_context import build_management_context, format_management_context
+            labels = {"snapshot": "固定选定版本", "memory": "读取项目记忆", "cognition": "汇总认知与调查待办",
+                      "index": "读取原生文件索引", "completed": "只读管理总览完成"}
+            def context_progress(event):
+                print(f"[{event['elapsed_seconds']:.3f}s] {labels[event['phase']]}", file=sys.stderr)
+            result = build_management_context(args.state_dir, args.project_id,
+                progress=context_progress if args.progress or sys.stderr.isatty() else None)
+            print(format_management_context(result) if args.format == "text" else json.dumps(result, ensure_ascii=True, indent=2))
             return 0
         if args.action == "init":
             from .development import create_project

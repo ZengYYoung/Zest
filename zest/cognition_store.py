@@ -76,7 +76,7 @@ def prepare_envelope(project, survey, target):
     return envelope
 
 
-@route_store(projects=("create",), lists=("list_runs",), contexts=("for_context",),
+@route_store(projects=("create",), lists=("list_runs", "management_records"), contexts=("for_context",),
              records={name: "cognition" for name in ("show", "decide", "context_requests", "decide_context",
                        "worker_active", "invalidate", "reviewed_finding", "recover", "dossier")})
 class CognitionStore:
@@ -345,6 +345,32 @@ class CognitionStore:
             return []
         with self.open() as conn:
             return [dict(row) for row in conn.execute('SELECT id,project_id,commit_id AS "commit",status,created_at,updated_at,call_count FROM cognition_runs WHERE project_id=? ORDER BY created_at DESC LIMIT 100', (project_id,))]
+
+    def management_records(self, project_id):
+        """Read all runs, findings and task gaps in one local read transaction."""
+        if not self.db_path.exists():
+            return []
+        records = []
+        with self.open() as conn:
+            conn.execute("BEGIN")
+            for row in conn.execute("SELECT * FROM cognition_runs WHERE project_id=? ORDER BY created_at,id", (project_id,)):
+                envelope = self.envelope(row)
+                try:
+                    record = {key: row[key] for key in ("id", "status", "created_at", "updated_at", "call_count")}
+                    record.update(commit=row["commit_id"], approval_sha256=row["envelope_sha256"],
+                                  catalog={s["id"]: s["evidence"] for s in envelope["files"]},
+                                  plan=json.loads(row["plan"]) if row["plan"] else None,
+                                  error=json.loads(row["error"]) if row["error"] else None)
+                    record["findings"] = [{"id": f["id"], "status": f["status"], "job_id": f["job_id"],
+                                           "finding": json.loads(f["finding"]), "review": json.loads(f["review"]) if f["review"] else None}
+                                          for f in conn.execute("SELECT * FROM cognition_findings WHERE run_id=? ORDER BY id", (row["id"],))]
+                    record["jobs"] = [{"id": j["id"], "status": j["status"], "spec": json.loads(j["spec"]),
+                                       "result": json.loads(j["result"]) if j["result"] else None}
+                                      for j in conn.execute("SELECT * FROM cognition_jobs WHERE run_id=? ORDER BY id", (row["id"],))]
+                except (ValueError, TypeError, KeyError, RecursionError) as exc:
+                    raise FileReadError("cognition_record_corrupt", "项目认知记录损坏，未生成总览。") from exc
+                records.append(record)
+        return records
 
     def event(self, run_id, actor, action, detail=None):
         with self.open(write=True) as conn, conn:

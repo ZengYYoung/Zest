@@ -143,6 +143,8 @@ MANAGEMENT_GUIDE = """# Zest 项目管理入口
   它们不是完整理解或实际运行状态的证明。
 - 任务、修改、验证、源码操作和 checkpoint 按使用保存在 state/，不直接编辑
   数据库或删除锁、批准、请求记录。使用 Zest 的 CLI、终端或 Web 查询。
+- 用 zest project context <project-id> --format text 或只读 MCP
+  project_management_context 查看适用记忆、六部分认知、索引和调查待办。
 - 可在 .zest/ 下维护生成的项目管理说明、记忆导航和 skills/ 等资源，保留原有
   内容；本入口不会自动执行或加载任意 skill。原生 README/docs 无需拷贝进来。
 

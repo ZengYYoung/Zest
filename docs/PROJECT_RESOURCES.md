@@ -30,6 +30,7 @@ zest project import /absolute/path/to/project
 zest project show <project-id>       # resource_dir 显示实际状态目录
 zest index build <project-id>
 zest cognition create <project-id>
+zest project context <project-id> --format text --progress
 ```
 
 已有旧登记也可再次 `project import` 同一路径以启用，保留项目 ID。新创建项目自动启用。
@@ -59,6 +60,8 @@ zest project guide <project-id>
 ## 管理入口、索引和原生证据
 
 `.zest/AGENTS.md` 是管理导航，说明正式记忆、认知档案、任务和索引的位置与核对方式；首次生成的通用说明不代表已经理解业务。项目相关的六部分认知和知识仍由调查、核对与维护逐步形成，可通过 Zest 查询和导出。用户可在 `.zest/` 维护管理文档、生成的导航和 `skills/` 等资源，初始化会保留这些内容；当前没有自动发现、执行任意 skill 的新运行机制。
+
+M057 新增 [只读管理上下文总览](MANAGEMENT_CONTEXT.md)：CLI `project context` 或项目 MCP `project_management_context` 汇总当前版本适用记忆、认知、索引与调查待办；不受历史浏览/模型上下文条数筛选影响，不自动生成文档或扩展旧调查包。
 
 索引指向原生文件的相对路径、commit、blob、哈希与物理行号。现有词法索引缓存文本片段，摸底保存文档摘要窗口，批准资料包和逐请求审计保留必要原文，用于检索、完整审阅、证据核对与恢复；这些派生数据不是另一套 README/docs，也不成为新的原生来源。`.zest` 继续排除在项目正文检索和证据工具之外。
 

@@ -29,8 +29,18 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
     async def test_only_read_tools_are_discoverable(self):
         async with Client(self.server()) as client:
             tools = await client.list_tools()
-        self.assertEqual({t.name for t in tools}, {"project_overview", "read_file", "keyword_search", "indexed_search", "confirmed_knowledge", "project_structure", "symbol_lookup"})
+        self.assertEqual({t.name for t in tools}, {"project_overview", "project_management_context", "read_file", "keyword_search", "indexed_search", "confirmed_knowledge", "project_structure", "symbol_lookup"})
         self.assertTrue(all(t.annotations.read_only_hint for t in tools))
+
+    async def test_management_inventory_is_read_only_and_does_not_create_stores(self):
+        server = self.server()
+        before = {p.name: p.read_bytes() for p in self.state_dir.iterdir() if p.is_file()}
+        async with Client(server) as client:
+            response = await client.call_tool("project_management_context", {})
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(response.data["data"]["project_id"], self.project_id)
+        self.assertEqual(response.data["data"]["model_calls"], 0)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.state_dir.iterdir() if p.is_file()})
 
     async def test_structure_lookup_and_read_preserve_same_source_without_execution(self):
         (self.repo / "app.py").write_text("raise RuntimeError('never execute')\nclass Service:\n    def method(self):\n        return 1\n")

@@ -118,6 +118,7 @@ M028 已实现这个问答闭环，入口为 `zest ui`。用户已选择先做�
 | --- | --- |
 | `doctor` / `web serve` / `mcp serve` | 环境检查、本地 API 与单项目只读工具服务 |
 | `project init/import/list/show/overview` | 接入与登记状态 |
+| `project guide/context` | 显式补齐缺少的管理入口；只读汇总适用记忆、认知、索引与调查待办 |
 | `survey build/list/show` | 同一版本的摸底材料、覆盖/缺口与独立历史；可读摘要和真实阶段反馈 |
 | `project read/search/map/ask` / `index build/search` | 固定版本证据、静态声明与现有检索 |
 | `task create/list/show/approve/reject` | 持久化调查与模型数据批准 |
