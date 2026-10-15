@@ -24,6 +24,7 @@ RECORDS = {
     "survey": ("surveys.sqlite3", "surveys"),
     "cognition": ("cognition.sqlite3", "cognition_runs"),
     "evaluation": ("evaluations.sqlite3", "evaluations"),
+    "resolution": ("resolutions.sqlite3", "resolutions"),
     "task": ("tasks.sqlite3", "task_records"),
     "repair": ("repairs.sqlite3", "repairs"),
     "verification": ("verifications.sqlite3", "verifications"),

@@ -151,6 +151,8 @@ PROMPTS = {"qa": SYSTEM_PROMPT, "repair_proposal": REPAIR_PROMPT}
 PROMPTS.update(COGNITION_PROMPTS)
 from .evaluation_skill import skill_text
 PROMPTS["cognition_evaluation"] = skill_text()
+from .cognition_resolution_contracts import RESOLUTION_PROMPT
+PROMPTS["cognition_resolution"] = RESOLUTION_PROMPT
 
 
 class DeepSeekModel:
@@ -178,7 +180,7 @@ class DeepSeekModel:
             raise FileReadError("ai_dependencies_missing", "请先执行 uv sync --extra ai。") from exc
         options = dict(model=self.settings.name, api_key=self.settings.api_key,
                        base_url=structured_base_url(self.settings.base_url), timeout=self.settings.timeout,
-                       max_retries=0, max_tokens=8192 if purpose == "cognition_evaluation" else POLICY["max_report_tokens"] if purpose == "project_report" else
+                       max_retries=0, max_tokens=8192 if purpose in ("cognition_evaluation", "cognition_resolution") else POLICY["max_report_tokens"] if purpose == "project_report" else
                        POLICY["max_response_tokens"] if purpose in COGNITION_PROMPTS else
                        4096 if purpose == "repair_proposal" else 2048, cache=False, verbose=False,
                        use_responses_api=False, extra_body={"thinking": {"type": "disabled"}})

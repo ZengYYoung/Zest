@@ -34,7 +34,7 @@ def create_server(project_id, state_dir):
 
     @server.tool(annotations=annotations)
     def project_management_context() -> dict:
-        """只读汇总选定版本的记忆、认知、索引、调查待办及已结束调查的后续行动；不创建或恢复任务。"""
+        """只读汇总选定版本的记忆、有效认知、索引、调查待办、后续行动及已采纳解决记录；不创建或恢复任务。"""
         from .management_context import build_management_context
         return result(lambda: build_management_context(state_dir, project_id))
 

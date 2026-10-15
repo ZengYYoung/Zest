@@ -288,6 +288,48 @@ class CognitionEvaluationResponse(OutputModel):
     judgments: list[FindingJudgment] = Field(description="仅评价本批 findings 的全部独立属性与冲突；每个发现恰好一次，空批返回空列表。原系统核对结果不作为正确依据。")
 
 
+class ResolutionCheck(OutputModel):
+    """One old assertion attribute answered by freshly reviewed findings."""
+
+    start: int = Field(description="旧 statement 的 Unicode 起始字符，包含。")
+    end: int = Field(description="旧 statement 的 Unicode 结束字符，不包含；连续覆盖全文。")
+    subject: str = Field(description="本项核对的对象。")
+    attribute: str = Field(description="对象的独立属性，不能用主题近似代替。")
+    condition: str = Field(description="断言成立的完整条件或边界。")
+    assertion: str = Field(description="旧断言中本项需要确认或纠正的内容。")
+    outcome: Literal["confirmed", "corrected", "unresolved"] = Field(description="完整确认、完整纠正/补全，或仍未解决；未知问题回答用 corrected。")
+    finding_ids: list[str] = Field(description="明确回答本属性的本次 candidates 身份；已处理项至少一个。")
+    evidence_ids: list[str] = Field(description="上述候选实际支持该判定的 P 原文身份；已处理项至少一个。")
+    reason: str = Field(description="逐项解释新旧关系及原文支持；未解决时说明缺口。")
+
+
+class ResolutionJudgment(OutputModel):
+    """Complete response to one old finding or located unknown."""
+
+    reference_id: str = Field(description="提供的旧发现或未知项身份，必须恰好判断一次。")
+    checks: list[ResolutionCheck] = Field(description="按独立属性逐项判断，连续完整覆盖原 statement；至少一项。")
+    coverage_complete: bool = Field(description="所有语义属性、边界和旧核对意见均已处理；字符覆盖本身不保证语义完整。")
+    reason: str = Field(description="总体说明本问题是否已完整回答，不替代逐项证据。")
+
+
+class ResolutionConflict(OutputModel):
+    """Explicit disposition of one frozen conflict edge."""
+
+    left: str = Field(description="提供的冲突 left 身份，不能自行增加、删除或交换。")
+    right: str = Field(description="提供的冲突 right 身份。")
+    verdict: Literal["resolved", "unresolved"] = Field(description="两端属性与关系均已处理才 resolved；否则保留 unresolved。")
+    finding_ids: list[str] = Field(description="解释冲突的本次候选身份；resolved 至少一个。")
+    evidence_ids: list[str] = Field(description="关联候选中实际用于消解冲突的 P 原文身份。")
+    reason: str = Field(description="说明哪方错误或各自成立的条件；未解决时说明缺口。")
+
+
+class CognitionResolutionResponse(OutputModel):
+    """Proposal only; application gates and explicit human adoption control effects."""
+
+    judgments: list[ResolutionJudgment] = Field(description="完整判断所有旧 references，不遗漏或重复。")
+    conflicts: list[ResolutionConflict] = Field(description="完整判断提供的冲突关系，无冲突时为空。")
+
+
 OUTPUT_MODELS = {
     "qa": QAResponse,
     "repair_proposal": RepairProposalResponse,
@@ -297,6 +339,7 @@ OUTPUT_MODELS = {
     "project_report": ProjectReportResponse,
     "project_review": ProjectReviewResponse,
     "cognition_evaluation": CognitionEvaluationResponse,
+    "cognition_resolution": CognitionResolutionResponse,
 }
 
 

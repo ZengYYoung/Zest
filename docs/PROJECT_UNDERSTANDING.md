@@ -59,3 +59,5 @@ Zest 是长期参与单一项目的管理员 Agent，目标覆盖理解、开发
 预算、状态、恢复与使用集中在 [COGNITION.md](COGNITION.md)，计划内容见 [INVESTIGATION_PLAN.md](INVESTIGATION_PLAN.md)，验证见 [DEVLOG.md](DEVLOG.md)。
 
 M062 支持 [同版本定向调查](COGNITION_FOLLOWUP.md)：从一条未解决 observed 发现准备完整新包，主目标和完成标准固定，批准后重新读原文；原发现及其后续行动不自动关闭。
+
+M063 支持 [补查结案](COGNITION_RESOLUTION.md)：专门对照新旧断言、属性和冲突，另行批准模型请求生成建议，再由用户明确采纳。按项结案并更新有效知识，历史原记录不改写；依赖失效重新提示待复核，不自动恢复旧错误。实际语义质量尚无真实模型验收。

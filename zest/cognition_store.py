@@ -485,8 +485,10 @@ class CognitionStore:
         if not self.db_path.exists() or commit is None:
             return []
         from .index import terms
+        from .cognition_resolution import effective_resolutions, item_resolution
+        effects = effective_resolutions(self.state_dir, project_id, commit)
         with self.open() as conn:
-            rows = conn.execute("""SELECT f.id,f.run_id,f.finding,f.review,r.commit_id,r.updated_at
+            rows = conn.execute("""SELECT f.id,f.run_id,f.finding,f.review,f.status,f.job_id,r.commit_id,r.updated_at
                 FROM cognition_findings f JOIN cognition_runs r ON r.id=f.run_id
                 WHERE r.project_id=? AND r.commit_id=? AND f.status='auto_reviewed'
                 AND r.status IN ('completed','partial') ORDER BY r.updated_at DESC LIMIT 60""", (project_id, commit))
@@ -494,6 +496,9 @@ class CognitionStore:
             query_terms = set(terms(query))
             for row in rows:
                 finding = json.loads(row["finding"])
+                if item_resolution(effects, row['run_id'], {'id': row['id'], 'job_id': row['job_id'],
+                        'status': row['status'], 'finding': finding, 'review': json.loads(row['review'])}):
+                    continue
                 text(finding["statement"])
                 records.append({"id": row["id"], "run_id": row["run_id"], "body": finding["statement"],
                                 "section": finding["section"], "commit": row["commit_id"], "evidence": finding["evidence"],
@@ -508,6 +513,9 @@ class CognitionStore:
         item = next((item for item in record["findings"] if item["id"] == finding_id), None)
         if item is None or item["status"] != "auto_reviewed" or record["status"] not in ("completed", "partial"):
             raise FileReadError("cognition_knowledge_changed", "认知已失效或尚未核对，需重新准备上下文。")
+        from .cognition_resolution import effective_resolutions, item_resolution
+        if item_resolution(effective_resolutions(self.state_dir, record['project_id'], record['commit']), run_id, item):
+            raise FileReadError('cognition_knowledge_changed', '原认知已由补查处理决定替代，请重新准备上下文。')
         return {"project_id": record["project_id"], "commit": record["commit"],
                 "finding_sha256": digest({"finding": item["finding"], "review": item["review"]}),
                 "body": item["finding"]["statement"]}

@@ -154,6 +154,19 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--allow-extended-requests", action="store_true", help="另行同意预览中精确列出的 32000—48000 字符请求清单")
         if name == "report":
             command.add_argument("--format", choices=("json", "text"), default="json")
+    resolution = commands.add_parser('resolution', help='补查结果关联、冲突处理与明确采纳结案')
+    resolution_actions = resolution.add_subparsers(dest='action', required=True)
+    resolution_create = resolution_actions.add_parser('create', help='冻结新旧结果、原文与精确对照请求，不调用模型')
+    resolution_create.add_argument('run_id', help='已结束的定向补查 run')
+    for name in ('preview', 'show', 'approve', 'reject', 'run', 'recover', 'adopt'):
+        command = resolution_actions.add_parser(name)
+        command.add_argument('resolution_id')
+        if name == 'approve':
+            command.add_argument('--approval-sha256', required=True)
+            command.add_argument('--no-run', action='store_true')
+            command.add_argument('--allow-extended-requests', action='store_true')
+        if name == 'adopt': command.add_argument('--proposal-sha256', required=True)
+        if name == 'show': command.add_argument('--format', choices=('json','text'), default='json')
     tasks = commands.add_parser("task", help="持久化问答任务及批准")
     task_actions = tasks.add_subparsers(dest="action", required=True)
     create = task_actions.add_parser("create", help="准备上下文并暂停等待批准")
@@ -372,6 +385,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_dossier(result) if args.action == "dossier" else format_cognition(result))
             else:
                 print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
+        if args.command == 'resolution':
+            from .cognition_resolution import ResolutionStore, format_resolution
+            store = ResolutionStore(args.state_dir)
+            if args.action == 'create': result = store.create(args.run_id)
+            elif args.action in ('show','preview'): result = store.show(args.resolution_id, preview=args.action == 'preview')
+            elif args.action in ('approve','reject'):
+                result = store.decide(args.resolution_id, approved=args.action == 'approve',
+                                      approval_sha256=getattr(args,'approval_sha256',None),
+                                      allow_extended_requests=getattr(args,'allow_extended_requests',False))
+                if args.action == 'approve' and not args.no_run: result = store.run(args.resolution_id)
+            elif args.action == 'run': result = store.run(args.resolution_id)
+            elif args.action == 'recover': result = store.recover(args.resolution_id)
+            else: result = store.adopt(args.resolution_id, proposal_sha256=args.proposal_sha256)
+            print(format_resolution(result) if getattr(args,'format','json') == 'text' else json.dumps(result, ensure_ascii=True, indent=2))
             return 0
         if args.command == "evaluation":
             from .evaluation import EvaluationStore, load_criteria, format_evaluation

@@ -83,3 +83,5 @@ M059 的核对输出使用 ClaimCheck / ReviewConflict，逐项属性检查、�
 M060 新增独立评分的 CognitionEvaluationResponse，具名 CoverageJudgment 与属性核对模型共同约束逐项输出；评分 Skill 全文、Schema、精确请求和样本门槛单独冻结批准，详见 [独立认知评分](COGNITION_EVALUATION.md)。
 
 M062 增加 project_followup_plan，用具名 FollowupPlanResponse 约束定向规划，程序从已批准 followup_context 构造单任务 spec，不接受模型改写固定目标。新 Schema/指令进入完整包，旧审批不能复用，见 [定向调查](COGNITION_FOLLOWUP.md)。
+
+M063 增加 cognition_resolution，绑定 CognitionResolutionResponse、ResolutionJudgment、ResolutionCheck、ResolutionConflict。模型逐属性判断 confirmed/corrected/unresolved 并解释冲突，程序检查完整覆盖、候选/原文身份，派生整条 outcome 与逐项 closable。模型输出不直接改知识；完整建议须另行显式采纳。见 [补查结果处理](COGNITION_RESOLUTION.md)。

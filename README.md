@@ -33,6 +33,8 @@ uv run --extra ai --extra mcp --extra tui zest ui
 
 `zest cognition followup-create <run-id> <finding-id>` 可从一条未解决发现准备同版本定向调查包，目标与完成标准单独冻结、批准后再调查，原发现保持原样。[定向调查](docs/COGNITION_FOLLOWUP.md)
 
+补查完成后，`zest resolution create <followup-run-id>` 准备新旧结论对照包；另行批准后由模型提出逐项确认/纠正/未解决和冲突处理建议。用户审阅并显式 `adopt` 后，完整处理的问题才从行动清单移到解决记录，被替代的旧结论退出有效知识，历史报告保留。[补查结果与结案](docs/COGNITION_RESOLUTION.md)
+
 原文核对现按独立属性留存判定与冲突；仅整条全部支持且无未解决冲突时接收，部分正确保留待调查。[核对规则](docs/COGNITION_ATTRIBUTE_REVIEW.md)
 
 最新阶段实测：[M058 报告](docs/PHASE_REPORT_M058.md)。同一公开样本的一轮冷启动实测用完 32 次物理请求，产生 41 条自动核对记录；严格事实覆盖 8/10、核心 3/3、流程 3/6，且存在语义误收，**整体仍未通过**。项目内资源与 CLI/MCP 管理总览已用真实结果核验，不能据此声称完整理解或稳定维护能力。

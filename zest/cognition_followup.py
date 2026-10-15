@@ -110,6 +110,10 @@ def prepare_followup(state_dir, run_id, finding_id, *, target=None, progress=Non
     emit('source')
     store = CognitionStore(state_dir)
     source = source_snapshot(store, run_id, finding_id)
+    from .cognition_resolution import effective_resolutions
+    effect = effective_resolutions(state_dir, source['project_id'], source['commit']).get((run_id, finding_id))
+    if effect and effect['active']:
+        raise FileReadError('resolution_already_closed', '原问题已通过处理决定关闭，无需重复补查。')
     project = ProjectRegistry(state_dir).get_project_readonly(source['project_id'])
     if project is None:
         raise FileReadError('project_not_found', '未找到原调查所属项目。')
