@@ -92,6 +92,11 @@ def _parser() -> argparse.ArgumentParser:
     cognition_create.add_argument("--survey-id")
     cognition_list = cognition_actions.add_parser("list")
     cognition_list.add_argument("project_id")
+    refresh = cognition_actions.add_parser("refresh-preview", help="只读比较选定版本与认知证据，生成待刷新清单")
+    refresh.add_argument("project_id")
+    refresh.add_argument("--base-run-id", help="可选历史认知基线；默认优先选定版本，否则最近已结束调查")
+    refresh.add_argument("--format", choices=("json", "text"), default="json")
+    refresh.add_argument("--progress", action="store_true", help="在 stderr 展示真实版本/证据对比阶段")
     for name in ("show", "preview", "approve", "reject", "recover", "dossier", "watch"):
         command = cognition_actions.add_parser(name)
         command.add_argument("run_id")
@@ -262,6 +267,16 @@ def main(argv: list[str] | None = None) -> int:
             from .cognition_store import CognitionStore
             from .cognition_views import format_cognition, format_dossier, watch_cognition
             store = CognitionStore(args.state_dir)
+            if args.action == "refresh-preview":
+                from .cognition_refresh import build_refresh_preview, format_refresh_preview
+                labels = {"snapshot": "固定当前选定版本", "baseline": "读取既有认知基线",
+                          "compare": "比较提交文件元数据", "evidence": "关联已有原文证据", "completed": "只读待刷新清单生成完成"}
+                def progress(event):
+                    print(f"[{event['elapsed_seconds']:.3f}s] {labels[event['phase']]}", file=sys.stderr)
+                result = build_refresh_preview(args.state_dir, args.project_id, base_run_id=args.base_run_id,
+                                               progress=progress if args.progress or sys.stderr.isatty() else None)
+                print(format_refresh_preview(result) if args.format == "text" else json.dumps(result, ensure_ascii=True, indent=2))
+                return 0
             if args.action == "worker":
                 from .cognition import worker
                 if not 1 <= args.idle_seconds <= 300:

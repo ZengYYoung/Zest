@@ -176,6 +176,36 @@ def verify_commit(root: Path, object_id: str) -> bool:
     return result.returncode == 0 and result.stdout.strip() == b"commit"
 
 
+def compare_commits(root: Path, before: str, after: str) -> list[dict]:
+    """Compare complete local commits using metadata only; never invoke diff drivers.
+
+    Renames are deliberately a deletion and addition. No similarity heuristic,
+    source body, working tree, external diff, or textconv participates.
+    """
+    if not verify_commit(root, before) or not verify_commit(root, after):
+        raise RepositoryError("版本对比需要本地有效的完整 commit。")
+    raw = _git(root, "diff-tree", "-r", "--no-commit-id", "--raw", "-z", "--no-abbrev",
+               "--no-renames", "--no-ext-diff", "--no-textconv", before, after, "--").stdout
+    fields = raw.split(b"\0")
+    if fields[-1] != b"" or len(fields) % 2 != 1:
+        raise RepositoryError("无法完整解析 Git 版本对比。")
+    result = []
+    labels = {"A": "added", "D": "deleted", "M": "modified", "T": "type_changed"}
+    try:
+        for index in range(0, len(fields) - 1, 2):
+            old_mode, new_mode, old_id, new_id, status = fields[index].decode("ascii").split()
+            if not old_mode.startswith(":") or status not in labels:
+                raise ValueError
+            result.append({"path": fields[index + 1].decode("utf-8"), "change": labels[status],
+                           "before_mode": old_mode[1:] if old_mode != ":000000" else None,
+                           "after_mode": new_mode if new_mode != "000000" else None,
+                           "before_object": old_id if set(old_id) != {"0"} else None,
+                           "after_object": new_id if set(new_id) != {"0"} else None})
+    except (UnicodeError, ValueError) as exc:
+        raise RepositoryError("Git 对比格式或路径编码不受支持，未返回不完整清单。") from exc
+    return result
+
+
 def managed_ref(project_id: str) -> str:
     try:
         if str(UUID(project_id)) != project_id:

@@ -6,6 +6,8 @@ import json
 from .cognition_store import CognitionStore
 from .cognition_views import format_cognition, format_dossier
 from .files import FileReadError
+from .git import RepositoryError
+from .storage import StorageError
 from .terminal import display_text
 
 
@@ -110,6 +112,29 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
         def action_close(self):
             self.dismiss(None)
 
+    class RefreshPreview(ModalScreen):
+        BINDINGS = [("escape", "close", "返回")]
+        CSS = """
+        RefreshPreview { align: center middle; }
+        #refresh-box { width: 96%; height: 96%; padding: 1; border: solid #888888; background: $surface; }
+        #refresh-text { height: 1fr; }
+        """
+
+        def __init__(self, record):
+            super().__init__()
+            self.record = record
+
+        def compose(self):
+            from .cognition_refresh import format_refresh_preview
+            with Vertical(id="refresh-box"):
+                yield Label("版本更新 · 待刷新清单（只读）")
+                yield TextArea(format_refresh_preview(self.record), read_only=True, id="refresh-text")
+                yield Button("返回认知工作台", id="refresh-close")
+
+        @on(Button.Pressed, "#refresh-close")
+        def action_close(self):
+            self.dismiss()
+
     class CognitionScreen(ModalScreen):
         BINDINGS = [("escape", "close", "返回对话")]
         CSS = """
@@ -135,6 +160,7 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
                 yield Static("准备资料后审阅批准。返回主对话或退出工作台，不会取消后台调查。", markup=False, id="cognition-notice")
                 with Horizontal(id="cognition-actions"):
                     yield Button("新建调查", id="cognition-create")
+                    yield Button("版本更新", id="cognition-refresh")
                     yield Button("审阅资料包", id="cognition-preview", disabled=True)
                     yield Button("审阅超限请求", id="cognition-context", disabled=True)
                     yield Button("安全恢复", id="cognition-recover", disabled=True)
@@ -215,14 +241,30 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
             if self.record:
                 self.perform("context", self.record["id"])
 
+        @on(Button.Pressed, "#cognition-refresh")
+        def refresh_preview(self):
+            self.perform("refresh")
+
         @work(exclusive=True, group="cognition-action")
         async def perform(self, action, run_id=None):
             if self.busy:
                 return
             self.busy = True
             self.query_one("#cognition-create", Button).disabled = True
+            self.query_one("#cognition-refresh", Button).disabled = True
             try:
-                if action == "create":
+                if action == "refresh":
+                    from .cognition_refresh import build_refresh_preview
+                    self.notice("正在生成只读版本检查清单；不调用模型。")
+                    labels = {"snapshot": "正在固定当前选定版本", "baseline": "正在读取既有认知基线",
+                              "compare": "正在比较提交文件元数据", "evidence": "正在关联已有证据", "completed": "只读清单已生成"}
+                    def progress(event):
+                        if self.is_attached:
+                            self.app.call_from_thread(self.notice, labels[event["phase"]])
+                    record = await asyncio.to_thread(build_refresh_preview, state_dir, project_id, progress=progress)
+                    await self.app.push_screen_wait(RefreshPreview(record))
+                    self.notice("待刷新清单已展示；旧认知与知识状态未改变，后续调查仍需批准。")
+                elif action == "create":
                     self.notice("正在本地摸底并准备资料包；尚未调用模型。")
                     record = await asyncio.to_thread(store.create, project_id)
                     self.refresh_history(record["id"])
@@ -252,12 +294,13 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
                     await asyncio.to_thread(store.recover, run_id)
                     await asyncio.to_thread(launch, state_dir)
                     self.notice("已安全排队恢复；已保存响应会复用，不重试未知请求。")
-            except (FileReadError, OSError) as exc:
-                self.notice(str(exc) if isinstance(exc, FileReadError) else "无法启动后台进程，可通过 CLI 核对并启动 worker。")
+            except (FileReadError, RepositoryError, StorageError, OSError) as exc:
+                self.notice(str(exc) if isinstance(exc, (FileReadError, RepositoryError, StorageError)) else "本地操作失败，可通过 CLI 核对状态。")
             finally:
                 self.busy = False
                 if self.is_attached:
                     self.query_one("#cognition-create", Button).disabled = False
+                    self.query_one("#cognition-refresh", Button).disabled = False
                     if self.record:
                         self.read_record(self.record["id"])
 

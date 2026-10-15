@@ -113,3 +113,22 @@ class ProjectRegistry:
                 return self._record(row) if row is not None else None
         except sqlite3.Error as exc:
             raise StorageError("读取项目状态失败。") from exc
+
+    def get_project_readonly(self, project_id: str) -> dict | None:
+        """Read a registration without initialization, migration, or timestamps."""
+        if not self.db_path.exists():
+            return None
+        if self.db_path.is_symlink():
+            raise StorageError("只读项目状态不能是符号链接。")
+        try:
+            with closing(sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True)) as conn:
+                conn.row_factory = sqlite3.Row
+                if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
+                    raise StorageError("本地项目状态版本不兼容。")
+                row = conn.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+                if row is None:
+                    return None
+                # Legacy v1 registrations predate the additive mode column.
+                return self._record({"mode": "import", **dict(row)})
+        except (sqlite3.Error, OSError) as exc:
+            raise StorageError("只读项目状态失败。") from exc

@@ -157,3 +157,31 @@ class CognitionTerminalTest(unittest.IsolatedAsyncioTestCase):
             await self.wait_for(pilot, lambda: self.store.show(record["id"])["status"] == "rejected")
             self.assertEqual(self.threads, [])
             self.assertEqual(self.model.calls, [])
+
+    async def test_version_refresh_preview_at_80_columns_does_not_launch_or_update_knowledge(self):
+        from textual.widgets import TextArea
+        self.model.release.set()
+        record = self.store.create(self.project["id"])
+        self.store.decide(record["id"], approved=True, approval_sha256=record["approval_sha256"])
+        result = CognitionEngine(self.state_dir, model=self.model).run(record["id"])
+        self.assertEqual(result["status"], "completed")
+        (self.repo / "app.py").write_text("def add(a,b):\n    return a-b\n")
+        self.commit("changed")
+        calls = len(self.model.calls)
+        launched = []
+        app = create_workspace(self.state_dir, cognition_store=self.store, cognition_launch=launched.append)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.press("ctrl+u")
+            await self.wait_for(pilot, lambda: getattr(app.screen, "record", None) is not None)
+            before = self.store.db_path.read_bytes()
+            await pilot.click("#cognition-refresh")
+            await self.wait_for(pilot, lambda: app.screen.__class__.__name__ == "RefreshPreview")
+            shown = app.screen.query_one("#refresh-text", TextArea).text
+            self.assertIn("版本已变化", shown)
+            self.assertIn("证据文件变化", shown)
+            self.assertIn("未调用模型", shown)
+            await pilot.press("escape")
+            await self.wait_for(pilot, lambda: app.screen.__class__.__name__ == "CognitionScreen")
+            self.assertEqual(self.store.db_path.read_bytes(), before)
+            self.assertEqual(len(self.model.calls), calls)
+            self.assertEqual(launched, [])
