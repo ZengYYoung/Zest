@@ -21,6 +21,10 @@ def format_cognition(record):
              f"格式失败最多补试 {record['policy'].get('max_format_retries', 0)} 次，计入上述总预算；结果未知不重发",
              f"批准资料：{record['file_count']} 个文件；包外资料需重新授权", ""]
     scope = record.get("scope_review") or {}
+    if record.get("refresh"):
+        refresh = record["refresh"]
+        lines.append(f"增量调查 · 基线 {refresh['baseline_commit']} · 变更 {refresh['changed_files']} 个文件 · 历史待核对线索 {refresh['historical_leads']} 项 · 包外变更 {refresh['outside_package']} 个")
+        lines.append("旧结论不直接迁移；目标版本的发现仍需重新读原文并核对。")
     if scope.get("requires_discussion"):
         lines.append(f"范围待确认：已纳入 {scope['source_count']} 个文件，规划清单展示 {scope['catalog_count']} 个；" + display_text(scope["message"]))
     if record["plan"]:

@@ -69,7 +69,7 @@ M046 起任务/报告保留完整批准文件的精简目录，read_source_ids �
 
 ## 默认预算
 
-M053 增加 `cognition refresh-preview <project-id>` 与终端“版本更新”：只读比较当前选定 commit 和既有认知基线，列出变更/未变/无法核对的证据及未覆盖变更，不调用模型或修改知识。没有基线会明确提示；后续增量调查仍需单独设计和批准，见 [增量预览](COGNITION_REFRESH.md)。
+M053 增加 `cognition refresh-preview <project-id>` 与终端“版本更新”：只读比较当前选定 commit 和既有认知基线，列出变更/未变/无法核对的证据及未覆盖变更，不调用模型或修改知识。M054 的 `cognition refresh-create <project-id>` 可将变化与旧线索冻结到新版本待批准资料包，单独批准后复用现有规划/调查/核对；准备不外发，旧认知不迁移，真实增量效果仍待验收，见 [增量调查](COGNITION_REFRESH.md)。
 
 | 预算 | 上限 |
 | --- | --- |

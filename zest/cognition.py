@@ -209,6 +209,8 @@ class CognitionEngine:
                 and isinstance(receipt["raw_response"].get("provider_response"), dict))
 
     def check_knowledge(self, envelope):
+        from .cognition_refresh import check_refresh_context
+        check_refresh_context(self.store, envelope)
         for knowledge in envelope.get("shared_knowledge", []):
             current = self.store.reviewed_finding(knowledge["run_id"], knowledge["id"])
             if current["finding_sha256"] != knowledge["finding_sha256"] or current["commit"] != envelope["commit"]:
@@ -267,6 +269,8 @@ class CognitionEngine:
                    "starting_documents_coverage": {"included": len(docs), "candidates": document_count},
                    "shared_knowledge": self.knowledge_hints(envelope),
                    "gaps": envelope["survey_gaps"], "policy": envelope["policy"]}
+        if "refresh_context" in envelope:
+            payload["refresh_context"] = envelope["refresh_context"]
         result = validate_plan(self.call(run_id, "coordinator", 0, "project_plan", payload, envelope), {source["id"] for source in catalog})
         self.store.save_plan(run_id, result)
         self.store.event(run_id, "coordinator", "plan_ready", {"tasks": len(result["tasks"])})
@@ -295,6 +299,8 @@ class CognitionEngine:
                                               if job["id"] in spec["depends_on"] and job["status"] == "completed" and job["result"]],
                        **investigation_view(state["tool_results"]), "remaining_turns": envelope["policy"]["max_turns_per_task"] - state["turns"],
                        "remaining_tool_actions": envelope["policy"]["max_tool_actions_per_task"] - state["actions_used"]}
+            if "refresh_context" in envelope:
+                payload["refresh_context"] = envelope["refresh_context"]
             closing = (payload["remaining_turns"] == 1 or state.get("report_required", False)
                        or payload["remaining_tool_actions"] == 0)
             payload["report_required"] = closing

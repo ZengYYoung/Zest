@@ -7,7 +7,9 @@ def material_catalog(envelope):
     """Show as many approved entries as the metadata budget fits, not 60 IDs."""
     budget = envelope.get("policy", {}).get("catalog_chars", POLICY["catalog_chars"])
     result = []
-    for source in envelope["files"]:
+    priority = {item["source_id"] for item in envelope.get("refresh_context", {}).get("focus", []) if item["source_id"]}
+    sources = sorted(envelope["files"], key=lambda source: source["id"] not in priority)
+    for source in sources:
         item = {"id": source["id"], "path": source["evidence"]["path"], "roles": source["roles"]}
         if len(canonical([*result, item])) > budget:
             break
@@ -26,6 +28,11 @@ def scope_review(envelope):
         reasons.append("planning_catalog_partial")
     if complete is False:
         reasons.append("survey_incomplete")
+    refresh = envelope.get("refresh_context", {})
+    if refresh.get("requires_discussion"):
+        reasons.append("large_change_set")
+    if any(item["availability"] == "outside_package" for item in refresh.get("focus", [])):
+        reasons.append("changed_material_outside_package")
     return {"requires_discussion": bool(reasons), "source_count": count, "catalog_count": shown,
             "survey_complete": complete, "reasons": reasons,
             "message": "资料较多或本轮摸底/目录不完整，请先确认按模块调查，或只批准当前已展示的固定资料包。" if reasons else "当前资料范围可直接审阅。"}

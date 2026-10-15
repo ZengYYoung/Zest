@@ -1,4 +1,4 @@
-"""Read-only version-change preview; does not refresh or authorize knowledge."""
+"""Version-change preview and preparation of separately approved investigations."""
 
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ import re
 import time
 
 from .cognition_contracts import POLICY
-from .cognition_store import CognitionStore, now, valid_id
+from .cognition_store import CognitionStore, digest, now, valid_id
 from .files import CREDENTIAL_PATTERNS, FileReadError
 from .git import compare_commits, inspect_repository, selected_commit, verify_commit
 from .storage import ProjectRegistry
@@ -40,7 +40,8 @@ def _baseline(store, project_id, target, base_run_id):
         for run in runs:
             envelope = store.envelope(run)
             catalog = {source["evidence"]["path"]: source["evidence"] for source in envelope["files"]}
-            summaries.append({"run_id": run["id"], "status": run["status"], "updated_at": run["updated_at"]})
+            summaries.append({"run_id": run["id"], "status": run["status"], "updated_at": run["updated_at"],
+                              "envelope_sha256": run["envelope_sha256"]})
             for row in conn.execute("SELECT * FROM cognition_findings WHERE run_id=? AND status!='invalidated' ORDER BY id", (run["id"],)):
                 try:
                     value = json.loads(row["finding"])
@@ -51,6 +52,7 @@ def _baseline(store, project_id, target, base_run_id):
                 except (ValueError, TypeError, RecursionError) as exc:
                     raise FileReadError("cognition_record_corrupt", "保存的认知格式损坏，无法生成完整清单。") from exc
                 findings.append({"run_id": run["id"], "finding_id": row["id"], "status": row["status"],
+                                 "finding_sha256": digest(value),
                                  "value": value, "catalog": catalog})
         return {"run_id": base["id"], "commit": base["commit_id"],
                 "selection": "explicit" if base_run_id else "current_version_or_latest_finished"}, summaries, findings
@@ -81,7 +83,8 @@ def _finding(item, base, changes, available, version_changed):
                        "change": change["change"] if change else None})
     classification = ("unresolved" if unresolved else "directly_affected" if any(p["comparison"] == "changed" for p in proofs)
                       else "evidence_unchanged")
-    return {"run_id": item["run_id"], "finding_id": item["finding_id"], "original_status": item["status"],
+    return {"run_id": item["run_id"], "finding_id": item["finding_id"], "finding_sha256": item["finding_sha256"],
+            "original_status": item["status"],
             "section": value["section"], "kind": value["kind"], "statement": value["statement"],
             "classification": classification, "evidence": proofs,
             "needs_review": version_changed or item["status"] != "auto_reviewed" or value["kind"] != "observed" or unresolved}
@@ -147,6 +150,64 @@ def build_refresh_preview(state_dir, project_id, *, base_run_id=None, progress=N
     if any(re.search(pattern, encoded) for pattern in CREDENTIAL_PATTERNS):
         raise FileReadError("sensitive_refresh_preview", "清单包含已识别凭据，未输出。")
     emit("completed", **result["counts"])
+    return result
+
+
+def check_refresh_context(store, envelope, context=None):
+    """Historical hints stay separate from knowledge and must not outlive revocation."""
+    context = envelope.get("refresh_context") if context is None else context
+    if context is None:
+        return
+    if (context["project_id"] != envelope["project_id"] or context["target_commit"] != envelope["commit"]
+            or context["baseline"]["commit"] == envelope["commit"]):
+        raise FileReadError("cognition_refresh_scope_mismatch", "增量线索与目标资料包身份不一致。")
+    base, runs, findings = _baseline(store, envelope["project_id"], envelope["commit"], context["baseline"]["run_id"])
+    expected_runs = {r["run_id"]: (r["status"], r["envelope_sha256"]) for r in context["baseline_runs"]}
+    actual_runs = {r["run_id"]: (r["status"], r["envelope_sha256"]) for r in runs}
+    expected = {(f["run_id"], f["finding_id"]): (f["original_status"], f["finding_sha256"]) for f in context["historical_leads"]}
+    actual = {(f["run_id"], f["finding_id"]): (f["status"], f["finding_sha256"]) for f in findings}
+    if base["commit"] != context["baseline"]["commit"] or expected_runs != actual_runs or expected != actual:
+        raise FileReadError("cognition_refresh_baseline_changed", "增量调查基线或线索已变化/失效，请重新准备资料包。")
+
+
+def prepare_refresh(state_dir, project_id, *, base_run_id=None, target=None, progress=None):
+    """Freeze current safe materials plus untrusted historical leads; never call a model."""
+    from .survey import SurveyStore
+    started = time.monotonic()
+
+    def emit(phase, **details):
+        if progress:
+            progress({"phase": phase, "elapsed_seconds": round(time.monotonic() - started, 3), **details})
+
+    def preview_progress(event):
+        if event["phase"] != "completed":
+            emit(event["phase"])
+
+    preview = build_refresh_preview(state_dir, project_id, base_run_id=base_run_id, progress=preview_progress)
+    if preview["status"] != "refresh_needed":
+        raise FileReadError("cognition_refresh_not_needed", "需要可读取且不同于目标版本的认知基线；请先查看 refresh-preview。")
+    project = ProjectRegistry(state_dir).get_project_readonly(project_id)
+    emit("materials")
+    survey = SurveyStore(state_dir).build(project, commit=preview["target_commit"],
+        progress=lambda event: emit("survey_" + event["phase"]))
+    paths = {s["evidence"]["path"]: s["id"] for s in survey["sources"]}
+    context = {"schema_version": 1, "project_id": project_id, "target_commit": preview["target_commit"],
+               "baseline": preview["baseline"], "baseline_runs": preview["baseline_runs"],
+               "historical_leads": preview["findings"], "changes": preview["changes"],
+               "uncovered_changes": preview["uncovered_changes"], "warnings": preview["warnings"],
+               "requires_discussion": preview["requires_discussion"],
+               "semantics": "historical_unverified_leads_only_read_target_sources_for_new_findings",
+               "focus": [{"path": c["path"], "change": c["change"], "source_id": paths.get(c["path"]),
+                          "availability": "deleted" if c["change"] == "deleted" else
+                                          "in_package" if c["path"] in paths else "outside_package"}
+                         for c in preview["changes"]]}
+    # A moving project selection requires another local preview, not a package
+    # silently prepared for a version the user has already left behind.
+    if selected_commit(project, inspect_repository(project["root_path"])) != preview["target_commit"]:
+        raise FileReadError("cognition_refresh_target_changed", "准备期间选定版本发生变化，请重新准备增量调查。")
+    emit("preparing")
+    result = CognitionStore(state_dir).create(project_id, survey_id=survey["id"], target=target, refresh_context=context)
+    emit("prepared", run_id=result["id"])
     return result
 
 

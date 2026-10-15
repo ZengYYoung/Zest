@@ -97,6 +97,11 @@ def _parser() -> argparse.ArgumentParser:
     refresh.add_argument("--base-run-id", help="可选历史认知基线；默认优先选定版本，否则最近已结束调查")
     refresh.add_argument("--format", choices=("json", "text"), default="json")
     refresh.add_argument("--progress", action="store_true", help="在 stderr 展示真实版本/证据对比阶段")
+    refresh_create = cognition_actions.add_parser("refresh-create", help="准备目标版本增量调查包，等待单独批准，不调用模型")
+    refresh_create.add_argument("project_id")
+    refresh_create.add_argument("--base-run-id")
+    refresh_create.add_argument("--format", choices=("json", "text"), default="json")
+    refresh_create.add_argument("--progress", action="store_true")
     for name in ("show", "preview", "approve", "reject", "recover", "dossier", "watch"):
         command = cognition_actions.add_parser(name)
         command.add_argument("run_id")
@@ -267,15 +272,21 @@ def main(argv: list[str] | None = None) -> int:
             from .cognition_store import CognitionStore
             from .cognition_views import format_cognition, format_dossier, watch_cognition
             store = CognitionStore(args.state_dir)
-            if args.action == "refresh-preview":
-                from .cognition_refresh import build_refresh_preview, format_refresh_preview
+            if args.action in ("refresh-preview", "refresh-create"):
+                from .cognition_refresh import build_refresh_preview, format_refresh_preview, prepare_refresh
                 labels = {"snapshot": "固定当前选定版本", "baseline": "读取既有认知基线",
-                          "compare": "比较提交文件元数据", "evidence": "关联已有原文证据", "completed": "只读待刷新清单生成完成"}
+                          "compare": "比较提交文件元数据", "evidence": "关联已有原文证据", "completed": "只读待刷新清单生成完成",
+                          "materials": "收集目标版本的安全资料", "survey_snapshot": "固定摸底版本",
+                          "survey_inventory": "采集目录和安全文本", "survey_structure": "生成 Python 声明地图",
+                          "survey_collected": "材料采集完成", "survey_saving": "保存固定版本摸底",
+                          "preparing": "冻结资料、变化与待核对线索", "prepared": "增量调查包已保存，等待批准"}
                 def progress(event):
                     print(f"[{event['elapsed_seconds']:.3f}s] {labels[event['phase']]}", file=sys.stderr)
-                result = build_refresh_preview(args.state_dir, args.project_id, base_run_id=args.base_run_id,
-                                               progress=progress if args.progress or sys.stderr.isatty() else None)
-                print(format_refresh_preview(result) if args.format == "text" else json.dumps(result, ensure_ascii=True, indent=2))
+                prepare = args.action == "refresh-create"
+                result = (prepare_refresh if prepare else build_refresh_preview)(args.state_dir, args.project_id,
+                    base_run_id=args.base_run_id, progress=progress if args.progress or sys.stderr.isatty() else None)
+                formatter = format_cognition if prepare else format_refresh_preview
+                print(formatter(result) if args.format == "text" else json.dumps(result, ensure_ascii=True, indent=2))
                 return 0
             if args.action == "worker":
                 from .cognition import worker
