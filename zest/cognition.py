@@ -214,7 +214,9 @@ class CognitionEngine:
 
     def check_knowledge(self, envelope):
         from .cognition_refresh import check_refresh_context
+        from .cognition_followup import check_followup_context
         check_refresh_context(self.store, envelope)
+        check_followup_context(self.store, envelope)
         for knowledge in envelope.get("shared_knowledge", []):
             current = self.store.reviewed_finding(knowledge["run_id"], knowledge["id"])
             if current["finding_sha256"] != knowledge["finding_sha256"] or current["commit"] != envelope["commit"]:
@@ -277,7 +279,13 @@ class CognitionEngine:
             payload["refresh_context"] = envelope["refresh_context"]
         if "management_guidance" in envelope:
             payload["management_guidance"] = envelope["management_guidance"]
-        result = validate_plan(self.call(run_id, "coordinator", 0, "project_plan", payload, envelope), {source["id"] for source in catalog})
+        if "followup_context" in envelope:
+            from .cognition_followup import focused_plan
+            payload["followup_context"] = envelope["followup_context"]
+            result = focused_plan(self.call(run_id, "coordinator", 0, "project_followup_plan", payload, envelope),
+                                  envelope["followup_context"], {s["id"] for s in catalog})
+        else:
+            result = validate_plan(self.call(run_id, "coordinator", 0, "project_plan", payload, envelope), {source["id"] for source in catalog})
         self.store.save_plan(run_id, result)
         self.store.event(run_id, "coordinator", "plan_ready", {"tasks": len(result["tasks"])})
         return result
@@ -307,6 +315,8 @@ class CognitionEngine:
                        "remaining_tool_actions": envelope["policy"]["max_tool_actions_per_task"] - state["actions_used"]}
             if "refresh_context" in envelope:
                 payload["refresh_context"] = envelope["refresh_context"]
+            if "followup_context" in envelope:
+                payload["followup_context"] = envelope["followup_context"]
             if "management_guidance" in envelope:
                 payload["management_guidance"] = envelope["management_guidance"]
             closing = (payload["remaining_turns"] == 1 or state.get("report_required", False)
@@ -521,9 +531,13 @@ class CognitionEngine:
             unknown = any(job["status"] == "pending_execution" for job in result["jobs"])
             with self.store.open() as conn:
                 unknown = unknown or conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status IN ('pending','uncertain') LIMIT 1", (run_id,)).fetchone() is not None
+            reviewed_sections = {f["finding"]["section"] for f in result["findings"] if f["status"] == "auto_reviewed"}
+            coverage_complete = (set(envelope["followup_context"]["sections"]) <= reviewed_sections
+                                 if "followup_context" in envelope else
+                                 reviewed_sections == {"purpose", "architecture", "flows", "dependencies", "development", "constraints"})
             complete = (all(job["status"] == "completed" for job in result["jobs"])
                         and all(f["status"] == "auto_reviewed" for f in result["findings"])
-                        and {f["finding"]["section"] for f in result["findings"] if f["status"] == "auto_reviewed"} == {"purpose", "architecture", "flows", "dependencies", "development", "constraints"}
+                        and coverage_complete
                         and not result["plan"]["gaps"])
             self.store.set_status(run_id, "pending_execution" if unknown else "completed" if complete else "partial")
         except FileReadError as exc:

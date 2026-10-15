@@ -25,6 +25,10 @@ def format_cognition(record):
         refresh = record["refresh"]
         lines.append(f"增量调查 · 基线 {refresh['baseline_commit']} · 变更 {refresh['changed_files']} 个文件 · 历史待核对线索 {refresh['historical_leads']} 项 · 包外变更 {refresh['outside_package']} 个")
         lines.append("旧结论不直接迁移；目标版本的发现仍需重新读原文并核对。")
+    if record.get("followup"):
+        followup = record["followup"]
+        lines.append("定向调查 · " + display_text(f"{followup['source_run_id']} / {followup['finding_id']} · {followup['statement']}"))
+        lines.append("完成标准仅针对选定问题；旧发现及其后续行动保持原样，继续调查须单独批准。")
     if scope.get("requires_discussion"):
         lines.append(f"范围待确认：已纳入 {scope['source_count']} 个文件，规划清单展示 {scope['catalog_count']} 个；" + display_text(scope["message"]))
     if record["plan"]:
@@ -61,6 +65,11 @@ def format_dossier(record):
     lines = ["# Zest 项目认知档案", "", f"观察版本：{record['commit']}", f"认知工作流：{record['run_id']}",
              f"本轮状态：{LABELS.get(record['status'], record['status'])}",
              "自动核对与人工确认分别记录；当前材料为静态快照，未证明生产运行状态。", ""]
+    if record.get("followup"):
+        followup = record["followup"]
+        lines.extend(["定向调查来源：" + display_text(f"{followup['source_run_id']} / {followup['finding_id']}"),
+                      "本轮完成仅针对选定问题：" + display_text(followup["statement"]),
+                      "原发现与后续行动没有自动关闭。", ""])
     for section in record["sections"]:
         lines.extend([f"## {section['title']}", ""])
         if not section["facts"]:

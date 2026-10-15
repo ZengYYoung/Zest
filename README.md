@@ -31,6 +31,8 @@ uv run --extra ai --extra mcp --extra tui zest ui
 
 独立评分 Agent 已提供 `zest evaluation create/preview/approve/report`，用版本化 Skill 分析冻结参考、明确结论和原文，程序汇总覆盖与误收；评分须单独批准，不改原知识。[评分规则与使用](docs/COGNITION_EVALUATION.md)
 
+`zest cognition followup-create <run-id> <finding-id>` 可从一条未解决发现准备同版本定向调查包，目标与完成标准单独冻结、批准后再调查，原发现保持原样。[定向调查](docs/COGNITION_FOLLOWUP.md)
+
 原文核对现按独立属性留存判定与冲突；仅整条全部支持且无未解决冲突时接收，部分正确保留待调查。[核对规则](docs/COGNITION_ATTRIBUTE_REVIEW.md)
 
 最新阶段实测：[M058 报告](docs/PHASE_REPORT_M058.md)。同一公开样本的一轮冷启动实测用完 32 次物理请求，产生 41 条自动核对记录；严格事实覆盖 8/10、核心 3/3、流程 3/6，且存在语义误收，**整体仍未通过**。项目内资源与 CLI/MCP 管理总览已用真实结果核验，不能据此声称完整理解或稳定维护能力。

@@ -117,6 +117,14 @@ class ProjectPlanResponse(OutputModel):
     gaps: list[PlanGap] = Field(description="最多十二项缺口；tasks 和 gaps 合起来必须交代六部分档案的覆盖。")
 
 
+class FollowupPlanResponse(OutputModel):
+    """Plan source leads for one frozen follow-up goal, not a new project survey."""
+
+    overview: list[PreliminaryFinding] = Field(description="最多六条与 followup_context 选定问题直接相关的初步观察或推测；只引用本次目录身份，旧结论及核对意见不是原文。")
+    source_ids: list[str] = Field(description="本次 material_catalog 中至少一个唯一的起始来源 ID；按定向问题选择，后续仍可在完整批准包内自主查找。")
+    gaps: list[str] = Field(description="最多十二项与选定问题有关的具体缺口；不为其他五部分档案补写全项目缺口。没有缺口为空。任务目标、完成标准、身份和档案部分由固定包决定，不能扩成旧任务的大范围目标。")
+
+
 class ListFilesArgs(OutputModel):
     """Query and pagination for listing files inside the approved package."""
 
@@ -284,6 +292,7 @@ OUTPUT_MODELS = {
     "qa": QAResponse,
     "repair_proposal": RepairProposalResponse,
     "project_plan": ProjectPlanResponse,
+    "project_followup_plan": FollowupPlanResponse,
     "project_research": ProjectResearchResponse,
     "project_report": ProjectReportResponse,
     "project_review": ProjectReviewResponse,

@@ -13,6 +13,7 @@
 | 证据问答 | QAResponse | 单 Agent、文档/代码专业 Agent、协调回答 |
 | 修改建议 | RepairProposalResponse | 完整文件、新文件及锚点替换建议 |
 | 初步认知与计划 | ProjectPlanResponse | 主 Agent 规划 |
+| 定向调查规划 | FollowupPlanResponse | 相关初步认识、起始来源和本次缺口；任务目标由批准包固定 |
 | 自主调查 | ProjectResearchResponse | 工具动作与最终报告 |
 | 保留报告轮 | ProjectReportResponse | 末轮/上下文预警只允许交付报告 |
 | 独立认知评分 | CognitionEvaluationResponse | 参考属性覆盖与所有 observed 发现的独立审查 |
@@ -80,3 +81,5 @@ M044 同步将 findings 描述与工作指令改为约六条的软建议，接�
 M059 的核对输出使用 ClaimCheck / ReviewConflict，逐项属性检查、原句范围完整性和冲突保留见 [逐项核对](COGNITION_ATTRIBUTE_REVIEW.md)。supported 仅为内部派生字段；新 Schema 不沿用旧批准。
 
 M060 新增独立评分的 CognitionEvaluationResponse，具名 CoverageJudgment 与属性核对模型共同约束逐项输出；评分 Skill 全文、Schema、精确请求和样本门槛单独冻结批准，详见 [独立认知评分](COGNITION_EVALUATION.md)。
+
+M062 增加 project_followup_plan，用具名 FollowupPlanResponse 约束定向规划，程序从已批准 followup_context 构造单任务 spec，不接受模型改写固定目标。新 Schema/指令进入完整包，旧审批不能复用，见 [定向调查](COGNITION_FOLLOWUP.md)。

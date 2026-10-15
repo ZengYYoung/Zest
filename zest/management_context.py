@@ -163,6 +163,9 @@ def build_management_context(state_dir, project_id, *, progress=None):
     for action in result["cognition"]["followup_actions"]:
         action["inspect_command"] = ["zest", "--state-dir", str(Path(state_dir).resolve()), "cognition", "show",
                                      action["run_id"], "--format", "json"]
+        if action["saved_evidence_identity_valid"]:
+            action["prepare_command"] = ["zest", "--state-dir", str(Path(state_dir).resolve()), "cognition", "followup-create",
+                                         action["run_id"], action["finding_id"]]
     emit("index")
     result["index"] = {"status": "no_committed_target", "files": []}
     if target is not None:
@@ -232,6 +235,8 @@ def format_management_context(record):
         lines.extend("  未解决冲突：" + display_text(f"{c['run_id']} / {c['reference_id']} · {c['reason']}")
                      for c in action["conflicts"])
         lines.append("  查看：" + display_text(join(action["inspect_command"])))
+        if action.get("prepare_command"):
+            lines.append("  准备新待批准调查包：" + display_text(join(action["prepare_command"])))
     if not followups:
         lines.append("没有符合当前版本与状态条件的后续行动；未知和推测仍见原栏目。")
     else:

@@ -96,6 +96,11 @@ def _parser() -> argparse.ArgumentParser:
     cognition_create = cognition_actions.add_parser("create", help="准备固定版本完整资料包，等待一次工作流批准")
     cognition_create.add_argument("project_id")
     cognition_create.add_argument("--survey-id")
+    followup = cognition_actions.add_parser("followup-create", help="按一条未解决发现准备同版本定向调查包，不调用模型或启动 worker")
+    followup.add_argument("run_id")
+    followup.add_argument("finding_id")
+    followup.add_argument("--format", choices=("json", "text"), default="json")
+    followup.add_argument("--progress", action="store_true")
     cognition_list = cognition_actions.add_parser("list")
     cognition_list.add_argument("project_id")
     refresh = cognition_actions.add_parser("refresh-preview", help="只读比较选定版本与认知证据，生成待刷新清单")
@@ -293,6 +298,19 @@ def main(argv: list[str] | None = None) -> int:
             from .cognition_store import CognitionStore
             from .cognition_views import format_cognition, format_dossier, watch_cognition
             store = CognitionStore(args.state_dir)
+            if args.action == "followup-create":
+                from .cognition_followup import prepare_followup
+                labels = {"source": "核对原发现与关联冲突", "materials": "收集同版本完整安全资料",
+                          "survey_snapshot": "固定摸底版本", "survey_inventory": "采集目录和安全文本",
+                          "survey_structure": "生成 Python 声明地图", "survey_collected": "材料采集完成",
+                          "survey_saving": "保存固定版本摸底", "preparing": "冻结定向目标与资料包",
+                          "prepared": "定向调查包已保存，等待批准"}
+                def progress(event):
+                    print(f"[{event['elapsed_seconds']:.3f}s] {labels[event['phase']]}", file=sys.stderr)
+                result = prepare_followup(args.state_dir, args.run_id, args.finding_id,
+                    progress=progress if args.progress or sys.stderr.isatty() else None)
+                print(format_cognition(result) if args.format == "text" else json.dumps(result, ensure_ascii=True, indent=2))
+                return 0
             if args.action in ("refresh-preview", "refresh-create"):
                 from .cognition_refresh import build_refresh_preview, format_refresh_preview, prepare_refresh
                 labels = {"snapshot": "固定当前选定版本", "baseline": "读取既有认知基线",

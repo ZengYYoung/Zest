@@ -23,6 +23,7 @@ class ModelOutputContractTest(unittest.TestCase):
             "repair_proposal": {"status": "proposed", "summary": "修复边界判断。", "changes": [
                 {"source_id": "E1", "content": "value = 1\n"},
                 {"source_id": "E2", "old_text": "return 0", "new_text": "return 1"}], "unknowns": []},
+            "project_followup_plan": {"overview": [], "source_ids": ["S1"], "gaps": []},
             "project_plan": {"overview": [{"statement": "存在 CLI 入口。", "kind": "observed", "source_ids": ["S1"]}],
                 "tasks": [{"id": "T1", "title": "调查入口", "goal": "追踪业务流程", "reason": "建立模块认知",
                     "source_ids": ["S1"], "sections": ["purpose", "architecture", "flows", "dependencies", "development", "constraints"],

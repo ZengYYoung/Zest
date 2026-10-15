@@ -144,7 +144,9 @@ class CognitionStore:
         except (sqlite3.Error, OSError) as exc:
             raise FileReadError("cognition_storage_error", "无法读取或保存认知状态。") from exc
 
-    def create(self, project_id, *, survey_id=None, target=None, refresh_context=None):
+    def create(self, project_id, *, survey_id=None, target=None, refresh_context=None, followup_context=None):
+        if refresh_context is not None and followup_context is not None:
+            raise FileReadError("cognition_scope_mismatch", "定向调查与版本增量背景不能混用。")
         project = ProjectRegistry(self.state_dir).get_project(project_id)
         if project is None:
             raise FileReadError("project_not_found", "未找到该项目。")
@@ -155,6 +157,15 @@ class CognitionStore:
             target = {"provider": settings.provider, "model": settings.name, "base_url": settings.base_url}
         envelope = prepare_envelope(project, survey, target)
         envelope["shared_knowledge"] = self.for_context(project_id, envelope["commit"])
+        if followup_context is not None:
+            from .cognition_followup import check_followup_context
+            check_followup_context(self, envelope, followup_context)
+            envelope["followup_context"] = followup_context
+            # Existing auto-reviewed claims, including conflict counterparts,
+            # remain leads; they must not anchor this targeted re-investigation.
+            envelope["shared_knowledge"] = []
+            from .cognition_context import scope_review
+            envelope["scope_review"] = scope_review(envelope)
         if refresh_context is not None:
             from .cognition_refresh import check_refresh_context
             check_refresh_context(self, envelope, refresh_context)
@@ -163,10 +174,11 @@ class CognitionStore:
             envelope["scope_review"] = scope_review(envelope)
         if len(canonical(envelope).encode()) > MAX_ENVELOPE_BYTES:
             raise FileReadError("cognition_scope_budget", "完整资料包和共享认知超过保存预算。")
-        if refresh_context is not None:
+        if refresh_context is not None or followup_context is not None:
             from .git import selected_commit
             if selected_commit(project, inspect_repository(project["root_path"])) != envelope["commit"]:
-                raise FileReadError("cognition_refresh_target_changed", "准备期间选定版本发生变化，请重新准备增量调查。")
+                raise FileReadError("cognition_followup_version_changed" if followup_context is not None else "cognition_refresh_target_changed",
+                                    "准备期间选定版本发生变化，请重新准备调查。")
         run_id, timestamp = str(uuid4()), now()
         with self.open(write=True) as conn, conn:
             conn.execute("INSERT INTO cognition_runs(id,project_id,commit_id,created_at,updated_at,status,envelope,envelope_sha256,config_dir) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -199,6 +211,11 @@ class CognitionStore:
                           file_count=len(envelope["files"]), plan=json.loads(row["plan"]) if row["plan"] else None,
                           error=json.loads(row["error"]) if row["error"] else None)
             result["scope_review"] = envelope.get("scope_review")
+            if "followup_context" in envelope:
+                context = envelope["followup_context"]
+                result["followup"] = {"source_run_id": context["source"]["run_id"],
+                                      "finding_id": context["source"]["selected"]["finding_id"],
+                                      "statement": context["source"]["selected"]["statement"], "sections": context["sections"]}
             if "refresh_context" in envelope:
                 refresh = envelope["refresh_context"]
                 result["refresh"] = {"baseline_commit": refresh["baseline"]["commit"],
@@ -563,6 +580,9 @@ class CognitionStore:
                             "scope_expansion": key == "scope_requests" and not isinstance(value, str),
                             "legacy_material_request": isinstance(value, str), "task_id": job["id"]}
                             for value in job["result"]["report"].get(key, []))
-        return {"run_id": run_id, "project_id": record["project_id"], "commit": record["commit"], "status": record["status"],
+        result = {"run_id": run_id, "project_id": record["project_id"], "commit": record["commit"], "status": record["status"],
                 "sections": parts, "plan_gaps": record["plan"]["gaps"] if record["plan"] else [],
                 "limitations": ["automatic_review_not_human_confirmation", "static_snapshot_not_runtime_verification"]}
+        if record.get("followup"):
+            result["followup"] = record["followup"]
+        return result
