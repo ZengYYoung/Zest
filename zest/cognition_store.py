@@ -118,6 +118,10 @@ class CognitionStore:
                     CREATE TABLE IF NOT EXISTS cognition_call_receipts (
                         run_id TEXT NOT NULL, actor TEXT NOT NULL, sequence INTEGER NOT NULL,
                         receipt TEXT NOT NULL, PRIMARY KEY(run_id,actor,sequence));
+                    CREATE TABLE IF NOT EXISTS cognition_call_attempts (
+                        run_id TEXT NOT NULL, actor TEXT NOT NULL, sequence INTEGER NOT NULL,
+                        attempt INTEGER NOT NULL, status TEXT NOT NULL, receipt TEXT, error TEXT,
+                        created_at TEXT NOT NULL, PRIMARY KEY(run_id,actor,sequence,attempt));
                     CREATE TABLE IF NOT EXISTS cognition_context_requests (
                         run_id TEXT NOT NULL, actor TEXT NOT NULL, sequence INTEGER NOT NULL,
                         request_sha256 TEXT NOT NULL, authorization TEXT NOT NULL,
@@ -199,6 +203,15 @@ class CognitionStore:
                                 conn.execute("SELECT * FROM cognition_request_bodies WHERE run_id=?", (run_id,))}
                     for call in result["calls"]:
                         call["request"] = requests.get((call["actor"], call["sequence"]))
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cognition_call_attempts'").fetchone():
+                    attempts = {}
+                    for row in conn.execute("SELECT * FROM cognition_call_attempts WHERE run_id=? ORDER BY attempt", (run_id,)):
+                        entry = {key: row[key] for key in ("attempt", "status", "created_at")}
+                        entry.update(receipt=json.loads(row["receipt"]) if row["receipt"] else None,
+                                     error=json.loads(row["error"]) if row["error"] else None)
+                        attempts.setdefault((row["actor"], row["sequence"]), []).append(entry)
+                    for call in result["calls"]:
+                        call["attempts"] = attempts.get((call["actor"], call["sequence"]), [])
         result["worker_active"] = self.worker_active(run_id)
         return result
 
@@ -451,11 +464,12 @@ class CognitionStore:
         with self.open(write=True) as conn, conn:
             if any(item["status"] == "awaiting_approval" for item in self._context_records(conn, run_id)):
                 raise FileReadError("cognition_context_approval_required", "待扩展请求尚未批准，不能通过恢复绕过。")
-            unknown = conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status!='completed' LIMIT 1", (run_id,)).fetchone()
+            unknown = conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status NOT IN ('completed','retry_ready') LIMIT 1", (run_id,)).fetchone()
             if unknown:
                 raise FileReadError("cognition_execution_unknown", "存在结果未知的模型请求，仅读取核对，不重复调用。")
+            retry_ready = conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status='retry_ready' LIMIT 1", (run_id,)).fetchone() is not None
             conn.execute("UPDATE cognition_runs SET status='queued',error=NULL,updated_at=? WHERE id=?", (now(), run_id))
-        self.event(run_id, "coordinator", "recovery_queued", {"mode": "saved_response_reuse"})
+        self.event(run_id, "coordinator", "recovery_queued", {"mode": "saved_response_or_approved_format_retry" if retry_ready else "saved_response_reuse"})
         return self.show(run_id)
 
     def dossier(self, run_id):

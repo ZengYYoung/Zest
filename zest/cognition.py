@@ -62,6 +62,26 @@ class CognitionEngine:
         self.model = model
 
     def call(self, run_id, actor, sequence, purpose, payload, envelope):
+        # Each physical attempt is durable and consumes the approved total budget.
+        # Only _call_attempt can admit another attempt from a known invalid receipt.
+        while True:
+            value, retry = self._call_attempt(run_id, actor, sequence, purpose, payload, envelope)
+            if not retry:
+                return value
+
+    @staticmethod
+    def _saved_call(old, request_hash, purpose):
+        if old["payload_sha256"] != request_hash or old["purpose"] != purpose:
+            raise FileReadError("cognition_request_changed", "恢复请求与保存身份不一致，不再次调用。")
+        if old["status"] == "completed":
+            return json.loads(old["response"]), False
+        if old["status"] == "invalid":
+            raise FileReadError("cognition_response_invalid", "已保存响应不符合契约，补试不可用或已用完。")
+        if old["status"] != "retry_ready":
+            raise FileReadError("cognition_execution_unknown", "旧请求没有可复用结果，不重复调用。")
+        return None
+
+    def _call_attempt(self, run_id, actor, sequence, purpose, payload, envelope):
         self.check_knowledge(envelope)
         provider = self.model or DeepSeekModel(ModelSettings.from_env())
         settings = provider.settings
@@ -73,18 +93,14 @@ class CognitionEngine:
         if envelope.get("structured_outputs") != {kind: output_contract(kind) for kind in COGNITION_PROMPTS}:
             raise FileReadError("cognition_contract_changed", "结构化输出契约已变化，需要重新准备并批准。")
         request_hash = digest({"purpose": purpose, "payload": payload})
-        # Reuse a saved result before generating a new wire view or asking for
-        # any extension. A saved invalid/unknown response is never retransmitted.
+        # Reuse completed results first. Only an explicitly budgeted, durably
+        # recorded format failure may reach a new physical attempt.
         with self.store.open() as conn:
             old = conn.execute("SELECT * FROM cognition_calls WHERE run_id=? AND actor=? AND sequence=?", (run_id, actor, sequence)).fetchone()
             if old:
-                if old["payload_sha256"] != request_hash or old["purpose"] != purpose:
-                    raise FileReadError("cognition_request_changed", "恢复请求与保存身份不一致，不再次调用。")
-                if old["status"] == "invalid":
-                    raise FileReadError("cognition_response_invalid", "已保存响应不符合契约，不重新调用。")
-                if old["status"] != "completed":
-                    raise FileReadError("cognition_execution_unknown", "旧请求没有可复用结果，不重复调用。")
-                return json.loads(old["response"])
+                saved = self._saved_call(old, request_hash, purpose)
+                if saved is not None:
+                    return saved
         request = prepare_model_request(settings, payload, purpose=purpose)
         body = json.loads(request["body_text"])
         response_tokens = envelope["policy"]["max_report_tokens"] if purpose == "project_report" else envelope["policy"]["max_response_tokens"]
@@ -103,23 +119,39 @@ class CognitionEngine:
             if digest(envelope) != row["envelope_sha256"] or current != envelope:
                 raise FileReadError("approval_mismatch", "执行授权包不匹配。")
             old = conn.execute("SELECT * FROM cognition_calls WHERE run_id=? AND actor=? AND sequence=?", (run_id, actor, sequence)).fetchone()
+            attempt = 1
             if old:
-                if old["payload_sha256"] != request_hash or old["purpose"] != purpose:
-                    raise FileReadError("cognition_request_changed", "恢复请求与保存身份不一致，不再次调用。")
-                if old["status"] == "invalid":
-                    raise FileReadError("cognition_response_invalid", "已保存的响应不符合契约，请审阅调用记录；不重新调用。")
-                if old["status"] != "completed":
-                    raise FileReadError("cognition_execution_unknown", "旧请求没有可复用结果，不重复调用。")
-                return json.loads(old["response"])
+                saved = self._saved_call(old, request_hash, purpose)
+                if saved is not None:
+                    return saved
+                previous = conn.execute("SELECT * FROM cognition_call_attempts WHERE run_id=? AND actor=? AND sequence=? ORDER BY attempt DESC LIMIT 1",
+                                        (run_id, actor, sequence)).fetchone()
+                wire = conn.execute("SELECT request FROM cognition_request_bodies WHERE run_id=? AND actor=? AND sequence=?",
+                                    (run_id, actor, sequence)).fetchone()
+                if (previous is None or previous["status"] != "invalid" or not previous["receipt"]
+                        or not self._retryable(json.loads(previous["receipt"]))
+                        or previous["attempt"] > envelope["policy"]["max_format_retries"]):
+                    raise FileReadError("cognition_response_invalid", "没有可补试的已保存格式失败，或补试次数已用完。")
+                if wire is None or json.loads(wire["request"]) != request:
+                    raise FileReadError("cognition_request_changed", "补试请求与已保存的完整请求不同，未外发。")
+                attempt = previous["attempt"] + 1
             if row["call_count"] >= envelope["policy"]["max_model_calls"]:
                 raise FileReadError("cognition_call_budget", "模型调用预算已用完。")
             if row["started_at"] and (datetime.now(timezone.utc) - datetime.fromisoformat(row["started_at"])).total_seconds() > envelope["policy"]["max_seconds"]:
                 raise FileReadError("cognition_time_budget", "批准工作流已达到执行时间预算。")
-            conn.execute("INSERT INTO cognition_calls VALUES (?,?,?,?,?,?,?,?,?,?)",
-                         (run_id, actor, sequence, purpose, canonical(payload), request_hash, "pending", None, None, now()))
-            conn.execute("INSERT INTO cognition_request_bodies VALUES (?,?,?,?)", (run_id, actor, sequence, canonical(request)))
+            if old is None:
+                conn.execute("INSERT INTO cognition_calls VALUES (?,?,?,?,?,?,?,?,?,?)",
+                             (run_id, actor, sequence, purpose, canonical(payload), request_hash, "pending", None, None, now()))
+                conn.execute("INSERT INTO cognition_request_bodies VALUES (?,?,?,?)", (run_id, actor, sequence, canonical(request)))
+            else:
+                conn.execute("UPDATE cognition_calls SET status='pending',error=NULL WHERE run_id=? AND actor=? AND sequence=?",
+                             (run_id, actor, sequence))
+            conn.execute("INSERT INTO cognition_call_attempts VALUES (?,?,?,?,?,?,?,?)",
+                         (run_id, actor, sequence, attempt, "pending", None, None, now()))
             conn.execute("UPDATE cognition_runs SET call_count=call_count+1,updated_at=? WHERE id=?", (now(), run_id))
-        self.store.event(run_id, actor, "model_request_started", {"sequence": sequence, "purpose": purpose, "payload_sha256": request_hash})
+        self.store.event(run_id, actor, "model_request_started", {"sequence": sequence, "purpose": purpose, "payload_sha256": request_hash, "attempt": attempt})
+        if attempt > 1:
+            self.store.event(run_id, actor, "model_format_retry_started", {"sequence": sequence, "attempt": attempt})
         try:
             if isinstance(provider, DeepSeekModel):
                 response = provider.complete(payload, purpose=purpose, expected_request=request)
@@ -130,6 +162,8 @@ class CognitionEngine:
             with self.store.open(write=True) as conn, conn:
                 conn.execute("UPDATE cognition_calls SET status=?,error=? WHERE run_id=? AND actor=? AND sequence=?",
                              ("not_sent" if code == "model_request_changed" else "uncertain", canonical({"code": code}), run_id, actor, sequence))
+                conn.execute("UPDATE cognition_call_attempts SET status=?,error=? WHERE run_id=? AND actor=? AND sequence=? AND attempt=?",
+                             ("not_sent" if code == "model_request_changed" else "uncertain", canonical({"code": code}), run_id, actor, sequence, attempt))
             if code == "model_request_changed":
                 raise
             raise FileReadError("cognition_execution_unknown", "模型请求结果未知，未自动重试。") from exc
@@ -138,21 +172,41 @@ class CognitionEngine:
             value = parse_response(response)
         except FileReadError as exc:
             parse_error = exc
+        receipt = safe_model_receipt(response)
+        retry = (parse_error is not None and self._retryable(receipt)
+                 and attempt <= envelope["policy"]["max_format_retries"])
         # A durable known response and its classification are one transaction.
         # A crash before this commit leaves no reusable receipt, never a retry.
         with self.store.open(write=True) as conn, conn:
-            conn.execute("INSERT INTO cognition_call_receipts VALUES (?,?,?,?)",
-                         (run_id, actor, sequence, canonical(safe_model_receipt(response))))
+            conn.execute("INSERT INTO cognition_call_receipts VALUES (?,?,?,?) ON CONFLICT(run_id,actor,sequence) DO UPDATE SET receipt=excluded.receipt",
+                         (run_id, actor, sequence, canonical(receipt)))
+            conn.execute("UPDATE cognition_call_attempts SET status=?,receipt=?,error=? WHERE run_id=? AND actor=? AND sequence=? AND attempt=?",
+                         ("invalid" if parse_error else "completed", canonical(receipt),
+                          canonical({"code": parse_error.code}) if parse_error else None, run_id, actor, sequence, attempt))
             if parse_error is not None:
-                conn.execute("UPDATE cognition_calls SET status='invalid',error=? WHERE run_id=? AND actor=? AND sequence=?",
-                             (canonical({"code": parse_error.code}), run_id, actor, sequence))
+                conn.execute("UPDATE cognition_calls SET status=?,error=? WHERE run_id=? AND actor=? AND sequence=?",
+                             ("retry_ready" if retry else "invalid", canonical({"code": parse_error.code}), run_id, actor, sequence))
             else:
                 conn.execute("UPDATE cognition_calls SET status='completed',response=? WHERE run_id=? AND actor=? AND sequence=?",
                              (canonical(value), run_id, actor, sequence))
         if parse_error is not None:
+            if retry:
+                self.store.event(run_id, actor, "model_format_retry_ready", {"sequence": sequence, "failed_attempt": attempt})
+                return None, True
+            if self._retryable(receipt):
+                raise FileReadError("cognition_response_invalid", f"模型结构化输出无效；已保存 {attempt} 次尝试，补试次数已用完。")
             raise parse_error
-        self.store.event(run_id, actor, "model_response_saved", {"sequence": sequence})
-        return value
+        self.store.event(run_id, actor, "model_response_saved", {"sequence": sequence, "attempt": attempt})
+        return value, False
+
+    @staticmethod
+    def _retryable(receipt):
+        # A complete provider body is required. Timeouts, sensitive/oversized
+        # output, and later business/evidence rejection never qualify.
+        return (receipt.get("structured_status") == "invalid"
+                and receipt.get("structured_error") == "invalid_structured_output"
+                and isinstance(receipt.get("raw_response"), dict)
+                and isinstance(receipt["raw_response"].get("provider_response"), dict))
 
     def check_knowledge(self, envelope):
         for knowledge in envelope.get("shared_knowledge", []):

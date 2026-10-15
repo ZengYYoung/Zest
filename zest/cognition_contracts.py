@@ -9,6 +9,7 @@ from .survey import SECTIONS
 
 SECTION_IDS = {item[0] for item in SECTIONS}
 POLICY = {"max_model_calls": 32, "max_tasks": 6, "max_initial_tasks": 4,
+          "max_format_retries": 1,
           "max_turns_per_task": 4, "max_tool_actions_per_task": 16,
           "max_parallel_tasks": 2, "max_prompt_chars": 32000, "max_extended_prompt_chars": 48000, "max_seconds": 1800,
           "max_response_tokens": 4096, "max_report_tokens": 8192, "max_response_chars": 32000, "max_request_seconds": 120,

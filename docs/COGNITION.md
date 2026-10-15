@@ -61,6 +61,8 @@ M048 起任务输入将成功读取的空文件/空窗口分到 metadata_observa
 
 随后 M049 经具体批准执行一条真实报告请求，但供应商返回的工具参数末尾多一个 `}`，strict 请求仍被 SDK 判为无效。原始收据保存后停止，未进入引用/分类接收，线上元数据表达效果仍未知；没有修复或重发，见 [本次复测](COGNITION_ACCEPTANCE_M048.md)。
 
+M051 在单独批准的 LangSmith 诊断中使用相同请求，本次原生结构、引用及包内资料分类通过，11 个追踪步骤云端核对一致；这是单个报告轮结果，未重评完整项目理解质量。M052 按用户选择，以预算内一次已知格式失败补试完成该问题的工程收尾，不再继续自动试跑或修改 schema，见 [诊断结果](COGNITION_ACCEPTANCE_LANGSMITH.md) 与 [补试机制](COGNITION_RETRIES.md)。
+
 M044 起报告发现数量约六条仅为软建议，不再作为整体拒收条件；仍受完整响应 32000 字符、各用途输出 token 和总调用预算控制，每条独立校验，不截断原报告或放行坏引用。原八条响应已通过本地接收回放，原真实成绩保留。
 
 M046 起任务/报告保留完整批准文件的精简目录，read_source_ids 另列已读窗口来源（含空观察），两者均不是正文证据。模型输出具名 material_requests，由本地目录核对并派生包内待补读/包外需求；ID/路径错误单独留痕、有效发现继续核对。这里只记录待办，不自动补读或增加预算；旧自由文本只读显示为未分类，详见 [资料需求分类](COGNITION_MATERIAL_REQUESTS.md)。新契约不能复用旧批准。随后一次真实复测的五项分类正确，但一条元数据候选被隔离，全部判据未通过，见 [M047 记录](COGNITION_ACCEPTANCE_M046.md)。
@@ -72,6 +74,7 @@ M046 起任务/报告保留完整批准文件的精简目录，read_source_ids �
 | 初始任务 / 总任务 | 4 / 6，最多两个并行 |
 | 每任务模型轮次 / 工具动作 | 4 / 16，每轮至多四个动作 |
 | 整轮模型请求 | 32，规划、调查、核对共用原子计数 |
+| 已收到的格式失败 | 每个逻辑请求最多补试 1 次，同样计入上述 32 次，不增加总预算 |
 | 执行时间 | 1800 秒，新请求前检查；不是正在执行动作的硬终止 |
 | 完整请求体 / 响应 | 默认 32000 字符；适度超限可逐次批准至 48000；保留报告轮 max_tokens=8192，其余 4096 |
 | 请求超时 | 配置 1–120 秒，不自动重试 |
@@ -97,7 +100,7 @@ zest cognition reject <run-id>
 
 M038 起还保存实际完整请求体、URL、字符数和正文 SHA-256。适度超限先暂停为 awaiting_context_approval，审阅该任务/轮次完整请求后单独批准；不扣尚未外发的调用，不扩大资料/执行/时间预算。终端有“审阅超限请求”，CLI 有 context-preview/context-approve/context-reject；详细边界见 [认知上下文与单次扩展](COGNITION_CONTEXT.md)。
 
-请求先记 pending 并扣预算，响应收据与解析分类在同一事务落库，再推进 checkpoint。响应已保存而节点未完成时，显式 recover 可复用同身份响应。已知无效响应记 invalid 并拒绝重发；pending/uncertain 或无有效结果的请求不能重发：服务端可能已处理或计费。活动 worker/同 run 锁阻止重复执行和并发恢复。
+请求先记 pending 并扣预算，响应收据与解析分类在同一事务落库，再推进 checkpoint。响应已保存而节点未完成时，显式 recover 可复用同身份响应。M052 起，完整响应已收到但 JSON/类型不符合契约时，可依据新包中的 max_format_retries=1 在总预算内补试一次，原请求逐字不变、每次收据独立保存。补试用完的 invalid 不再发送；pending/uncertain 或无有效结果的请求不能重发：服务端可能已处理或计费。活动 worker/同 run 锁阻止重复执行和并发恢复。详见 [格式补试与恢复](COGNITION_RETRIES.md)。
 
 状态：awaiting_approval → queued → planning → investigating → reviewing → completed/partial；错误为 failed，未知调用为 pending_execution。worker 消失时界面显示退出，不冒充仍在执行。completed 仅表示任务完成、六部分有经核对发现且计划无剩余缺口，不是完整理解证明。
 

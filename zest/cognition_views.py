@@ -1,6 +1,7 @@
 """Human-readable cognition progress and compact six-part project dossiers."""
 
 import time
+import json
 from .terminal import display_text
 from .cognition_context import material_request_text
 
@@ -17,6 +18,7 @@ def format_cognition(record):
     lines = ["Zest · 项目认知", f"工作流：{record['id']}", f"版本：{record['commit']}",
              f"阶段：{LABELS.get(record['status'], record['status'])}",
              f"模型请求：{record['call_count']} / {record['policy']['max_model_calls']} 次",
+             f"格式失败最多补试 {record['policy'].get('max_format_retries', 0)} 次，计入上述总预算；结果未知不重发",
              f"批准资料：{record['file_count']} 个文件；包外资料需重新授权", ""]
     scope = record.get("scope_review") or {}
     if scope.get("requires_discussion"):
@@ -35,6 +37,12 @@ def format_cognition(record):
                 lines.extend("    " + display_text(material_request_text(item)) for item in job["result"]["report"].get(key, []))
     if record["error"]:
         lines.append("错误：" + display_text(record["error"]))
+    for event in record.get("events", [])[-10:]:
+        if event["action"] in ("model_format_retry_ready", "model_format_retry_started"):
+            detail = json.loads(event["detail"])
+            message = (f"第 {detail['failed_attempt']} 次格式失败已保存，等待预算内补试" if event["action"] == "model_format_retry_ready"
+                       else f"已开始第 {detail['attempt']} 次请求（格式补试）")
+            lines.append(display_text(f"{event['actor']} / {detail['sequence']}：{message}"))
     for request in record.get("context_requests", []):
         if request["status"] == "awaiting_approval":
             lines.append(f"待扩展：{request['actor']} / {request['sequence']} · {request['chars']} 字符，默认 {request['default_chars']}，超出 {request['over_percent']}%；最高 {request['max_chars']}。尚未外发，需审阅完整请求。")
