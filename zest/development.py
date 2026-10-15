@@ -70,7 +70,6 @@ def create_project(path, name, goal, state_dir, *, author_name=None, author_emai
     _text(goal, 4000)
     if any(ord(char) < 32 or ord(char) == 127 for char in name) or "\0" in goal:
         raise FileReadError("invalid_project_text", "项目名称必须为单行，目标不能包含 NUL。")
-    author_name, author_email = _identity(author_name, author_email)
     # Resolve only the existing parent; do not follow a final symlink or create parents.
     requested = Path(path).expanduser().absolute()
     try:
@@ -79,7 +78,13 @@ def create_project(path, name, goal, state_dir, *, author_name=None, author_emai
         raise FileReadError("invalid_project_parent", "新项目的父目录必须存在。") from exc
     root = parent / requested.name
     if root.exists() or root.is_symlink():
+        from .resources import workspace_identity
+        if root.is_dir() and not root.is_symlink() and workspace_identity(root):
+            project = ProjectRegistry(state_dir).register(inspect_repository(root), workspace=True)
+            return {"project": project, "goal_note": None, "created_files": [],
+                    "warnings": ["existing_project_reused_goal_unchanged"]}
         raise FileReadError("project_path_exists", "目标路径已经存在；新项目只能创建于全新目录。")
+    author_name, author_email = _identity(author_name, author_email)
     created = False
     try:
         root.mkdir(mode=0o700)

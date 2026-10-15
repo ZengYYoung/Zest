@@ -275,6 +275,8 @@ class CognitionEngine:
                    "gaps": envelope["survey_gaps"], "policy": envelope["policy"]}
         if "refresh_context" in envelope:
             payload["refresh_context"] = envelope["refresh_context"]
+        if "management_guidance" in envelope:
+            payload["management_guidance"] = envelope["management_guidance"]
         result = validate_plan(self.call(run_id, "coordinator", 0, "project_plan", payload, envelope), {source["id"] for source in catalog})
         self.store.save_plan(run_id, result)
         self.store.event(run_id, "coordinator", "plan_ready", {"tasks": len(result["tasks"])})
@@ -305,6 +307,8 @@ class CognitionEngine:
                        "remaining_tool_actions": envelope["policy"]["max_tool_actions_per_task"] - state["actions_used"]}
             if "refresh_context" in envelope:
                 payload["refresh_context"] = envelope["refresh_context"]
+            if "management_guidance" in envelope:
+                payload["management_guidance"] = envelope["management_guidance"]
             closing = (payload["remaining_turns"] == 1 or state.get("report_required", False)
                        or payload["remaining_tool_actions"] == 0)
             payload["report_required"] = closing

@@ -141,6 +141,26 @@ class DevelopmentTest(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["id"], project["id"])
         self.assertEqual(json.loads(output.getvalue())["mode"], "development")
 
+    def test_repeated_init_reuses_management_without_author_goal_or_git_writes(self):
+        initial = self.create()
+        note = initial["goal_note"]
+        KnowledgeStore(self.state).confirm(note["id"])
+        def snapshot():
+            return {str(path.relative_to(self.target)): (path.read_bytes(), path.stat().st_mtime_ns)
+                    for path in self.target.rglob("*") if path.is_file()}
+        before = snapshot()
+        with patch("zest.development._identity", side_effect=AssertionError("must not read author")), \
+                patch("zest.development._git_create", side_effect=AssertionError("must not write Git")):
+            repeated = create_project(self.target, "Different name", "Different goal", self.state)
+        self.assertEqual(repeated["project"], initial["project"])
+        self.assertIsNone(repeated["goal_note"])
+        self.assertEqual(repeated["created_files"], [])
+        self.assertIn("existing_project_reused_goal_unchanged", repeated["warnings"])
+        self.assertEqual(before, snapshot())
+        notes = KnowledgeStore(self.state).list_notes(initial["project"]["id"])
+        self.assertEqual([item["id"] for item in notes], [note["id"]])
+        self.assertEqual(notes[0]["status"], "confirmed")
+
     def test_legacy_database_additive_migration_preserves_record(self):
         project = self.create()["project"]
         db = self.state / "state.sqlite3"

@@ -91,10 +91,15 @@ class ProjectRegistry:
         from .resources import preflight_workspace
         identity = preflight_workspace(Path(state.root_path)) if workspace else None
         if identity:
-            previous = ProjectRegistry(Path(state.root_path) / ".zest" / "state").get_project_readonly(identity["project_id"])
-            if previous:
-                mode = previous["mode"]
-        registration_id = identity["project_id"] if identity else str(uuid4())
+            return self._reuse_workspace(Path(state.root_path), identity)
+        if workspace:
+            # Recognized pre-workspace catalogs are reused, never assigned a new
+            # identity merely because the caller selected a different catalog.
+            legacy = ProjectRegistry(Path(state.root_path) / ".zest").list_projects_readonly()
+            previous = next((p for p in legacy if p["root_path"] == state.root_path), None)
+            if previous and self.state_dir != Path(state.root_path) / ".zest":
+                raise StorageError("此项目仍使用根 .zest 历史登记，请从原登记入口接入，未改写其管理来源。")
+        registration_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         try:
             with closing(self._connect()) as conn, conn:
@@ -112,9 +117,51 @@ class ProjectRegistry:
         except sqlite3.Error as exc:
             raise StorageError("保存项目状态失败，请检查数据库权限或稍后重试。") from exc
 
+    def _reuse_workspace(self, root, identity):
+        """Validate existing ownership read-only; only attach a missing catalog."""
+        from .files import FileReadError
+        destination = root / ".zest" / "state"
+        previous = ProjectRegistry(destination).get_project_readonly(identity["project_id"])
+        if (previous is None or previous["root_path"] != str(root)
+                or previous.get("resource_dir") != str(destination)
+                or previous.get("legacy_state_dir") != identity["legacy_state_dir"]):
+            raise FileReadError("resource_identity_mismatch", "已有 .zest 登记不完整或身份冲突，未重新初始化；请核对原管理状态。")
+        registrations = self.list_projects_readonly()
+        for registered in registrations:
+            if registered["id"] == previous["id"] or registered["root_path"] == str(root):
+                if (registered["id"] != previous["id"] or registered["root_path"] != str(root)
+                        or (registered.get("resource_dir"), registered.get("legacy_state_dir"))
+                        not in ((None, None), (str(destination), identity["legacy_state_dir"]))):
+                    raise StorageError("登记入口与已有项目身份冲突，未覆盖任何管理状态。")
+                if registered.get("resource_dir"):
+                    return previous
+                break
+        # A newly selected catalog gets a pointer/mirror of the original identity;
+        # the authoritative project-local registration is never opened writable.
+        try:
+            with closing(self._connect()) as conn, conn:
+                saved = conn.execute("""INSERT INTO projects(id,root_path,created_at,updated_at,git_state,mode,resource_dir,legacy_state_dir)
+                    VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(root_path) DO UPDATE SET
+                    resource_dir=excluded.resource_dir,legacy_state_dir=excluded.legacy_state_dir
+                    WHERE projects.id=excluded.id
+                    AND (projects.resource_dir IS NULL OR projects.resource_dir=excluded.resource_dir)
+                    AND (projects.legacy_state_dir IS NULL OR projects.legacy_state_dir=excluded.legacy_state_dir)""",
+                    (previous["id"], str(root), previous["created_at"], previous["updated_at"],
+                     json.dumps(previous["git"]), previous["mode"], str(destination), identity["legacy_state_dir"]))
+                if saved.rowcount != 1:
+                    raise StorageError("登记入口在连接期间发生身份冲突，未覆盖记录。")
+        except sqlite3.Error as exc:
+            raise StorageError("连接已有项目登记失败，原项目资源未修改。") from exc
+        return previous
+
     def attach_workspace(self, project):
-        from .resources import ensure_workspace
+        from .resources import ensure_workspace, preflight_workspace
         from .git import inspect_repository
+        identity = preflight_workspace(Path(project["root_path"]))
+        if identity:
+            if identity["project_id"] != project["id"]:
+                raise StorageError("已有 .zest 属于另一项目身份，未覆盖。")
+            return self._reuse_workspace(Path(project["root_path"]), identity)
         destination, legacy = ensure_workspace(project, self.state_dir)
         project = {**project, "resource_dir": str(destination), "legacy_state_dir": str(legacy),
                    "git": asdict(inspect_repository(project["root_path"]))}

@@ -18,7 +18,7 @@ from zest.git import inspect_repository
 from zest.index import RetrievalIndex
 from zest.knowledge import KnowledgeStore
 from zest.resources import project_states, record_state
-from zest.storage import ProjectRegistry
+from zest.storage import ProjectRegistry, StorageError
 from zest.survey import SurveyStore
 from zest.tasks import TaskRunner
 
@@ -43,6 +43,180 @@ class ResourceTest(unittest.TestCase):
     def target(self):
         settings = OfflineCognitionModel().settings
         return {"provider": settings.provider, "model": settings.name, "base_url": settings.base_url}
+
+    def snapshot(self, directory):
+        return {str(path.relative_to(directory)): (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_mode)
+                for path in directory.rglob("*") if path.is_file()}
+
+    def test_reinitialization_is_byte_and_timestamp_noop_for_existing_management(self):
+        project = self.imported()
+        folder = self.repo / ".zest"
+        (folder / ".gitignore").write_text("# custom control\n*\n!AGENTS.md\n")
+        (folder / "AGENTS.md").write_text("# User-maintained management guidance\n")
+        (folder / "skills" / "review").mkdir(parents=True)
+        (folder / "skills" / "review" / "SKILL.md").write_text("Preserve this skill\n")
+        note = KnowledgeStore(self.state_dir).add(project, "Existing memory", "Do not reset", scope="project")
+        KnowledgeStore(self.state_dir).confirm(note["id"])
+        record = CognitionStore(self.state_dir).create(project["id"], target=self.target())
+        catalog = self.snapshot(self.state_dir)
+        previous = self.snapshot(folder)
+        head = self.git("rev-parse", "HEAD")
+        # A new observation of the worktree must not replace saved management state.
+        (self.repo / "README.md").write_text("User work in progress\n")
+        dirty = self.git("status", "--porcelain")
+        code, out, err = self.cli("project", "import", str(self.repo))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), project)
+        self.assertEqual(previous, self.snapshot(folder))
+        self.assertEqual(catalog, self.snapshot(self.state_dir))
+        self.assertEqual(head, self.git("rev-parse", "HEAD"))
+        self.assertEqual(dirty, self.git("status", "--porcelain"))
+        new_catalog = self.root / "fresh-catalog"
+        reattached = ProjectRegistry(new_catalog).register(inspect_repository(self.repo), workspace=True)
+        self.assertEqual(reattached, project)
+        self.assertEqual(previous, self.snapshot(folder))
+        self.assertEqual(CognitionStore(new_catalog).show(record["id"])["approval_sha256"], record["approval_sha256"])
+        self.assertEqual(KnowledgeStore(new_catalog).get(note["id"])["status"], "confirmed")
+
+    def test_unknown_existing_management_folder_is_not_taken_over(self):
+        self.populated()
+        folder = self.repo / ".zest"
+        folder.mkdir()
+        (folder / "AGENTS.md").write_text("Existing controller\n")
+        previous = self.snapshot(folder)
+        code, out, err = self.cli("project", "import", str(self.repo))
+        self.assertEqual(code, 1)
+        self.assertIn("resource_directory_conflict", err)
+        self.assertEqual(previous, self.snapshot(folder))
+        self.assertFalse(self.state_dir.exists())
+
+    def test_missing_local_registration_or_conflicting_catalog_does_not_reinitialize(self):
+        project = self.imported()
+        database = Path(project["resource_dir"]) / "state.sqlite3"
+        saved = database.read_bytes()
+        database.unlink()
+        before = self.snapshot(self.repo / ".zest")
+        with self.assertRaises(FileReadError) as caught:
+            ProjectRegistry(self.state_dir).register(inspect_repository(self.repo), workspace=True)
+        self.assertEqual(caught.exception.code, "resource_identity_mismatch")
+        self.assertEqual(before, self.snapshot(self.repo / ".zest"))
+        database.write_bytes(saved)
+        conflicting = ProjectRegistry(self.root / "conflicting-catalog")
+        conflicting.register(inspect_repository(self.repo))  # A different legacy identity.
+        before = self.snapshot(self.repo / ".zest")
+        catalog = self.snapshot(conflicting.state_dir)
+        with self.assertRaises(StorageError):
+            conflicting.register(inspect_repository(self.repo), workspace=True)
+        self.assertEqual(before, self.snapshot(self.repo / ".zest"))
+        self.assertEqual(catalog, self.snapshot(conflicting.state_dir))
+        # Partial routing metadata is a conflict, not permission to repair it.
+        with closing(sqlite3.connect(self.state_dir / "state.sqlite3")) as conn, conn:
+            conn.execute("UPDATE projects SET legacy_state_dir=NULL WHERE id=?", (project["id"],))
+        before = self.snapshot(self.repo / ".zest")
+        catalog = self.snapshot(self.state_dir)
+        with self.assertRaises(StorageError):
+            ProjectRegistry(self.state_dir).register(inspect_repository(self.repo), workspace=True)
+        self.assertEqual(before, self.snapshot(self.repo / ".zest"))
+        self.assertEqual(catalog, self.snapshot(self.state_dir))
+
+    def test_legacy_catalog_in_root_folder_retains_identity_and_original_memories(self):
+        self.populated()
+        registry = ProjectRegistry(self.repo / ".zest")
+        project = registry.register(inspect_repository(self.repo))
+        note = KnowledgeStore(registry.state_dir).add(project, "Legacy", "Original memory")
+        original = (registry.state_dir / "knowledge.sqlite3").read_bytes()
+        attached = registry.register(inspect_repository(self.repo), workspace=True)
+        self.assertEqual(attached["id"], project["id"])
+        self.assertEqual(original, (registry.state_dir / "knowledge.sqlite3").read_bytes())
+        self.assertEqual(KnowledgeStore(registry.state_dir).get(note["id"])["body"], "Original memory")
+        before = self.snapshot(registry.state_dir)
+        registry.register(inspect_repository(self.repo), workspace=True)
+        self.assertEqual(before, self.snapshot(registry.state_dir))
+
+    def test_legacy_custom_ignore_control_requires_resolution_without_automatic_edits(self):
+        self.populated()
+        registry = ProjectRegistry(self.repo / ".zest")
+        registry.register(inspect_repository(self.repo))
+        (registry.state_dir / ".gitignore").write_text("# Existing custom rules\ncache/\n")
+        before = self.snapshot(registry.state_dir)
+        with self.assertRaises(FileReadError) as caught:
+            registry.register(inspect_repository(self.repo), workspace=True)
+        self.assertEqual(caught.exception.code, "resource_ignore_conflict")
+        self.assertEqual(before, self.snapshot(registry.state_dir))
+
+    def test_generated_guide_is_navigation_and_explicit_bootstrap_never_overwrites(self):
+        self.imported()
+        folder = self.repo / ".zest"
+        guide = folder / "AGENTS.md"
+        self.assertIn("原生 README/docs 无需拷贝", guide.read_text())
+        self.assertFalse((folder / "README.md").exists())
+        self.assertFalse((folder / "docs").exists())
+        project = ProjectRegistry(self.state_dir).list_projects_readonly()[0]
+        guide.unlink()
+        ProjectRegistry(self.state_dir).register(inspect_repository(self.repo), workspace=True)
+        self.assertFalse(guide.exists())  # Initialization does not silently backfill.
+        code, out, err = self.cli("project", "guide", project["id"])
+        self.assertEqual(code, 0, err)
+        self.assertTrue(json.loads(out)["created"])
+        guide.write_text("Custom guide\n")
+        before = self.snapshot(folder)
+        code, out, err = self.cli("project", "guide", project["id"])
+        self.assertEqual(code, 0, err)
+        self.assertFalse(json.loads(out)["created"])
+        self.assertEqual(before, self.snapshot(folder))
+
+    @unittest.skipUnless(importlib.util.find_spec("langgraph") and importlib.util.find_spec("fastmcp"), "ai/mcp extras required")
+    def test_management_hints_are_frozen_approved_separately_from_native_evidence(self):
+        project = self.imported()
+        guide = self.repo / ".zest" / "AGENTS.md"
+        guide.write_text("# Management hints v1\nRead native app.py to verify behavior.\n")
+        store = CognitionStore(self.state_dir)
+        run = store.create(project["id"], target=self.target())
+        envelope = store.show(run["id"], include_envelope=True)["envelope"]
+        hint = envelope["management_guidance"]
+        self.assertEqual(hint["body"], guide.read_text())
+        self.assertNotIn(".zest/AGENTS.md", [s["evidence"]["path"] for s in envelope["files"]])
+        guide.write_text("# Changed after preparation, must not enter the old request\n")
+        newer = store.create(project["id"], target=self.target())
+        self.assertNotEqual(run["approval_sha256"], newer["approval_sha256"])
+        store.decide(run["id"], approved=True, approval_sha256=run["approval_sha256"])
+        model = OfflineCognitionModel()
+        result = CognitionEngine(self.state_dir, model=model).run(run["id"])
+        self.assertEqual(result["status"], "completed")
+        for purpose, payload in model.calls:
+            if purpose != "project_review":
+                self.assertEqual(payload["management_guidance"], hint)
+        self.assertEqual(store.show(newer["id"])["status"], "awaiting_approval")
+
+    def test_sensitive_or_linked_management_guidance_is_not_packaged(self):
+        project = self.imported()
+        guide = self.repo / ".zest" / "AGENTS.md"
+        guide.write_text("sk-" + "x" * 40)
+        store = CognitionStore(self.state_dir)
+        with self.assertRaises(FileReadError) as caught:
+            store.create(project["id"], target=self.target())
+        self.assertEqual(caught.exception.code, "sensitive_cognition_output")
+        guide.unlink()
+        guide.symlink_to(self.repo / "README.md")
+        with self.assertRaises(FileReadError) as caught:
+            store.create(project["id"], target=self.target())
+        self.assertEqual(caught.exception.code, "unsafe_resource_path")
+
+    @unittest.skipUnless(importlib.util.find_spec("langgraph") and importlib.util.find_spec("fastmcp"), "ai/mcp extras required")
+    def test_existing_approval_without_guide_does_not_gain_new_management_content(self):
+        project = self.imported()
+        guide = self.repo / ".zest" / "AGENTS.md"
+        guide.unlink()
+        store = CognitionStore(self.state_dir)
+        run = store.create(project["id"], target=self.target())
+        self.assertNotIn("management_guidance", store.show(run["id"], include_envelope=True)["envelope"])
+        code, out, err = self.cli("project", "guide", project["id"])
+        self.assertEqual(code, 0, err)
+        store.decide(run["id"], approved=True, approval_sha256=run["approval_sha256"])
+        model = OfflineCognitionModel()
+        self.assertEqual(CognitionEngine(self.state_dir, model=model).run(run["id"])["status"], "completed")
+        self.assertTrue(model.calls)
+        self.assertTrue(all("management_guidance" not in payload for _, payload in model.calls))
 
     def test_import_creates_ignored_private_resources_and_preserves_native_files(self):
         self.populated()

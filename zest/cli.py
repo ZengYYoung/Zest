@@ -41,7 +41,7 @@ def _parser() -> argparse.ArgumentParser:
     mapped = actions.add_parser("map", help="只读提取固定版本的 Python 模块、符号和 import 声明")
     mapped.add_argument("project_id")
     mapped.add_argument("--commit")
-    initialized = actions.add_parser("init", help="创建全新本地项目和 Git 基线")
+    initialized = actions.add_parser("init", help="创建全新项目；已接入项目只连接现有管理状态")
     initialized.add_argument("path", type=Path)
     initialized.add_argument("--name", required=True)
     initialized.add_argument("--goal", required=True)
@@ -50,6 +50,8 @@ def _parser() -> argparse.ArgumentParser:
     actions.add_parser("list", help="列出已登记项目，返回上次采集的状态")
     shown = actions.add_parser("show", help="查看登记记录，返回上次采集的状态")
     shown.add_argument("project_id", help="登记生成的项目 ID")
+    guide = actions.add_parser("guide", help="显式补齐缺少的 .zest/AGENTS.md；不覆盖现有管理指引")
+    guide.add_argument("project_id")
     overview = actions.add_parser("overview", help="读取已登记项目当前 commit 的只读概览")
     overview.add_argument("project_id", help="登记生成的项目 ID")
     reader = actions.add_parser("read", help="读取已提交文本文件并返回行号和版本来源")
@@ -459,12 +461,20 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "list":
             result = registry.list_projects()
         else:
-            result = registry.get_project(args.project_id)
+            result = (registry.get_project_readonly(args.project_id) if args.action == "guide"
+                      else registry.get_project(args.project_id))
             if result is None:
                 print(json.dumps({"error": {"code": "project_not_found", "message": "未找到该项目登记记录。"}},
                                  ensure_ascii=True), file=sys.stderr)
                 return 1
-            if args.action == "overview":
+            if args.action == "guide":
+                from .resources import preflight_workspace, write_management_guide
+                identity = preflight_workspace(Path(result["root_path"]))
+                if identity is None or identity["project_id"] != result["id"]:
+                    raise FileReadError("resource_identity_mismatch", "请先核对并接入项目资源目录。")
+                registry.attach_workspace(result)
+                result = write_management_guide(result["root_path"])
+            elif args.action == "overview":
                 result = build_overview(result)
             elif args.action == "map":
                 from .structure import build_structure

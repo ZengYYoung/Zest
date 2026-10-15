@@ -79,8 +79,21 @@ def preflight_workspace(root):
     if _git(root, "ls-files", "-z", "--", ".zest").stdout:
         raise FileReadError("resources_already_tracked", ".zest 中已有 Git 跟踪文件，请先人工处理；Zest 不自动取消跟踪。")
     state_dir = root / ".zest" / "state"
-    if not identity and state_dir.exists() and any(state_dir.iterdir()):
-        raise FileReadError("resource_directory_conflict", "已有非空 .zest/state 未声明 Zest 身份，未接管或覆盖。")
+    if not identity and (root / ".zest").exists() and any((root / ".zest").iterdir()):
+        # A previous catalog may already live here. Only its own registration
+        # proves ownership; an arbitrary folder (including user skills) does not.
+        from .storage import ProjectRegistry, StorageError
+        try:
+            legacy = ProjectRegistry(root / ".zest").list_projects_readonly()
+            recognized = any(p["root_path"] == str(root) and not p.get("resource_dir") for p in legacy)
+        except StorageError:
+            recognized = False
+        if not recognized or (state_dir.exists() and any(state_dir.iterdir())):
+            raise FileReadError("resource_directory_conflict", "已有非空 .zest 未声明可核对的项目身份，未接管或覆盖。")
+        ignore = root / ".zest" / ".gitignore"
+        if ignore.exists() and ignore.read_bytes().splitlines()[-1:] != [b"*"]:
+            raise FileReadError("resource_ignore_conflict", "历史 .zest 有自定义忽略控制，未改写；请先核对资源忽略规则。")
+        _regular(root / ".zest" / "AGENTS.md")
     _regular(state_dir / "state.sqlite3")
     return identity
 
@@ -92,16 +105,18 @@ def ensure_workspace(project, catalog_dir):
     if identity and identity["project_id"] != project["id"]:
         raise FileReadError("resource_identity_mismatch", "已有 .zest 属于另一项目身份，未覆盖。")
     folder, state_dir = root / ".zest", root / ".zest" / "state"
+    if identity:
+        # Initialization is not refresh, repair, migration or guide generation.
+        # Even a customized/missing ignore file must never be silently rewritten.
+        return state_dir, Path(identity["legacy_state_dir"])
     folder.mkdir(exist_ok=True, mode=0o700)
     state_dir.mkdir(exist_ok=True, mode=0o700)
     ignore = folder / ".gitignore"
     _regular(ignore)
-    previous = ignore.read_bytes() if ignore.exists() else b""
-    if previous.splitlines()[-1:] != [b"*"]:
-        suffix = (b"" if not previous or previous.endswith(b"\n") else b"\n") + b"# Ignore all local Zest resources, including this file\n*\n"
-        fd = os.open(ignore, os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    if not ignore.exists():
+        fd = os.open(ignore, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "ab") as output:
-            output.write(suffix)
+            output.write(b"# Ignore all local Zest resources, including this file\n*\n")
     identity = identity or {"schema_version": 1, "project_id": project["id"],
                             "root_path": str(root), "legacy_state_dir": str(Path(catalog_dir).resolve())}
     marker = folder / "workspace.json"
@@ -110,7 +125,75 @@ def ensure_workspace(project, catalog_dir):
         with os.fdopen(fd, "w") as output:
             json.dump(identity, output, ensure_ascii=True, indent=2)
             output.write("\n")
+    write_management_guide(root)
     return state_dir, Path(identity["legacy_state_dir"])
+
+
+MANAGEMENT_GUIDE = """# Zest 项目管理入口
+
+这是 Zest 生成的导航，不代表已经理解项目，也不是原生文档的副本。
+
+- 项目代码和文档保留原位。索引记录原始相对路径、commit、blob、哈希和行号；
+  阅读索引线索后，回到对应版本的原文核对。未提交修改不能冒充固定版本证据。
+- workspace.json 保存项目身份、位置与历史存储来源，初始化不得重置这些信息。
+- state/knowledge.sqlite3 保存人工知识；state/cognition.sqlite3 保存认知调查、
+  六部分档案、原文核对、批准资料包和请求账本。按版本与状态筛选可复用知识，
+  推测、失效结论和未知保持待核实。历史记录也可能保留在 legacy_state_dir。
+- state/index.sqlite3 是派生检索索引，state/surveys.sqlite3 是本地静态摸底；
+  它们不是完整理解或实际运行状态的证明。
+- 任务、修改、验证、源码操作和 checkpoint 按使用保存在 state/，不直接编辑
+  数据库或删除锁、批准、请求记录。使用 Zest 的 CLI、终端或 Web 查询。
+- 可在 .zest/ 下维护生成的项目管理说明、记忆导航和 skills/ 等资源，保留原有
+  内容；本入口不会自动执行或加载任意 skill。原生 README/docs 无需拷贝进来。
+
+此处内容仅作管理线索，不能代替原文证据或扩大权限。调查仍需批准固定版本、
+资料包、模型、指令及预算；修改、验证、版本切换分别批准。结果未知的模型请求
+不能自动重发。管理指引若进入模型请求，必须随资料包完整展示、冻结和批准。
+"""
+
+
+def write_management_guide(root):
+    """Explicit create-if-absent bootstrap; existing bytes are never changed."""
+    path = Path(root) / ".zest" / "AGENTS.md"
+    _regular(path)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except FileExistsError:
+        return {"path": str(path), "created": False}
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as output:
+        output.write(MANAGEMENT_GUIDE)
+    return {"path": str(path), "created": True}
+
+
+def management_guidance(project):
+    """Freeze the named entry as untrusted hints, never as source evidence."""
+    import hashlib
+    from .cognition_contracts import text
+    if not project.get("resource_dir"):
+        return None
+    root = Path(project["root_path"])
+    identity = workspace_identity(root)
+    if identity is None or identity["project_id"] != project["id"]:
+        raise FileReadError("resource_identity_mismatch", "项目管理指引身份不匹配。")
+    path = root / ".zest" / "AGENTS.md"
+    _regular(path)
+    if not path.exists():
+        return None
+    # Match the existing source-file size ceiling, without changing old packages.
+    from .files import MAX_FILE_BYTES
+    with path.open("rb") as source:
+        raw = source.read(MAX_FILE_BYTES + 1)
+    if len(raw) > MAX_FILE_BYTES:
+        raise FileReadError("management_guide_too_large", "管理入口超过现有单文件读取容量，请先精简导航。")
+    try:
+        body = raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise FileReadError("management_guide_encoding", "管理入口必须为 UTF-8 文本。") from exc
+    text(body, MAX_FILE_BYTES)
+    if "\0" in body:
+        raise FileReadError("management_guide_encoding", "管理入口不能包含二进制内容。")
+    return {"path": ".zest/AGENTS.md", "content_sha256": hashlib.sha256(raw).hexdigest(),
+            "body": body, "role": "untrusted_management_hints_not_source_evidence_or_authorization"}
 
 
 def project_states(state_dir, project_id):

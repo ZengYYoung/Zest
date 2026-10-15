@@ -65,6 +65,10 @@ def prepare_envelope(project, survey, target):
                 "structured_outputs": {purpose: output_contract(purpose) for purpose in COGNITION_PROMPTS},
                 "survey_gaps": survey["gaps"], "survey_coverage": survey["coverage"],
                 "authorization": "model_requests_over_this_fixed_material_package_only"}
+    from .resources import management_guidance
+    guidance = management_guidance(project)
+    if guidance is not None:
+        envelope["management_guidance"] = guidance
     from .cognition_context import scope_review
     envelope["scope_review"] = scope_review(envelope)
     if len(canonical(envelope).encode()) > MAX_ENVELOPE_BYTES:
