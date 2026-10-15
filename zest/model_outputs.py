@@ -263,6 +263,23 @@ class ProjectReviewResponse(OutputModel):
     judgments: list[FindingJudgment] = Field(description="逐一核对本批 finding_id；other_findings 仅用于检查矛盾，不为其输出 judgments。")
 
 
+class CoverageJudgment(OutputModel):
+    """Independent coverage of one frozen required property."""
+
+    id: str = Field(description="本批 requirements 的精确属性身份，每个身份恰好一次。")
+    verdict: Literal["full", "partial", "missing", "reference_unsupported"] = Field(description="full 为候选结论明确完整表达且原文支持；partial 为部分表达或缺边界；missing 为没有表达；reference_unsupported 为参考本身没有原文支持，不私自改参考。")
+    finding_ids: list[str] = Field(description="明确表达该属性的 candidates.finding_id；full/partial 至少一项，不能只因引用中存在答案就算覆盖。")
+    evidence_ids: list[str] = Field(description="该 requirement.evidence_ids 内支持判断的固定原文 P 身份；full/partial 至少一项，禁止包外引用。")
+    reason: str = Field(description="说明参考是否有依据、候选明确表达了什么以及具体缺口；不自报总分或更改分母。")
+
+
+class CognitionEvaluationResponse(OutputModel):
+    """Independent evaluation, separate from investigation and knowledge approval."""
+
+    coverage: list[CoverageJudgment] = Field(description="仅评价本批 requirements；每个属性恰好一次，空批返回空列表。")
+    judgments: list[FindingJudgment] = Field(description="仅评价本批 findings 的全部独立属性与冲突；每个发现恰好一次，空批返回空列表。原系统核对结果不作为正确依据。")
+
+
 OUTPUT_MODELS = {
     "qa": QAResponse,
     "repair_proposal": RepairProposalResponse,
@@ -270,6 +287,7 @@ OUTPUT_MODELS = {
     "project_research": ProjectResearchResponse,
     "project_report": ProjectReportResponse,
     "project_review": ProjectReviewResponse,
+    "cognition_evaluation": CognitionEvaluationResponse,
 }
 
 

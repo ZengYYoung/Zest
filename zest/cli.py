@@ -134,6 +134,21 @@ def _parser() -> argparse.ArgumentParser:
     invalidated.add_argument("run_id")
     invalidated.add_argument("finding_id")
     invalidated.add_argument("--reason", required=True)
+    evaluation = commands.add_parser("evaluation", help="独立认知评分；新资料包与新批准，不修改项目知识")
+    evaluation_actions = evaluation.add_subparsers(dest="action", required=True)
+    evaluation_create = evaluation_actions.add_parser("create", help="冻结 Skill、参考、结果与完整评分请求，不调用模型")
+    evaluation_create.add_argument("run_id")
+    evaluation_create.add_argument("--criteria", type=Path, required=True)
+    evaluation_create.add_argument("--max-calls", type=int, default=32)
+    for name in ("preview", "show", "approve", "reject", "run", "recover", "report"):
+        command = evaluation_actions.add_parser(name)
+        command.add_argument("evaluation_id")
+        if name == "approve":
+            command.add_argument("--approval-sha256", required=True)
+            command.add_argument("--no-run", action="store_true", help="只批准，不执行评分")
+            command.add_argument("--allow-extended-requests", action="store_true", help="另行同意预览中精确列出的 32000—48000 字符请求清单")
+        if name == "report":
+            command.add_argument("--format", choices=("json", "text"), default="json")
     tasks = commands.add_parser("task", help="持久化问答任务及批准")
     task_actions = tasks.add_subparsers(dest="action", required=True)
     create = task_actions.add_parser("create", help="准备上下文并暂停等待批准")
@@ -337,6 +352,30 @@ def main(argv: list[str] | None = None) -> int:
                     result["worker"] = start_worker(record_state(args.state_dir, "cognition", args.run_id))
             if getattr(args, "format", "json") == "text":
                 print(format_dossier(result) if args.action == "dossier" else format_cognition(result))
+            else:
+                print(json.dumps(result, ensure_ascii=True, indent=2))
+            return 0
+        if args.command == "evaluation":
+            from .evaluation import EvaluationStore, load_criteria, format_evaluation
+            store = EvaluationStore(args.state_dir)
+            if args.action == "create":
+                result = store.create(args.run_id, load_criteria(args.criteria), max_calls=args.max_calls)
+            elif args.action in ("show", "preview"):
+                result = store.show(args.evaluation_id, preview=args.action == "preview")
+            elif args.action in ("approve", "reject"):
+                result = store.decide(args.evaluation_id, approved=args.action == "approve",
+                                      approval_sha256=getattr(args, "approval_sha256", None),
+                                      allow_extended_requests=getattr(args, "allow_extended_requests", False))
+                if args.action == "approve" and not args.no_run:
+                    result = store.run(args.evaluation_id)
+            elif args.action == "recover":
+                result = store.recover(args.evaluation_id)
+            elif args.action == "run":
+                result = store.run(args.evaluation_id)
+            else:
+                result = store.report(args.evaluation_id)
+            if getattr(args, "format", "json") == "text":
+                print(format_evaluation(result))
             else:
                 print(json.dumps(result, ensure_ascii=True, indent=2))
             return 0

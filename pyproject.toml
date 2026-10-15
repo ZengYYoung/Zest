@@ -37,3 +37,6 @@ tui = [
 
 [tool.setuptools.packages.find]
 include = ["zest*"]
+
+[tool.setuptools.package-data]
+zest = ["skills/*/SKILL.md"]

@@ -18,6 +18,7 @@ from zest.model_outputs import (
 class ModelOutputContractTest(unittest.TestCase):
     def wire_examples(self):
         return {
+            "cognition_evaluation": {"coverage": [{"id": "G01/A1", "verdict": "full", "finding_ids": ["T1:F1"], "evidence_ids": ["P1"], "reason": "原文与候选均明确表达。"}], "judgments": []},
             "qa": {"status": "answered", "answer": "使用 Python。[E1]", "citations": ["E1"], "unknowns": []},
             "repair_proposal": {"status": "proposed", "summary": "修复边界判断。", "changes": [
                 {"source_id": "E1", "content": "value = 1\n"},

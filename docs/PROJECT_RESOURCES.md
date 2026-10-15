@@ -78,3 +78,5 @@ M057 新增 [只读管理上下文总览](MANAGEMENT_CONTEXT.md)：CLI `project 
 ## 验证边界
 
 使用临时真实 Git 仓库验证忽略、原生文件/HEAD/index 不变、重复导入和 init 的资源字节/修改时间不变、多个登记入口、并行多项目隔离、旧知识/索引/批准/增量基线兼容、重复副本冲突、未知目录/缺失登记/符号链接与已跟踪目录拒绝；离线夹具验证管理入口冻结与旧批准兼容、认知 worker 的项目内账本/检查点、修改/验证/源码操作产物，以及 Web/MCP 读取。没有真实模型调用、真实 Docker 验证或生产部署。
+
+M060 的独立评分记录存于 `state/evaluations.sqlite3` 和 `state/evaluation-checkpoints/`，只读原调查并冻结评分快照，单独批准调用，不修改原认知/知识或历史成绩。[评分功能](COGNITION_EVALUATION.md)

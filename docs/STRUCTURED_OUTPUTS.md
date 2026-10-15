@@ -15,6 +15,7 @@
 | 初步认知与计划 | ProjectPlanResponse | 主 Agent 规划 |
 | 自主调查 | ProjectResearchResponse | 工具动作与最终报告 |
 | 保留报告轮 | ProjectReportResponse | 末轮/上下文预警只允许交付报告 |
+| 独立认知评分 | CognitionEvaluationResponse | 参考属性覆盖与所有 observed 发现的独立审查 |
 | 原文核对 | ProjectReviewResponse | 独立属性、原句覆盖与冲突明细，程序计算整条接收 |
 
 [models.py](../zest/models.py) 是唯一真实模型适配入口：
@@ -77,3 +78,5 @@ M042 仅在完整结构通过后隔离单条业务校验失败，保留原报告
 M044 同步将 findings 描述与工作指令改为约六条的软建议，接收器取消条数硬门槛。Pydantic 列表类型、严格字段、逐条引用和完整响应字符/token 预算继续生效；POLICY 显式记录原 32000 字符响应保护，变化后的包须重新绑定批准。没有绕过 with_structured_output 或自动修补响应。
 
 M059 的核对输出使用 ClaimCheck / ReviewConflict，逐项属性检查、原句范围完整性和冲突保留见 [逐项核对](COGNITION_ATTRIBUTE_REVIEW.md)。supported 仅为内部派生字段；新 Schema 不沿用旧批准。
+
+M060 新增独立评分的 CognitionEvaluationResponse，具名 CoverageJudgment 与属性核对模型共同约束逐项输出；评分 Skill 全文、Schema、精确请求和样本门槛单独冻结批准，详见 [独立认知评分](COGNITION_EVALUATION.md)。
