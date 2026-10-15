@@ -11,6 +11,10 @@ from .structure import _declarations
 
 
 class PackageTools:
+    def limit(self, name, legacy):
+        # Old immutable packages retain their historical tool windows.
+        return self.envelope.get("policy", {}).get(name, legacy)
+
     def __init__(self, envelope):
         self.envelope = envelope
         self.files = {source["id"]: source for source in envelope["files"]}
@@ -21,9 +25,9 @@ class PackageTools:
                 end = min(start + 40, len(lines))
                 self.chunks.append({"source_id": source["id"], "start_line": start + 1, "end_line": end,
                                     "terms": terms("\n".join(lines[start:end]) + " " + source["evidence"]["path"])})
-                if len(self.chunks) >= 2000:
+                if len(self.chunks) >= self.limit("search_chunks", 2000):
                     break
-            if len(self.chunks) >= 2000:
+            if len(self.chunks) >= self.limit("search_chunks", 2000):
                 break
         frequency = Counter(term for chunk in self.chunks for term in chunk["terms"])
         self.idf = {term: math.log((len(self.chunks) + 1) / (count + 1)) + 1 for term, count in frequency.items()}
@@ -46,16 +50,16 @@ class PackageTools:
         source = self.source(source_id)
         if type(start_line) is not int or start_line < 1 or (end_line is not None and (type(end_line) is not int or end_line < start_line)):
             raise FileReadError("invalid_line_range", "原文行段无效。")
-        if end_line is not None and end_line - start_line >= 200:
-            raise FileReadError("line_limit", "单次原文最多 200 行。")
+        if end_line is not None and end_line - start_line >= self.limit("read_max_lines", 200):
+            raise FileReadError("line_limit", f"单次原文最多 {self.limit('read_max_lines', 200)} 行。")
         lines = self.lines(source)
         if start_line > max(1, len(lines)):
             raise FileReadError("invalid_line_range", "开始行超过文件范围。")
-        end = min(end_line or start_line + 79, len(lines))
+        end = min(end_line or start_line + self.limit("read_default_lines", 80) - 1, len(lines))
         selected, size = [], 0
         for number in range(start_line, end + 1):
             value = lines[number - 1].removesuffix("\r")
-            if size + len(value) + 1 > 1200:
+            if size + len(value) + 1 > self.limit("read_chars", 1200):
                 if not selected:
                     raise FileReadError("cognition_line_budget", "单行超过工具原文预算，保留缺口。")
                 break
@@ -72,9 +76,9 @@ class PackageTools:
             raise FileReadError("invalid_cognition_tool", "文件查询或偏移无效。")
         found = [source for source in self.files.values() if query.casefold() in source["evidence"]["path"].casefold()]
         matches = []
-        for source in found[offset:offset + 15]:
+        for source in found[offset:offset + self.limit("list_page_size", 15)]:
             item = {"id": source["id"], "path": source["evidence"]["path"], "roles": source["roles"]}
-            if len(canonical([*matches, item])) > 5000:
+            if len(canonical([*matches, item])) > self.limit("catalog_chars", 5000):
                 break
             matches.append(item)
         return {"matches": matches, "next_offset": offset + len(matches) if offset + len(matches) < len(found) else None,
@@ -91,14 +95,15 @@ class PackageTools:
         ranked.sort(key=lambda pair: (-pair[0], pair[1]["source_id"], pair[1]["start_line"]))
         return {"backend": "lexical_tfidf", "matches": [{"source_id": chunk["source_id"],
                  "path": self.files[chunk["source_id"]]["evidence"]["path"], "start_line": chunk["start_line"],
-                 "end_line": chunk["end_line"], "score": round(score, 6)} for score, chunk in ranked[:6]],
-                "chunk_count": len(self.chunks), "chunk_budget": 2000,
+                 "end_line": chunk["end_line"], "score": round(score, 6)} for score, chunk in ranked[:self.limit("search_results", 6)]],
+                "chunk_count": len(self.chunks), "chunk_budget": self.limit("search_chunks", 2000),
                 "limitation": "search_locations_require_read_for_citations"}
 
     def symbols(self, query):
         text(query, 200)
         found, skipped = [], 0
-        for source in list(self.files.values())[:100]:
+        sources = list(self.files.values())
+        for source in sources if "symbol_results" in self.envelope.get("policy", {}) else sources[:100]:
             if PurePosixPath(source["evidence"]["path"]).suffix != ".py":
                 continue
             try:
@@ -109,7 +114,8 @@ class PackageTools:
                                       "start_line": symbol["evidence"]["start_line"], "end_line": symbol["evidence"]["end_line"]})
             except FileReadError:
                 skipped += 1
-        return {"matches": found[:10], "truncated": len(found) > 10, "skipped": skipped,
+        maximum = self.limit("symbol_results", 10)
+        return {"matches": found[:maximum], "truncated": len(found) > maximum, "skipped": skipped,
                 "limitation": "python_declarations_not_runtime_behavior"}
 
 

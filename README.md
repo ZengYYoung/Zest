@@ -35,6 +35,8 @@ uv run zest cognition dossier <run-id> --format text
 
 最近真实复测停在规划来源清单的数量校验，尚未形成可评估档案；原生类型/格式通过不代表业务校验通过。[实测结果与下一讨论点](docs/COGNITION_ACCEPTANCE_RETEST.md)
 
+M040 已取消来源线索的额外 6/8 数量限制，扩大包内阅读、目录与报告容量，资料较多或摸底不完整时提示确认范围。保存的失败规划已通过本地回放；新的真实验收尚待重新批准。[当前容量与验证边界](docs/COGNITION_CAPACITY.md)
+
 ## 本地项目摸底
 
 ```bash

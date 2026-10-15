@@ -17,6 +17,9 @@ def format_cognition(record):
              f"阶段：{LABELS.get(record['status'], record['status'])}",
              f"模型请求：{record['call_count']} / {record['policy']['max_model_calls']} 次",
              f"批准资料：{record['file_count']} 个文件；包外资料需重新授权", ""]
+    scope = record.get("scope_review") or {}
+    if scope.get("requires_discussion"):
+        lines.append(f"范围待确认：已纳入 {scope['source_count']} 个文件，规划清单展示 {scope['catalog_count']} 个；" + display_text(scope["message"]))
     if record["plan"]:
         lines.extend(["初步认知：", *["  " + display_text(item["statement"]) for item in record["plan"]["overview"]], "调查任务："])
     for job in record["jobs"]:

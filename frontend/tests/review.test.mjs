@@ -9,6 +9,15 @@ import { CognitionDetail } from '../src/CognitionDetail.tsx'
 const render = (kind, value) => renderToStaticMarkup(createElement(RecordDetail, { kind, value, onClose() {} }))
 const sourceRecord = { id: 'E1', evidence: { path: 'app.py', commit: 'a'.repeat(40), start_line: 4, end_line: 5 }, content: 'def add(a,b):\n    return a-b\n', content_sha256: 'c'.repeat(64) }
 
+test('large or incomplete project scopes remain visible without Web approval controls', () => {
+  const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: {
+    scope_review: { requires_discussion: true, source_count: 200, catalog_count: 170,
+      message: '资料较多，请先确认按模块调查或只批准当前资料包。' },
+  } }))
+  for (const value of ['范围待确认', '200', '170', '按模块调查']) assert.ok(html.includes(value), value)
+  assert.ok(!html.includes('<button>批准'))
+})
+
 test('context extension is visibly unsent and keeps Web read only', () => {
   const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: {
     status: 'awaiting_context_approval', context_requests: [{ actor: 'T1', sequence: 2, status: 'awaiting_approval',

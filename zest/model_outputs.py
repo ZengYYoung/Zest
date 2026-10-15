@@ -9,6 +9,7 @@ from copy import deepcopy
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from .cognition_contracts import POLICY
 
 
 def _provider_literals(schema):
@@ -75,7 +76,7 @@ class PreliminaryFinding(OutputModel):
 
     statement: str = Field(description="根据摸底资料形成的中文初步认识，限定在当前固定版本，不等于已核对知识。")
     kind: FindingKind = Field(description="observed 表示提供资料直接可见；inferred 表示尚待任务调查确认的推测。")
-    source_ids: list[str] = Field(description="至少一个 material_catalog 中的来源 ID，作为初步认识的资料依据。")
+    source_ids: list[str] = Field(description="至少一个实际提供的 material_catalog 来源 ID，不能重复；按认识所需列出，不设额外数量上限。")
 
 
 class InvestigationTask(OutputModel):
@@ -85,7 +86,7 @@ class InvestigationTask(OutputModel):
     title: str = Field(description="简短中文任务标题，最多 160 字符。")
     goal: str = Field(description="具体调查目标，说明要查清的行为、职责或关系，不要求执行或修改项目。")
     reason: str = Field(description="为何该目标对项目认知重要，以及当前摸底资料的不足。")
-    source_ids: list[str] = Field(description="material_catalog 中的一至八个起始来源 ID；后续只能在批准包内自主查找。")
+    source_ids: list[str] = Field(description="实际提供的 material_catalog 中至少一个唯一的起始来源 ID，按任务需要选择、不设额外数量上限；后续只能在批准包内自主查找。")
     sections: list[Section] = Field(description="该任务覆盖的六部分档案 ID，至少一项；不能重复。")
     deliverable: str = Field(description="预期交付的具体调查结论及证据要求，区分事实、推测和未知。")
     acceptance: list[str] = Field(description="至少一条可审阅的完成标准，以字符串逐条说明。")
@@ -134,7 +135,7 @@ class ReadArgs(OutputModel):
 
     source_id: str = Field(description="批准包内实际存在的文件来源 ID，不接受包外文件或自行指定的路径。")
     start_line: int = Field(description="从 1 开始的原文起始行号；从文件头读取时填 1。")
-    end_line: int = Field(description="包含在内的结束行号，不得早于起始行；0 表示采用工具默认窗口，单次最多 200 行。")
+    end_line: int = Field(description=f"包含在内的结束行号，不得早于起始行；0 表示采用工具默认窗口，单次最多 {POLICY['read_max_lines']} 行及 {POLICY['read_chars']} 字符，不截半行。")
 
 
 class SymbolsArgs(OutputModel):
@@ -177,16 +178,16 @@ class ResearchFinding(OutputModel):
     section: Section = Field(description="该发现所属的六部分档案 ID。")
     kind: FindingKind = Field(description="observed 为原文直接支持的事实；inferred 为明确标注、仍待核实的推测。")
     statement: str = Field(description="中文发现，限定在固定版本的原文支持范围；静态配置不能描述为生产运行事实。")
-    citations: list[str] = Field(description="一至两个实际 read 返回且含非空原文的 R 证据编号；不能虚构或引用未读来源。")
+    citations: list[str] = Field(description="至少一个实际 read 返回且含非空原文的唯一 R 证据编号，按结论所需引用、不设额外数量上限；不能虚构、重复或引用未读来源。")
 
 
 class InvestigationReport(OutputModel):
     """Static findings and honest unresolved questions at task completion."""
 
     status: Literal["completed", "partial"] = Field(description="completed 表示目标已回答且无缺口；有未知、包外需求或未完成目标时为 partial。")
-    findings: list[ResearchFinding] = Field(description="最多三项已读取原文支持的发现；没有可支持的发现时为空并交代未知。")
-    unknowns: list[str] = Field(description="最多八项尚未回答的问题或预算造成的缺口；保持未知，不能用推测充当事实。")
-    scope_requests: list[str] = Field(description="最多四项需要包外资料的原因和范围；只提出需求，不读取或授权包外资料。")
+    findings: list[ResearchFinding] = Field(description=f"最多 {POLICY['report_findings']} 项已读取原文支持的发现；没有可支持的发现时为空并交代未知。")
+    unknowns: list[str] = Field(description=f"最多 {POLICY['report_unknowns']} 项尚未回答的问题或预算造成的缺口；保持未知，不能用推测充当事实。")
+    scope_requests: list[str] = Field(description=f"最多 {POLICY['report_scope_requests']} 项需要包外资料的原因和范围；只提出需求，不读取或授权包外资料。")
 
 
 class ContinueInvestigation(OutputModel):

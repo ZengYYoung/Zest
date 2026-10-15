@@ -14,6 +14,7 @@ export function CognitionDetail({ value, onClose }: { value: unknown; onClose():
       <div className="review-field"><span>后台进程</span><strong>{record.worker_active ? '正在执行' : '当前未执行'}</strong></div>
       <div className="review-field"><span>固定资料包</span><strong>{Number(record.file_count || 0)} 个文件</strong></div></div>
     <p className="review-note">自动核对表示模型检查了原文支持关系，仍可能出错。静态源码认知不代表实际运行验证；返回对话不会取消后台调查。</p>
+    {Boolean(object(record.scope_review).requires_discussion) && <p className="review-note">范围待确认：已纳入 {Number(object(record.scope_review).source_count)} 个文件，规划清单展示 {Number(object(record.scope_review).catalog_count)} 个。{text(object(record.scope_review).message)}</p>}
     {Boolean(record.error) && <div className="error">{text(object(record.error).message)}</div>}
     {record.status === 'pending_execution' && <p className="review-note">存在结果未知的请求，请核对调用记录；不会自动重复发送。</p>}
     {rows(record.context_requests).filter(item => item.status === 'awaiting_approval').map(item => <p className="review-note" key={`${text(item.actor)}-${Number(item.sequence)}`}>

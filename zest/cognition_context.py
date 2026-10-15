@@ -1,6 +1,34 @@
 """Lossless model views of durable original proofs; no source text truncation."""
 
-from .cognition_contracts import canonical
+from .cognition_contracts import POLICY, canonical
+
+
+def material_catalog(envelope):
+    """Show as many approved entries as the metadata budget fits, not 60 IDs."""
+    budget = envelope.get("policy", {}).get("catalog_chars", POLICY["catalog_chars"])
+    result = []
+    for source in envelope["files"]:
+        item = {"id": source["id"], "path": source["evidence"]["path"], "roles": source["roles"]}
+        if len(canonical([*result, item])) > budget:
+            break
+        result.append(item)
+    return result
+
+
+def scope_review(envelope):
+    count = len(envelope["files"])
+    shown = len(material_catalog(envelope))
+    complete = envelope.get("survey_coverage", {}).get("inventory_scan_finished")
+    reasons = []
+    if count >= envelope["policy"]["large_scope_files"]:
+        reasons.append("large_material_package")
+    if shown < count:
+        reasons.append("planning_catalog_partial")
+    if complete is False:
+        reasons.append("survey_incomplete")
+    return {"requires_discussion": bool(reasons), "source_count": count, "catalog_count": shown,
+            "survey_complete": complete, "reasons": reasons,
+            "message": "资料较多或本轮摸底/目录不完整，请先确认按模块调查，或只批准当前已展示的固定资料包。" if reasons else "当前资料范围可直接审阅。"}
 
 
 def compact_proof(proof):
@@ -19,7 +47,7 @@ def compact_results(results):
             result = {**result, "result": {**result["result"], "data": compact_proof(result["result"]["data"])}}
         output.append(result)
     # Locations are hints, not evidence. Keep every original-text proof visible.
-    while len(canonical(output)) > 18000:
+    while len(canonical(output)) > POLICY["evidence_warning_chars"]:
         index = next((i for i, result in enumerate(output) if result["tool"] != "read"), None)
         if index is None:
             break

@@ -15,7 +15,7 @@ from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, k
                                   text, validate_plan, validate_report)
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
-from .cognition_context import compact_proof, compact_results, review_payload
+from .cognition_context import compact_proof, compact_results, review_payload, material_catalog
 from .files import FileReadError
 from .models import DeepSeekModel, ModelSettings, model_target, output_contract, safe_model_receipt, prepare_model_request
 
@@ -86,7 +86,8 @@ class CognitionEngine:
                 return json.loads(old["response"])
         request = prepare_model_request(settings, payload, purpose=purpose)
         body = json.loads(request["body_text"])
-        if body.get("model") != envelope["target"]["model"] or body.get("max_tokens") != envelope["policy"]["max_response_tokens"]:
+        response_tokens = envelope["policy"]["max_report_tokens"] if purpose == "project_report" else envelope["policy"]["max_response_tokens"]
+        if body.get("model") != envelope["target"]["model"] or body.get("max_tokens") != response_tokens:
             raise FileReadError("cognition_contract_changed", "实际请求的模型或响应预算与固定批准不同，未外发。")
         if request["chars"] > envelope["policy"]["max_extended_prompt_chars"]:
             raise FileReadError("cognition_prompt_budget", "完整请求超过 48000 字符，须调整上下文或拆分调查；未外发。")
@@ -187,35 +188,31 @@ class CognitionEngine:
 
     @staticmethod
     def catalog(envelope):
-        result = []
-        for source in envelope["files"]:
-            item = {"id": source["id"], "path": source["evidence"]["path"], "roles": source["roles"]}
-            if len(canonical([*result, item])) > 5000 or len(result) >= 60:
-                break
-            result.append(item)
-        return result
+        return material_catalog(envelope)
 
     def plan(self, run_id, envelope, tools):
         current = self.store.show(run_id)
         if current["plan"]:
             return current["plan"]
-        docs = []
+        docs, document_count = [], 0
         for source in envelope["files"]:
             if set(source["roles"]) & {"document", "manifest"}:
+                document_count += 1
                 try:
                     candidate = tools.read(source["id"])
                 except FileReadError:
                     continue
-                if len(canonical([*docs, compact_proof(candidate)])) > 14000:
-                    break
+                if len(canonical([*docs, compact_proof(candidate)])) > envelope["policy"]["starting_document_chars"]:
+                    continue
                 docs.append(compact_proof(candidate))
-                if len(docs) >= 8:
-                    break
-        payload = {"commit": envelope["commit"], "material_catalog": self.catalog(envelope),
+        catalog = self.catalog(envelope)
+        payload = {"commit": envelope["commit"], "material_catalog": catalog,
                    "material_count": len(envelope["files"]), "starting_documents": docs,
+                   "catalog_coverage": {"shown": len(catalog), "total_in_scope": len(envelope["files"]), "truncated": len(catalog) < len(envelope["files"])},
+                   "starting_documents_coverage": {"included": len(docs), "candidates": document_count},
                    "shared_knowledge": self.knowledge_hints(envelope),
                    "gaps": envelope["survey_gaps"], "policy": envelope["policy"]}
-        result = validate_plan(self.call(run_id, "coordinator", 0, "project_plan", payload, envelope), set(tools.files))
+        result = validate_plan(self.call(run_id, "coordinator", 0, "project_plan", payload, envelope), {source["id"] for source in catalog})
         self.store.save_plan(run_id, result)
         self.store.event(run_id, "coordinator", "plan_ready", {"tasks": len(result["tasks"])})
         return result
@@ -291,7 +288,7 @@ class CognitionEngine:
                     evidence[ref] = data
                     value = {**value, "citation_id": ref}
                 results.append(value)
-            report_required = len(canonical(compact_results(results))) > 18000
+            report_required = len(canonical(compact_results(results))) > envelope["policy"]["evidence_warning_chars"]
             self.store.event(run_id, actor, "tools_finished", {"actions": len(actions), "read_proofs": len(evidence)})
             if report_required:
                 self.store.event(run_id, actor, "report_required", {"reason": "evidence_context_warning"})
@@ -351,13 +348,24 @@ class CognitionEngine:
     def review(self, run_id, envelope):
         self.store.set_status(run_id, "reviewing")
         pending = [f for f in self.store.show(run_id)["findings"] if f["status"] == "pending_review"]
-        for offset in range(0, len(pending), 4):
+        offset = 0
+        while offset < len(pending):
             batch = pending[offset:offset + 4]
-            other = [{"finding_id": item["id"], "statement": item["finding"]["statement"], "kind": item["finding"]["kind"]}
-                     for item in self.store.show(run_id)["findings"] if item["id"] not in {finding["id"] for finding in batch}]
-            payload = review_payload(envelope["commit"], batch, other)
-            actor = "review_" + digest([item["id"] for item in batch])[:12]
-            response = self.call(run_id, actor, 0, "project_review", payload, envelope)
+            while True:
+                other = [{"finding_id": item["id"], "statement": item["finding"]["statement"], "kind": item["finding"]["kind"]}
+                         for item in self.store.show(run_id)["findings"] if item["id"] not in {finding["id"] for finding in batch}]
+                payload = review_payload(envelope["commit"], batch, other)
+                actor = "review_" + digest([item["id"] for item in batch])[:12]
+                try:
+                    response = self.call(run_id, actor, 0, "project_review", payload, envelope)
+                    break
+                except FileReadError as exc:
+                    if exc.code != "cognition_prompt_budget" or len(batch) == 1:
+                        raise
+                    # Repartition only unsent overlarge candidates; never retry a
+                    # received, unknown or approval-pending request.
+                    batch = batch[:max(1, len(batch) // 2)]
+                    self.store.event(run_id, "coordinator", "review_batch_reorganized", {"count": len(batch)})
             keys(response, ("judgments",))
             judgments = items(response["judgments"], len(batch), minimum=len(batch))
             expected = {item["id"] for item in batch}
@@ -369,6 +377,7 @@ class CognitionEngine:
                 text(judgment["reason"])
             self.store.save_review(run_id, judgments)
             self.store.event(run_id, "coordinator", "findings_reviewed", {"count": len(batch)})
+            offset += len(batch)
 
     def followups(self, run_id):
         record = self.store.show(run_id)

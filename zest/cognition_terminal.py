@@ -38,9 +38,13 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
             with Vertical(id="scope-box"):
                 yield Label("完整调查授权包 · 固定版本 / 接口 / 预算")
                 yield Static("包含所有允许读取的文件全文、共享认知和工作指令。仅授权模型调查；包外材料需重新批准。", markup=False)
+                scope = self.record["envelope"].get("scope_review") or {}
+                if scope.get("requires_discussion"):
+                    yield Static(display_text(f"范围待确认：已纳入 {scope['source_count']} 个文件，规划清单展示 {scope['catalog_count']} 个。{scope['message']}"), markup=False, id="scope-size-notice")
                 yield TextArea(display_text(json.dumps({"approval_sha256": self.record["approval_sha256"],
                     "envelope": self.record["envelope"]}, ensure_ascii=False, indent=2)), read_only=True, id="scope-json")
-                yield Checkbox("我已审阅，允许在此资料包、目标和预算内后台调查", id="scope-consent")
+                consent = "我已确认本轮范围，只批准当前固定资料包的后台调查" if scope.get("requires_discussion") else "我已审阅，允许在此资料包、目标和预算内后台调查"
+                yield Checkbox(consent, id="scope-consent")
                 with Horizontal(id="scope-actions"):
                     yield Button("返回", id="scope-close")
                     yield Button("拒绝调查", id="scope-reject")

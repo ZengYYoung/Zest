@@ -64,6 +64,8 @@ def prepare_envelope(project, survey, target):
                 "structured_outputs": {purpose: output_contract(purpose) for purpose in COGNITION_PROMPTS},
                 "survey_gaps": survey["gaps"], "survey_coverage": survey["coverage"],
                 "authorization": "model_requests_over_this_fixed_material_package_only"}
+    from .cognition_context import scope_review
+    envelope["scope_review"] = scope_review(envelope)
     if len(canonical(envelope).encode()) > MAX_ENVELOPE_BYTES:
         raise FileReadError("cognition_scope_budget", "完整可审阅资料包超过保存预算。")
     return envelope
@@ -174,6 +176,7 @@ class CognitionStore:
             result.update(commit=row["commit_id"], approval_sha256=row["envelope_sha256"], target=envelope["target"], policy=envelope["policy"],
                           file_count=len(envelope["files"]), plan=json.loads(row["plan"]) if row["plan"] else None,
                           error=json.loads(row["error"]) if row["error"] else None)
+            result["scope_review"] = envelope.get("scope_review")
             result["jobs"] = [{"id": j["id"], "spec": json.loads(j["spec"]), "status": j["status"],
                                "result": json.loads(j["result"]) if j["result"] else None}
                               for j in conn.execute("SELECT * FROM cognition_jobs WHERE run_id=? ORDER BY id", (run_id,))]

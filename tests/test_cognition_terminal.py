@@ -87,6 +87,26 @@ class CognitionTerminalTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.store.context_requests(record["id"])[0]["status"], "approved")
                 self.assertEqual(self.model.calls, [])
 
+    async def test_large_scope_preview_requires_conscious_scope_confirmation(self):
+        from textual.widgets import Button, Checkbox, Static
+        from zest.cognition_contracts import POLICY
+        with patch.dict(POLICY, {"large_scope_files": 2}):
+            app = create_workspace(self.state_dir, cognition_store=self.store, cognition_launch=self.launch)
+            async with app.run_test(size=(100, 32)) as pilot:
+                await pilot.click("#cognition")
+                await pilot.click("#cognition-create")
+                await self.wait_for(pilot, lambda: getattr(app.screen, "record", None) is not None)
+                record = app.screen.record
+                self.assertTrue(record["scope_review"]["requires_discussion"])
+                await pilot.click("#cognition-preview")
+                await self.wait_for(pilot, lambda: app.screen.__class__.__name__ == "ScopePreview")
+                self.assertIn("范围待确认", str(app.screen.query_one("#scope-size-notice", Static).render()))
+                self.assertIn("本轮范围", str(app.screen.query_one("#scope-consent", Checkbox).label))
+                self.assertTrue(app.screen.query_one("#scope-approve", Button).disabled)
+                await pilot.press("escape")
+                self.assertEqual(self.store.show(record["id"])["status"], "awaiting_approval")
+                self.assertEqual(self.model.calls, [])
+
     async def test_preview_consent_background_progress_and_return_to_main_conversation(self):
         from textual.widgets import Button, TextArea, Input
         app = create_workspace(self.state_dir, cognition_store=self.store, cognition_launch=self.launch)
