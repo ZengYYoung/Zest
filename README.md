@@ -29,6 +29,8 @@ uv run --extra ai --extra mcp --extra tui zest ui
 
 ## 自主项目认知
 
+最新阶段实测：[M058 报告](docs/PHASE_REPORT_M058.md)。同一公开样本的一轮冷启动实测用完 32 次物理请求，产生 41 条自动核对记录；严格事实覆盖 8/10、核心 3/3、流程 3/6，且存在语义误收，**整体仍未通过**。项目内资源与 CLI/MCP 管理总览已用真实结果核验，不能据此声称完整理解或稳定维护能力。
+
 ```bash
 uv run zest cognition create <project-id>
 uv run zest cognition preview <run-id>
