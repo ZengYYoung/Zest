@@ -80,6 +80,17 @@ def compact_results(results):
     return output
 
 
+def investigation_view(results):
+    """Separate saved metadata from text/tool evidence without dropping either."""
+    tools, metadata = [], []
+    for item in compact_results(results):
+        if item["tool"] == "read" and item["result"].get("ok") and not item["result"]["data"].get("text"):
+            metadata.append(item["result"]["data"])
+        else:
+            tools.append(item)
+    return {"tool_results": tools, "metadata_observations": metadata}
+
+
 def review_payload(commit, batch, other):
     proofs, identities, findings = {}, {}, []
     for item in batch:

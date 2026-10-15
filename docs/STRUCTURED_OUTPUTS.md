@@ -34,6 +34,8 @@ model.with_structured_output(
 
 M046 将报告资料需求统一为 `MaterialRequest`，显式返回 source_id、path、reason；列表字段为 material_requests，取代旧自由文本 scope_requests。包外 source_id 用空字符串表达，所有字段继续必填且有描述。程序依据固定目录分类/留痕，派生 in_scope_requests/scope_requests；这些派生记录不是新的模型输出。旧响应/历史只读保留，新 schema/指令阻止旧批准执行，详见 [资料需求分类](COGNITION_MATERIAL_REQUESTS.md)。
 
+M048 保持输出字段形状，强化 ResearchFinding/InvestigationReport 的具名类型说明：元数据由输入 metadata_observations 传递并由程序留存，不在 findings 重复输出；observed/inferred 均须实际非空 R 引用，不允许空数组或凑数量。Pydantic 和 with_structured_output 继续统一，后置逐条接收边界不放宽；描述/schema 哈希及指令变化阻止旧批准执行，详见 [元数据边界](COGNITION_REPORT_RECEIPT.md)。
+
 ## 实际目标与批准
 
 DeepSeek 的原生 strict 工具调用使用官方 `/beta` 接口。配置根地址 `https://api.deepseek.com` 时，在准备预览前就解析为 `https://api.deepseek.com/beta`；doctor 显示配置地址及实际目标。自定义地址保持原值，其 strict 兼容性需另行确认。[供应商 strict 契约](https://api-docs.deepseek.com/guides/tool_calls/)

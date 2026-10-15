@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from tests import test_cognition as fixtures
 from tests.test_cognition_capacity import materials
-from zest.cognition_context import compact_results
+from zest.cognition_context import compact_results, investigation_view
 from zest.cognition_contracts import partition_report, validate_report
 from zest.cognition_tools import PackageTools
 from zest.cognition_views import format_cognition, format_dossier
@@ -23,6 +23,27 @@ def report(citations):
 
 
 class ReportReceiptTest(unittest.TestCase):
+    def test_model_view_separates_metadata_without_losing_original_windows_or_text(self):
+        zero = PackageTools(materials(1, "")).read("S1")
+        window = PackageTools(materials(1, "\npass\n")).read("S1", 1, 1)
+        body = PackageTools(materials(1, "return a+b\n")).read("S1")
+        raw = [{"tool": "read", "result": {"ok": True, "data": value}} for value in (zero, window, zero)]
+        raw.extend([{"tool": "read", "citation_id": "R1", "result": {"ok": True, "data": body}},
+                    {"tool": "read", "result": {"ok": False, "code": "outside_scope"}}])
+        frozen = copy.deepcopy(raw); view = investigation_view(raw)
+        self.assertEqual(raw, frozen)
+        self.assertEqual(len(raw), 5)
+        metadata = view["metadata_observations"]
+        self.assertEqual([item["observation"]["kind"] for item in metadata], ["empty_file", "empty_text_window"])
+        self.assertEqual(metadata[1]["evidence"]["start_line"], 1)
+        self.assertEqual(metadata[1]["evidence"]["end_line"], 1)
+        self.assertTrue(metadata[1]["more_after"])
+        self.assertTrue(all(not item["text"] and "citation_id" not in item for item in metadata))
+        self.assertEqual(view["tool_results"][0]["citation_id"], "R1")
+        self.assertEqual(view["tool_results"][0]["result"]["data"]["text"], body["text"])
+        self.assertEqual(view["tool_results"][0]["result"]["data"]["evidence"], body["evidence"])
+        self.assertFalse(view["tool_results"][1]["result"]["ok"])
+
     def test_zero_byte_file_is_metadata_with_no_text_evidence(self):
         value = PackageTools(materials(1, "")).read("S1")
         self.assertEqual(value["observation"], {"kind": "empty_file", "file_size_bytes": 0, "can_cite_as_text": False})
@@ -165,6 +186,50 @@ class ReportReceiptEngineTest(unittest.TestCase):
         self.assertEqual(job["status"], "partial")
         self.assertEqual(job["result"]["report_validation"]["accepted_indices"], [1])
         self.assertEqual(job["result"]["report_validation"]["rejected_findings"][0]["index"], 0)
+
+    def test_metadata_stays_separate_through_reserved_report_and_is_never_published_as_text(self):
+        self.setup_model(); (self.repo / "window.py").write_text("\npass\n"); self.commit()
+        self.project = ProjectRegistry(self.state_dir).register(inspect_repository(self.repo))
+        complete = self.model.complete
+        def respond(payload, *, purpose="qa"):
+            if purpose not in ("project_research", "project_report"):
+                return complete(payload, purpose=purpose)
+            with self.model.lock: self.model.calls.append((purpose, copy.deepcopy(payload)))
+            sources = {item["path"]: item["id"] for item in payload["material_catalog"]}
+            turn = 4 - payload["remaining_turns"]
+            if turn == 0:
+                actions = [{"tool": "read", "args": {"source_id": sources["empty.py"]}},
+                           {"tool": "read", "args": {"source_id": sources["window.py"], "start_line": 1, "end_line": 1}}]
+            elif turn == 1:
+                self.assertEqual(payload["tool_results"], [])
+                self.assertEqual(len(payload["metadata_observations"]), 2)
+                actions = [{"tool": "read", "args": {"source_id": sources["app.py"]}}]
+            elif turn == 2:
+                actions = [{"tool": "read", "args": {"source_id": sources["empty.py"]}}]
+            else:
+                self.assertEqual(purpose, "project_report")
+                self.assertEqual(len(payload["metadata_observations"]), 2)
+                self.assertTrue(payload["metadata_observations"][1]["more_after"])
+                self.assertEqual(set(payload["read_source_ids"]), {sources[name] for name in ("empty.py", "window.py", "app.py")})
+                self.assertEqual([item["citation_id"] for item in payload["tool_results"]], ["R1"])
+                native = report([[], ["R1"]])
+                native["findings"][0].update(section="constraints", statement="空初始化文件没有正文。")
+                return {"text": json.dumps({"actions": [], "report": native}, ensure_ascii=False)}
+            return {"text": json.dumps({"actions": actions, "report": None})}
+        self.model.complete = respond
+        record = self.approved(); result = self.engine.run(record["id"])
+        self.assertEqual(len(self.model.calls), 10)
+        self.assertEqual({f["id"] for f in result["findings"]}, {"T1:F2", "T2:F2"})
+        for job in result["jobs"]:
+            saved = job["result"]
+            self.assertEqual(list(saved["evidence"]), ["R1"])
+            self.assertEqual(len(saved["tool_results"]), 4)  # duplicate read remains in history
+            self.assertEqual(saved["report_validation"]["rejected_findings"][0]["index"], 0)
+            self.assertEqual(saved["report_validation"]["accepted_indices"], [1])
+        for purpose, payload in self.model.calls:
+            if purpose == "project_review":
+                self.assertTrue(all(f["finding_id"].endswith(":F2") for f in payload["findings"]))
+                self.assertEqual({proof["evidence"]["path"] for proof in payload["evidence"].values()}, {"app.py"})
 
     def test_over_six_candidates_reach_review_with_local_error_isolated(self):
         self.setup_model(); record = self.approved(); complete = self.model.complete

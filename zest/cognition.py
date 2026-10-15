@@ -15,7 +15,7 @@ from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, k
                                   text, validate_plan, partition_report)
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
-from .cognition_context import compact_proof, compact_results, review_payload, material_catalog, approved_materials, read_source_ids
+from .cognition_context import compact_proof, investigation_view, review_payload, material_catalog, approved_materials, read_source_ids
 from .files import FileReadError
 from .models import DeepSeekModel, ModelSettings, model_target, output_contract, safe_model_receipt, prepare_model_request
 
@@ -239,7 +239,7 @@ class CognitionEngine:
                        "dependency_reports": [{"task_id": job["id"], "report": job["result"]["report"]}
                                               for job in self.store.show(run_id)["jobs"]
                                               if job["id"] in spec["depends_on"] and job["status"] == "completed" and job["result"]],
-                       "tool_results": compact_results(state["tool_results"]), "remaining_turns": envelope["policy"]["max_turns_per_task"] - state["turns"],
+                       **investigation_view(state["tool_results"]), "remaining_turns": envelope["policy"]["max_turns_per_task"] - state["turns"],
                        "remaining_tool_actions": envelope["policy"]["max_tool_actions_per_task"] - state["actions_used"]}
             closing = (payload["remaining_turns"] == 1 or state.get("report_required", False)
                        or payload["remaining_tool_actions"] == 0)
@@ -290,7 +290,7 @@ class CognitionEngine:
                         evidence[ref] = data
                         value = {**value, "citation_id": ref}
                 results.append(value)
-            report_required = len(canonical(compact_results(results))) > envelope["policy"]["evidence_warning_chars"]
+            report_required = len(canonical(investigation_view(results))) > envelope["policy"]["evidence_warning_chars"]
             self.store.event(run_id, actor, "tools_finished", {"actions": len(actions), "read_proofs": len(evidence)})
             if report_required:
                 self.store.event(run_id, actor, "report_required", {"reason": "evidence_context_warning"})
