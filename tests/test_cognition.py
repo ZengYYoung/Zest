@@ -21,6 +21,15 @@ from zest.models import ModelSettings
 from zest.storage import ProjectRegistry
 
 
+def review_judgment(finding, *, supported=True):
+    return {"finding_id": finding["finding_id"], "coverage_complete": True, "conflicts": [],
+            "reason": "离线核对夹具，不代表模型语义质量。", "checks": [
+                {"start": 0, "end": len(finding["statement"]), "subject": "add", "attribute": "返回值",
+                 "condition": "无附加条件", "assertion": finding["statement"],
+                 "evidence_ids": finding["evidence_ids"],
+                 "verdict": "supported" if supported else "insufficient_evidence", "reason": "原文包含返回表达式。"}]}
+
+
 class OfflineCognitionModel:
     """Explicit fixture; outputs are not model accuracy measurements."""
     def __init__(self, *, block=False, reject=False):
@@ -68,8 +77,7 @@ class OfflineCognitionModel:
                     {"section": section, "kind": "observed", "statement": "观察版本中的 add 函数返回 a + b。", "citations": [ref]}
                     for section in payload["task"]["sections"]], "unknowns": [], "material_requests": []}}
         elif purpose == "project_review":
-            value = {"judgments": [{"finding_id": finding["finding_id"], "supported": not self.reject,
-                                     "reason": "原文包含加法返回表达式。" if not self.reject else "需要补充核对。"} for finding in payload["findings"]]}
+            value = {"judgments": [review_judgment(finding, supported=not self.reject) for finding in payload["findings"]]}
         else:
             value = {"status": "answered", "answer": "示例加法。[E1]", "citations": ["E1"], "unknowns": []}
         return {"text": json.dumps(value, ensure_ascii=False), "reported_model": "offline-fixture"}

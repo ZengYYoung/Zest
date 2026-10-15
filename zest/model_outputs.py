@@ -226,11 +226,34 @@ class ProjectReportResponse(OutputModel):
     response: FinishInvestigation = Field(description="本次只提交 kind=report 的最终报告；依据已读原文保留发现与未知，不再请求工具。")
 
 
+class ClaimCheck(OutputModel):
+    """One independently checked assertion within an unchanged finding."""
+
+    start: int = Field(description="原 statement 的 Unicode 字符起始偏移，含起点；与 end 定位被核对的原句，不改写原结论。")
+    end: int = Field(description="原 statement 的 Unicode 字符结束偏移，不含终点。逐项按原顺序覆盖整段，包括连接词和标点，不遗漏限定词。")
+    subject: str = Field(description="该独立命题的具体对象，如函数、配置项或业务步骤。")
+    attribute: str = Field(description="单独核对的属性，如生命周期、错误分支、返回值；不能把多个独立属性打包。")
+    condition: str = Field(description="原断言的触发条件或适用范围；原句无条件写明无条件，不得偷偷补入正确条件来替原断言解围。")
+    assertion: str = Field(description="原句对该属性的断言，忠实保留否定、数量和条件；不是修正后的正确答案。")
+    evidence_ids: list[str] = Field(description="仅可引用该 finding.evidence_ids 中的 P 原文身份；支持判定至少一项，其他发现和 unknowns 不是原文证据。")
+    verdict: Literal["supported", "contradicted", "insufficient_evidence"] = Field(description="supported 为关联原文完整支持；contradicted 为存在相反证据；insufficient_evidence 包括语义依赖、边界或条件没有依据，不能仅因配置值吻合而支持行为解释。")
+    reason: str = Field(description="该属性的支持点或具体错误/缺口；区分源码明示与外部框架默认语义，不假称外部知识是包内原文。")
+
+
+class ReviewConflict(OutputModel):
+    """Unresolved conflict with another finding or a located report unknown."""
+
+    reference_id: str = Field(description="冲突的另一 finding_id 或 report_unknowns 的 reference_id；不能引用自己或编造身份。")
+    reason: str = Field(description="说明同一对象、属性及条件下为何相互不兼容；其他任务缺少阅读本身不是冲突，也不将未知当事实。")
+
+
 class FindingJudgment(OutputModel):
-    """Original-text support judgment for one specific investigated finding."""
+    """Attribute checks and conflicts; whole-finding acceptance is computed locally."""
 
     finding_id: str = Field(description="本批待核对发现的原始 finding_id；每个身份必须恰好输出一次。")
-    supported: bool = Field(description="仅 observed 且原文直接支持、无明显矛盾或运行事实越界时为 true；推测和缺少依据为 false。")
+    checks: list[ClaimCheck] = Field(description="逐个独立命题核对全部原文，包括括号内解释、条件、否定和数量；每项用原始字符范围定位，不能只核对大致正确的主干。")
+    coverage_complete: bool = Field(description="是否已逐项覆盖全部独立属性；不能确认拆分完整时为 false，程序的字符覆盖检查不能证明语义拆分完整。")
+    conflicts: list[ReviewConflict] = Field(description="与本批、other_findings 或 report_unknowns 中明确陈述的未解决矛盾；无矛盾为空。线索不作为支持证据，冲突双方及来源须保留。")
     reason: str = Field(description="中文核对理由，说明原文支持点或具体不足，不根据多个 Agent 一致就认定正确。")
 
 

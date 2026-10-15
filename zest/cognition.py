@@ -15,7 +15,7 @@ from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, k
                                   text, validate_plan, partition_report)
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
-from .cognition_context import compact_proof, investigation_view, review_payload, material_catalog, approved_materials, read_source_ids
+from .cognition_context import compact_proof, investigation_view, review_payload, review_unknowns, material_catalog, approved_materials, read_source_ids
 from .files import FileReadError
 from .models import DeepSeekModel, ModelSettings, model_target, output_contract, safe_model_receipt, prepare_model_request
 
@@ -423,9 +423,10 @@ class CognitionEngine:
         while offset < len(pending):
             batch = pending[offset:offset + 4]
             while True:
+                record = self.store.show(run_id)
                 other = [{"finding_id": item["id"], "statement": item["finding"]["statement"], "kind": item["finding"]["kind"]}
-                         for item in self.store.show(run_id)["findings"] if item["id"] not in {finding["id"] for finding in batch}]
-                payload = review_payload(envelope["commit"], batch, other)
+                         for item in record["findings"] if item["id"] not in {finding["id"] for finding in batch}]
+                payload = review_payload(envelope["commit"], batch, other, review_unknowns(record["jobs"]))
                 actor = "review_" + digest([item["id"] for item in batch])[:12]
                 try:
                     response = self.call(run_id, actor, 0, "project_review", payload, envelope)
@@ -438,14 +439,8 @@ class CognitionEngine:
                     batch = batch[:max(1, len(batch) // 2)]
                     self.store.event(run_id, "coordinator", "review_batch_reorganized", {"count": len(batch)})
             keys(response, ("judgments",))
-            judgments = items(response["judgments"], len(batch), minimum=len(batch))
-            expected = {item["id"] for item in batch}
-            for judgment in judgments:
-                keys(judgment, ("finding_id", "supported", "reason"))
-                if not isinstance(judgment["finding_id"], str) or judgment["finding_id"] not in expected or type(judgment["supported"]) is not bool:
-                    raise FileReadError("invalid_cognition_output", "知识核对身份或结论无效。")
-                expected.remove(judgment["finding_id"])
-                text(judgment["reason"])
+            from .cognition_review import validate_judgments
+            judgments = validate_judgments(response["judgments"], payload)
             self.store.save_review(run_id, judgments)
             self.store.event(run_id, "coordinator", "findings_reviewed", {"count": len(batch)})
             offset += len(batch)

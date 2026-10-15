@@ -426,15 +426,34 @@ class CognitionStore:
                              (run_id, finding_id, job_id, canonical(value), "pending_review", None))
 
     def save_review(self, run_id, judgments):
+        from .cognition_review import accepts
         with self.open(write=True) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
             for judgment in judgments:
-                row = conn.execute("SELECT finding FROM cognition_findings WHERE run_id=? AND id=?", (run_id, judgment["finding_id"])).fetchone()
+                row = conn.execute("SELECT finding,review FROM cognition_findings WHERE run_id=? AND id=?", (run_id, judgment["finding_id"])).fetchone()
                 if row is None:
                     raise FileReadError("invalid_cognition_reference", "核对引用未知发现。")
                 finding = json.loads(row[0])
-                supported = judgment["supported"] and finding["kind"] == "observed"
+                old = json.loads(row["review"]) if row["review"] else {}
+                judgment = {**judgment, "conflict_links": old.get("conflict_links", [])}
+                supported = accepts(judgment, finding)
+                judgment["supported"] = supported
                 conn.execute("UPDATE cognition_findings SET status=?,review=? WHERE run_id=? AND id=? AND status!='invalidated'",
                              ("auto_reviewed" if supported else "needs_investigation", canonical(judgment), run_id, judgment["finding_id"]))
+            # A conflict discovered in a later batch also blocks the other side,
+            # including an already accepted finding; invalidation is never undone.
+            for judgment in judgments:
+                for conflict in judgment["conflicts"]:
+                    ref = conflict["reference_id"]
+                    row = conn.execute("SELECT review FROM cognition_findings WHERE run_id=? AND id=?", (run_id, ref)).fetchone()
+                    if row is None:  # A located unknown remains a hint in jobs.
+                        continue
+                    review = json.loads(row["review"]) if row["review"] else {"reason": "存在未解决的关联冲突，等待核对。"}
+                    links = {item["reference_id"]: item for item in review.get("conflict_links", [])}
+                    links[judgment["finding_id"]] = {"reference_id": judgment["finding_id"], "reason": conflict["reason"]}
+                    review.update(supported=False, conflict_links=list(links.values()))
+                    conn.execute("UPDATE cognition_findings SET status='needs_investigation',review=? WHERE run_id=? AND id=? AND status!='invalidated'",
+                                 (canonical(review), run_id, ref))
 
     def invalidate(self, run_id, finding_id, reason):
         text(reason)

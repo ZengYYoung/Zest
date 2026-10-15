@@ -98,7 +98,7 @@ def investigation_view(results):
     return {"tool_results": tools, "metadata_observations": metadata}
 
 
-def review_payload(commit, batch, other):
+def review_payload(commit, batch, other, unknowns=()):
     proofs, identities, findings = {}, {}, []
     for item in batch:
         refs = []
@@ -112,4 +112,12 @@ def review_payload(commit, batch, other):
         findings.append({"finding_id": item["id"],
                          **{key: value for key, value in item["finding"].items() if key != "evidence"},
                          "evidence_ids": refs})
-    return {"commit": commit, "findings": findings, "evidence": proofs, "other_findings": other}
+    return {"commit": commit, "findings": findings, "evidence": proofs, "other_findings": other,
+            "report_unknowns": list(unknowns)}
+
+
+def review_unknowns(jobs):
+    """Located hints, never additional original evidence or resolved facts."""
+    return [{"reference_id": f"{job['id']}:U{index + 1}", "statement": value}
+            for job in jobs if job.get("result")
+            for index, value in enumerate(job["result"]["report"]["unknowns"])]

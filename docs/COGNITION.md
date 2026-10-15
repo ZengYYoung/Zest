@@ -53,6 +53,8 @@ zest cognition list <project-id>
 
 词法 RAG 按 40 行、30 行步长分块，TF-IDF 余弦排序；检索只返回位置，必须实际 read 才能引用 R 编号原文。它不是语义向量检索。符号工具提供 Python AST 声明位置，不执行源码。
 
+M059 按独立属性检查原断言、条件与来源，任务未知项进入冲突检查；部分支持不整条接收，跨批冲突保留双方，见 [逐项核对](COGNITION_ATTRIBUTE_REVIEW.md)。
+
 报告保留 observed/inferred、原文和未知项。核对 Agent 检查证据支持，参考其他发现核对明显矛盾；仅 observed 且受支持的记录可 auto_reviewed。Agent 一致不能证明事实。被否定的观察最多追加两个补查任务，推测保持待核实，不无限循环。
 
 M042 起空读取保留元数据观察但不分配 R 正文编号。报告通过完整结构校验后逐条接收：无效候选连同原报告/原因独立留痕，其他候选保持原编号继续语义核对；有拒收即 partial。CLI、终端、档案及只读 Web 显示拒收原因，详见 [报告接收与空文件观察](COGNITION_REPORT_RECEIPT.md)。

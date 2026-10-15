@@ -35,7 +35,7 @@ class ModelOutputContractTest(unittest.TestCase):
                 "status": "partial", "findings": [], "unknowns": ["尚缺证据。"], "material_requests": [
                     {"source_id": "S1", "path": "app.py", "reason": "需要续读。"},
                     {"source_id": "", "path": "operations/run.log", "reason": "需要运行证据。"}]}}},
-            "project_review": {"judgments": [{"finding_id": "T1-F1", "supported": True, "reason": "原文直接支持。"}]},
+            "project_review": {"judgments": [{"finding_id": "T1-F1", "coverage_complete": True, "conflicts": [], "reason": "原文直接支持。", "checks": [{"start": 0, "end": 1, "subject": "入口", "attribute": "调用", "condition": "无附加条件", "assertion": "入口调用", "evidence_ids": ["P1"], "verdict": "supported", "reason": "原文直接支持。"}]}]},
         }
 
     def test_all_model_purposes_preserve_protocol_shape(self):
@@ -102,7 +102,7 @@ class ModelOutputContractTest(unittest.TestCase):
             with self.subTest(action=action), self.assertRaises(ValidationError):
                 ProjectResearchResponse.model_validate_json(json.dumps(wire))
         review = self.wire_examples()["project_review"]
-        review["judgments"][0]["supported"] = "true"
+        review["judgments"][0]["coverage_complete"] = "true"
         with self.assertRaises(ValidationError):
             model_for("project_review").model_validate_json(json.dumps(review))
         task = self.wire_examples()["project_plan"]["tasks"][0]
@@ -141,8 +141,8 @@ class ModelOutputContractTest(unittest.TestCase):
 
     def test_schema_copies_cannot_mutate_future_approval_contracts(self):
         schema = get_output_schema("project_review")
-        schema["properties"]["judgments"]["items"]["properties"]["supported"]["type"] = "string"
-        self.assertEqual(get_output_schema("project_review")["properties"]["judgments"]["items"]["properties"]["supported"]["type"], "boolean")
+        schema["properties"]["judgments"]["items"]["properties"]["coverage_complete"]["type"] = "string"
+        self.assertEqual(get_output_schema("project_review")["properties"]["judgments"]["items"]["properties"]["coverage_complete"]["type"], "boolean")
 
     def test_provider_tool_conversion_preserves_approved_schema_and_descriptions(self):
         try:

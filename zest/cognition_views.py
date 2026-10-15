@@ -75,6 +75,11 @@ def format_dossier(record):
             for item in section["pending"]:
                 statement = item.get("question") or item["finding"]["statement"]
                 lines.append("- " + display_text(statement))
+                review = item.get("review") or {}
+                for check in review.get("checks", []):
+                    lines.append("  属性核对：" + display_text(f"{check['subject']} / {check['attribute']} / {check['verdict']} · {check['reason']}"))
+                for conflict in [*review.get("conflicts", []), *review.get("conflict_links", [])]:
+                    lines.append("  未解决冲突：" + display_text(f"{conflict['reference_id']} · {conflict['reason']}"))
         lines.append("")
     if record["plan_gaps"]:
         lines.extend(["## 尚未解决的背景", "", *["- " + display_text(gap["question"]) for gap in record["plan_gaps"]]])
