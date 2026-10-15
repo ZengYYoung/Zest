@@ -37,6 +37,7 @@ export async function readApi<T>(connection: Connection, path: string, signal?: 
 export function projectName(project: Project): string { return project.root_path.split('/').filter(Boolean).at(-1) || '未命名项目' }
 export function shortCommit(value: unknown): string { return typeof value === 'string' ? value.slice(0, 12) : '尚无提交' }
 export const statusLabels: Record<string, string> = {
+  awaiting_context_approval: '完整请求待扩展批准',
   awaiting_approval: '等待批准', completed: '已完成', proposed: '建议已生成', candidate_ready: '候选就绪',
   passed: '验证通过', failed: '失败', error: '异常', applied: '已选择', rejected: '已拒绝',
   pending_execution: '待核对执行', draft: '待确认', confirmed: '已确认', invalidated: '已失效',

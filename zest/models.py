@@ -19,6 +19,40 @@ def model_target(settings):
             "base_url": structured_base_url(settings.base_url)}
 
 
+class _RequestCompiled(BaseException):
+    """Stop a local in-memory transport before any response or network exists."""
+
+
+def prepare_model_request(settings, payload, *, purpose):
+    """Compile the actual SDK body through the same adapter, without network.
+
+    An in-memory transport avoids duplicating SDK defaults or relying on private
+    LangChain serialization APIs. Credentials are replaced before compilation.
+    """
+    import hashlib
+    import httpx
+    from dataclasses import replace
+    captured = {}
+
+    def capture(request):
+        captured["body_text"] = request.content.decode("utf-8")
+        captured["url"] = str(request.url)
+        raise _RequestCompiled()
+
+    with httpx.Client(transport=httpx.MockTransport(capture)) as client:
+        try:
+            DeepSeekModel(replace(settings, api_key="zest-local-compilation"), http_client=client).complete(payload, purpose=purpose)
+        except _RequestCompiled:
+            pass
+    if not captured:
+        raise FileReadError("model_request_compile_failed", "无法在本地生成完整模型请求，未外发。")
+    raw = captured["body_text"]
+    if captured["url"] != model_target(settings)["base_url"].rstrip("/") + "/chat/completions":
+        raise FileReadError("model_target_changed", "SDK 生成的实际接口与固定模型目标不同，未外发。")
+    return {"target": model_target(settings), "purpose": purpose, "body_text": raw,
+            "url": captured["url"], "chars": len(raw), "body_sha256": hashlib.sha256(raw.encode()).hexdigest()}
+
+
 def output_contract(purpose):
     """Complete, reviewable output and instruction contract; AI imports remain lazy."""
     import hashlib
@@ -126,7 +160,7 @@ class DeepSeekModel:
         import threading
         self._transport_lock = threading.RLock()
 
-    def complete(self, payload: dict, *, purpose="qa") -> dict:
+    def complete(self, payload: dict, *, purpose="qa", expected_request=None) -> dict:
         if purpose not in PROMPTS:
             raise FileReadError("invalid_model_purpose", "不支持的模型任务类型。")
         import json
@@ -145,6 +179,14 @@ class DeepSeekModel:
         if self.http_client is not None:
             options["http_client"] = self.http_client
         provider_response = {}
+        request_check_error = []
+        def check_request(request):
+            if expected_request is not None and (request.content.decode("utf-8") != expected_request["body_text"]
+                    or str(request.url) != expected_request["url"]
+                    or model_target(self.settings) != expected_request["target"]):
+                error = FileReadError("model_request_changed", "实际请求与已审阅的完整请求不一致，未外发。")
+                request_check_error.append(error)
+                raise error
         def capture_response(response):
             if response.is_success:
                 response.read()
@@ -157,12 +199,15 @@ class DeepSeekModel:
                 if self.http_client is None:
                     import httpx
                     options["http_client"] = stack.enter_context(httpx.Client(timeout=self.settings.timeout,
-                        follow_redirects=False, event_hooks={"response": [capture_response]}))
+                        follow_redirects=False, event_hooks={"request": [check_request], "response": [capture_response]}))
                 else:
                     stack.enter_context(self._transport_lock)
                     hooks = self.http_client.event_hooks["response"]
                     hooks.append(capture_response)
                     stack.callback(hooks.remove, capture_response)
+                    requests = self.http_client.event_hooks["request"]
+                    requests.append(check_request)
+                    stack.callback(requests.remove, check_request)
                 model = ChatDeepSeek(**options).with_structured_output(
                     model_for(purpose), method="function_calling", strict=True, include_raw=True)
                 prompt = ChatPromptTemplate.from_messages([("system", PROMPTS[purpose]), ("human", "{payload}")])
@@ -205,6 +250,8 @@ class DeepSeekModel:
         except FileReadError:
             raise
         except Exception as exc:
+            if request_check_error:
+                raise request_check_error[0] from None
             if "body" in provider_response:
                 # A complete successful HTTP body is a known response even when
                 # the SDK cannot construct an AIMessage. Keep its safe evidence;

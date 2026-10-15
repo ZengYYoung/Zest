@@ -9,6 +9,15 @@ import { CognitionDetail } from '../src/CognitionDetail.tsx'
 const render = (kind, value) => renderToStaticMarkup(createElement(RecordDetail, { kind, value, onClose() {} }))
 const sourceRecord = { id: 'E1', evidence: { path: 'app.py', commit: 'a'.repeat(40), start_line: 4, end_line: 5 }, content: 'def add(a,b):\n    return a-b\n', content_sha256: 'c'.repeat(64) }
 
+test('context extension is visibly unsent and keeps Web read only', () => {
+  const html = renderToStaticMarkup(createElement(CognitionDetail, { onClose() {}, value: {
+    status: 'awaiting_context_approval', context_requests: [{ actor: 'T1', sequence: 2, status: 'awaiting_approval',
+      chars: 35000, default_chars: 32000, over_percent: 9.38 }],
+  } }))
+  for (const value of ['完整请求待扩展批准', '35000', '32000', '9.38', '尚未外发', '终端或 CLI']) assert.ok(html.includes(value), value)
+  assert.ok(!html.includes('<button>批准'))
+})
+
 test('review links cited answer to fixed original source and preserves unknowns', () => {
   const { content, ...lineSource } = sourceRecord
   const html = render('tasks', { status: 'completed', context: { question: '加法错误？', sources: [{ ...lineSource, lines: [{ number: 4, text: 'return a-b' }] }] }, result: { answer: '需要检查加法。[E1]', citations: ['E1'], unknowns: ['缺少调用端'] } })

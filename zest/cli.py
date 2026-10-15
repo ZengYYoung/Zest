@@ -102,6 +102,15 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--calls", action="store_true", help="包含逐次请求与响应记录")
         if name in ("show", "dossier"):
             command.add_argument("--format", choices=("json", "text"), default="json")
+    context_preview = cognition_actions.add_parser("context-preview", help="审阅适度超限但尚未外发的完整请求")
+    context_preview.add_argument("run_id")
+    for name in ("context-approve", "context-reject"):
+        command = cognition_actions.add_parser(name, help="决定单个完整请求的字符扩展，不扩大调查权限")
+        command.add_argument("run_id")
+        command.add_argument("actor")
+        command.add_argument("sequence", type=int)
+        command.add_argument("--request-sha256", required=True)
+        command.add_argument("--no-start", action="store_true", help="只保存决定；全部待扩展请求决定后可由 worker 继续")
     worker_command = cognition_actions.add_parser("worker", help="独立本地 worker，关闭工作台不影响已启动工作")
     worker_command.add_argument("--once", action="store_true")
     worker_command.add_argument("--idle-seconds", type=int, default=30)
@@ -267,6 +276,14 @@ def main(argv: list[str] | None = None) -> int:
                 result = store.show(args.run_id, include_envelope=True)
             elif args.action == "show":
                 result = store.show(args.run_id, include_calls=args.calls)
+            elif args.action == "context-preview":
+                result = store.context_requests(args.run_id)
+            elif args.action in ("context-approve", "context-reject"):
+                result = store.decide_context(args.run_id, args.actor, args.sequence,
+                    approved=args.action == "context-approve", request_sha256=args.request_sha256)
+                if result["status"] == "queued" and not args.no_start:
+                    from .cognition import start_worker
+                    result["worker"] = start_worker(args.state_dir)
             elif args.action == "dossier":
                 result = store.dossier(args.run_id)
             elif args.action == "invalidate":

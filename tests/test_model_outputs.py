@@ -31,6 +31,8 @@ class ModelOutputContractTest(unittest.TestCase):
                 {"tool": "search", "args": {"query": "main"}},
                 {"tool": "read", "args": {"source_id": "S1", "start_line": 1, "end_line": 0}},
                 {"tool": "symbols", "args": {"query": "main"}}]}},
+            "project_report": {"response": {"kind": "report", "report": {
+                "status": "partial", "findings": [], "unknowns": ["尚缺证据。"], "scope_requests": []}}},
             "project_review": {"judgments": [{"finding_id": "T1-F1", "supported": True, "reason": "原文直接支持。"}]},
         }
 
@@ -44,6 +46,8 @@ class ModelOutputContractTest(unittest.TestCase):
                 if purpose == "project_research":
                     expected = {"actions": expected["response"]["actions"], "report": None}
                     expected["actions"][2]["args"] = {"source_id": "S1", "start_line": 1}
+                elif purpose == "project_report":
+                    expected = {"actions": [], "report": wire["response"]["report"]}
                 self.assertEqual(output_to_protocol(parsed), expected)
 
     def test_report_preserves_evidence_and_partial_status(self):

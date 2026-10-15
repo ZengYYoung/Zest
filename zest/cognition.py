@@ -15,8 +15,9 @@ from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, k
                                   text, validate_plan, validate_report)
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
+from .cognition_context import compact_proof, compact_results, review_payload
 from .files import FileReadError
-from .models import DeepSeekModel, ModelSettings, model_target, output_contract, safe_model_receipt
+from .models import DeepSeekModel, ModelSettings, model_target, output_contract, safe_model_receipt, prepare_model_request
 
 
 class InvestigationState(TypedDict, total=False):
@@ -27,6 +28,7 @@ class InvestigationState(TypedDict, total=False):
     response: dict
     report: dict
     spec: dict
+    report_required: bool
 
 
 class CoordinationState(TypedDict, total=False):
@@ -60,8 +62,6 @@ class CognitionEngine:
 
     def call(self, run_id, actor, sequence, purpose, payload, envelope):
         self.check_knowledge(envelope)
-        if len(canonical(payload)) > envelope["policy"]["max_prompt_chars"]:
-            raise FileReadError("cognition_prompt_budget", "单次模型请求超过批准预算。")
         provider = self.model or DeepSeekModel(ModelSettings.from_env())
         settings = provider.settings
         target = model_target(settings)
@@ -72,6 +72,26 @@ class CognitionEngine:
         if envelope.get("structured_outputs") != {kind: output_contract(kind) for kind in COGNITION_PROMPTS}:
             raise FileReadError("cognition_contract_changed", "结构化输出契约已变化，需要重新准备并批准。")
         request_hash = digest({"purpose": purpose, "payload": payload})
+        # Reuse a saved result before generating a new wire view or asking for
+        # any extension. A saved invalid/unknown response is never retransmitted.
+        with self.store.open() as conn:
+            old = conn.execute("SELECT * FROM cognition_calls WHERE run_id=? AND actor=? AND sequence=?", (run_id, actor, sequence)).fetchone()
+            if old:
+                if old["payload_sha256"] != request_hash or old["purpose"] != purpose:
+                    raise FileReadError("cognition_request_changed", "恢复请求与保存身份不一致，不再次调用。")
+                if old["status"] == "invalid":
+                    raise FileReadError("cognition_response_invalid", "已保存响应不符合契约，不重新调用。")
+                if old["status"] != "completed":
+                    raise FileReadError("cognition_execution_unknown", "旧请求没有可复用结果，不重复调用。")
+                return json.loads(old["response"])
+        request = prepare_model_request(settings, payload, purpose=purpose)
+        body = json.loads(request["body_text"])
+        if body.get("model") != envelope["target"]["model"] or body.get("max_tokens") != envelope["policy"]["max_response_tokens"]:
+            raise FileReadError("cognition_contract_changed", "实际请求的模型或响应预算与固定批准不同，未外发。")
+        if request["chars"] > envelope["policy"]["max_extended_prompt_chars"]:
+            raise FileReadError("cognition_prompt_budget", "完整请求超过 48000 字符，须调整上下文或拆分调查；未外发。")
+        if request["chars"] > envelope["policy"]["max_prompt_chars"]:
+            self.store.require_context(run_id, actor, sequence, envelope, request)
         with self.store.open(write=True) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT * FROM cognition_runs WHERE id=?", (run_id,)).fetchone()
@@ -95,15 +115,21 @@ class CognitionEngine:
                 raise FileReadError("cognition_time_budget", "批准工作流已达到执行时间预算。")
             conn.execute("INSERT INTO cognition_calls VALUES (?,?,?,?,?,?,?,?,?,?)",
                          (run_id, actor, sequence, purpose, canonical(payload), request_hash, "pending", None, None, now()))
+            conn.execute("INSERT INTO cognition_request_bodies VALUES (?,?,?,?)", (run_id, actor, sequence, canonical(request)))
             conn.execute("UPDATE cognition_runs SET call_count=call_count+1,updated_at=? WHERE id=?", (now(), run_id))
         self.store.event(run_id, actor, "model_request_started", {"sequence": sequence, "purpose": purpose, "payload_sha256": request_hash})
         try:
-            response = provider.complete(payload, purpose=purpose)
+            if isinstance(provider, DeepSeekModel):
+                response = provider.complete(payload, purpose=purpose, expected_request=request)
+            else:
+                response = provider.complete(payload, purpose=purpose)
         except Exception as exc:
             code = exc.code if isinstance(exc, FileReadError) else "model_request_failed"
             with self.store.open(write=True) as conn, conn:
-                conn.execute("UPDATE cognition_calls SET status='uncertain',error=? WHERE run_id=? AND actor=? AND sequence=?",
-                             (canonical({"code": code}), run_id, actor, sequence))
+                conn.execute("UPDATE cognition_calls SET status=?,error=? WHERE run_id=? AND actor=? AND sequence=?",
+                             ("not_sent" if code == "model_request_changed" else "uncertain", canonical({"code": code}), run_id, actor, sequence))
+            if code == "model_request_changed":
+                raise
             raise FileReadError("cognition_execution_unknown", "模型请求结果未知，未自动重试。") from exc
         parse_error = None
         try:
@@ -180,9 +206,9 @@ class CognitionEngine:
                     candidate = tools.read(source["id"])
                 except FileReadError:
                     continue
-                if len(canonical([*docs, candidate])) > 14000:
+                if len(canonical([*docs, compact_proof(candidate)])) > 14000:
                     break
-                docs.append(candidate)
+                docs.append(compact_proof(candidate))
                 if len(docs) >= 8:
                     break
         payload = {"commit": envelope["commit"], "material_catalog": self.catalog(envelope),
@@ -214,9 +240,29 @@ class CognitionEngine:
                        "dependency_reports": [{"task_id": job["id"], "report": job["result"]["report"]}
                                               for job in self.store.show(run_id)["jobs"]
                                               if job["id"] in spec["depends_on"] and job["status"] == "completed" and job["result"]],
-                       "tool_results": state["tool_results"], "remaining_turns": envelope["policy"]["max_turns_per_task"] - state["turns"],
+                       "tool_results": compact_results(state["tool_results"]), "remaining_turns": envelope["policy"]["max_turns_per_task"] - state["turns"],
                        "remaining_tool_actions": envelope["policy"]["max_tool_actions_per_task"] - state["actions_used"]}
-            output = self.call(run_id, actor, state["turns"], "project_research", payload, envelope)
+            closing = (payload["remaining_turns"] == 1 or state.get("report_required", False)
+                       or payload["remaining_tool_actions"] == 0)
+            payload["report_required"] = closing
+            def closing_view():
+                read_ids = {proof["source_id"] for proof in state["evidence"].values()}
+                return {**payload, "report_required": True, "remaining_tool_actions": 0,
+                        "material_catalog": [item for item in payload["material_catalog"] if item["id"] in read_ids],
+                        "tool_results": [item for item in payload["tool_results"] if item["tool"] == "read"]}
+            if closing:
+                payload = closing_view()
+            try:
+                output = self.call(run_id, actor, state["turns"], "project_report" if closing else "project_research", payload, envelope)
+            except FileReadError as exc:
+                if exc.code != "cognition_prompt_budget" or closing:
+                    raise
+                # The oversized candidate was never sent or reserved. Reorganize
+                # into a smaller report request, retaining all original proofs.
+                payload = closing_view()
+                closing = True
+                self.store.event(run_id, actor, "context_reorganized", {"reason": "complete_request_over_limit"})
+                output = self.call(run_id, actor, state["turns"], "project_report", payload, envelope)
             keys(output, ("actions", "report"))
             actions = items(output["actions"], 4)
             for action in actions:
@@ -227,6 +273,8 @@ class CognitionEngine:
                 return {"turns": state["turns"] + 1, "report": validate_report(output["report"], state["evidence"])}
             if not actions:
                 raise FileReadError("invalid_cognition_output", "调查既未请求工具也未交付报告。")
+            if closing:
+                raise FileReadError("invalid_cognition_output", "保留的报告轮不能再请求工具，原文证据仍保存。")
             return {"turns": state["turns"] + 1, "response": output}
 
         def use_tools(state):
@@ -238,20 +286,17 @@ class CognitionEngine:
             results = list(state["tool_results"])
             for value in output:
                 if value["tool"] == "read" and value["result"].get("ok"):
-                    ref = f"R{len(evidence) + 1}"
                     data = value["result"]["data"]
+                    ref = next((ref for ref, proof in evidence.items() if proof == data), f"R{len(evidence) + 1}")
                     evidence[ref] = data
                     value = {**value, "citation_id": ref}
                 results.append(value)
-            # Keep original read proofs durable; discard old non-read locations first.
-            while len(canonical(results)) > 18000:
-                index = next((i for i, result in enumerate(results) if result["tool"] != "read"), None)
-                if index is None:
-                    return {"report": {"status": "partial", "findings": [], "unknowns": ["证据上下文已达预算，材料与读取记录仍保存。"], "scope_requests": []},
-                            "evidence": evidence, "tool_results": results}
-                results.pop(index)
+            report_required = len(canonical(compact_results(results))) > 18000
             self.store.event(run_id, actor, "tools_finished", {"actions": len(actions), "read_proofs": len(evidence)})
-            return {"actions_used": state["actions_used"] + len(actions), "evidence": evidence, "tool_results": results}
+            if report_required:
+                self.store.event(run_id, actor, "report_required", {"reason": "evidence_context_warning"})
+            return {"actions_used": state["actions_used"] + len(actions), "evidence": evidence, "tool_results": results,
+                    "report_required": report_required}
 
         graph = StateGraph(InvestigationState)
         graph.add_node("reason", reason)
@@ -259,19 +304,28 @@ class CognitionEngine:
         graph.add_edge(START, "reason")
         graph.add_conditional_edges("reason", lambda state: END if state.get("report") else "tools")
         graph.add_conditional_edges("tools", lambda state: END if state.get("report") else "reason")
+        saved = {}
         try:
             with self.graph(run_id, actor, graph) as compiled:
-                result = self.invoke(compiled, run_id, actor, {"spec": spec, "turns": 0, "actions_used": 0, "evidence": {}, "tool_results": []})
+                try:
+                    result = self.invoke(compiled, run_id, actor, {"spec": spec, "turns": 0, "actions_used": 0, "evidence": {}, "tool_results": []})
+                except Exception:
+                    saved = compiled.get_state({"configurable": {"thread_id": f"{run_id}:{actor}"}}).values
+                    raise
             self.store.publish_job(run_id, actor, {"report": result["report"], "evidence": result["evidence"],
                                                    "tool_results": result["tool_results"], "turns": result["turns"]})
             self.store.event(run_id, actor, "investigation_finished", {"status": result["report"]["status"]})
         except FileReadError as exc:
-            status = "pending_execution" if exc.code == "cognition_execution_unknown" else "partial" if "budget" in exc.code else "failed"
-            result = {"report": {"status": "partial", "findings": [], "unknowns": [f"{exc.code}: {exc}"], "scope_requests": []}, "evidence": {}}
+            status = ("awaiting_context_approval" if exc.code == "cognition_context_approval_required" else
+                      "pending_execution" if exc.code == "cognition_execution_unknown" else
+                      "partial" if "budget" in exc.code or exc.code == "cognition_context_rejected" else "failed")
+            result = {"report": {"status": "partial", "findings": [], "unknowns": [f"{exc.code}: {exc}"], "scope_requests": []},
+                      "evidence": saved.get("evidence", {}), "tool_results": saved.get("tool_results", []), "turns": saved.get("turns", 0)}
             self.store.job_status(run_id, actor, status, result)
             self.store.event(run_id, actor, "investigation_stopped", {"code": exc.code, "status": status})
         except Exception:
-            self.store.job_status(run_id, actor, "failed", {"report": {"status": "partial", "findings": [], "unknowns": ["调查内部错误，原始异常未回显。"], "scope_requests": []}, "evidence": {}})
+            self.store.job_status(run_id, actor, "failed", {"report": {"status": "partial", "findings": [], "unknowns": ["调查内部错误，原始异常未回显。"], "scope_requests": []},
+                "evidence": saved.get("evidence", {}), "tool_results": saved.get("tool_results", []), "turns": saved.get("turns", 0)})
 
     def dispatch(self, run_id, envelope, tools, plan):
         self.store.set_status(run_id, "investigating")
@@ -282,6 +336,8 @@ class CognitionEngine:
                 ready = [job for job in jobs if job["status"] in ("queued", "running") and
                          all(by_id[ref]["status"] == "completed" for ref in job["spec"]["depends_on"])]
                 if not ready:
+                    if any(job["status"] == "awaiting_context_approval" for job in jobs):
+                        raise FileReadError("cognition_context_approval_required", "有完整请求待扩展批准；已完成的调查保留，依赖任务继续等待。")
                     for job in jobs:
                         if job["status"] in ("queued", "running"):
                             self.store.job_status(run_id, job["id"], "blocked", {"report": {"status": "partial", "findings": [],
@@ -299,8 +355,7 @@ class CognitionEngine:
             batch = pending[offset:offset + 4]
             other = [{"finding_id": item["id"], "statement": item["finding"]["statement"], "kind": item["finding"]["kind"]}
                      for item in self.store.show(run_id)["findings"] if item["id"] not in {finding["id"] for finding in batch}]
-            payload = {"commit": envelope["commit"], "findings": [{"finding_id": item["id"], **item["finding"]} for item in batch],
-                       "other_findings": other}
+            payload = review_payload(envelope["commit"], batch, other)
             actor = "review_" + digest([item["id"] for item in batch])[:12]
             response = self.call(run_id, actor, 0, "project_review", payload, envelope)
             keys(response, ("judgments",))
@@ -393,11 +448,14 @@ class CognitionEngine:
                         and not result["plan"]["gaps"])
             self.store.set_status(run_id, "pending_execution" if unknown else "completed" if complete else "partial")
         except FileReadError as exc:
-            self.store.set_status(run_id, "pending_execution" if exc.code == "cognition_execution_unknown" else "partial" if "budget" in exc.code else "failed",
+            self.store.set_status(run_id, "awaiting_context_approval" if exc.code == "cognition_context_approval_required" else
+                                  "pending_execution" if exc.code == "cognition_execution_unknown" else
+                                  "partial" if "budget" in exc.code or exc.code == "cognition_context_rejected" else "failed",
                                   error={"code": exc.code, "message": str(exc)})
         except Exception:
             self.store.set_status(run_id, "failed", error={"code": "cognition_execution_failed", "message": "认知执行失败，未回显原始异常。"})
-        self.store.event(run_id, "coordinator", "workflow_finished", {"status": self.store.show(run_id)["status"]})
+        final_status = self.store.show(run_id)["status"]
+        self.store.event(run_id, "coordinator", "workflow_paused" if final_status == "awaiting_context_approval" else "workflow_finished", {"status": final_status})
         return self.store.show(run_id)
 
 

@@ -48,7 +48,7 @@ class OfflineCognitionModel:
                               "acceptance": ["引用 add 原文"], "depends_on": [], "priority": 1})
             value = {"overview": [{"statement": "这是一个待调查的示例。", "kind": "inferred", "source_ids": ids[:1]}],
                      "tasks": tasks, "gaps": []}
-        elif purpose == "project_research":
+        elif purpose in ("project_research", "project_report"):
             source = next(source for source in payload["material_catalog"] if source["path"] == "app.py")
             if not payload["tool_results"]:
                 with self.lock:

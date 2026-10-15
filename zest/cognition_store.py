@@ -116,6 +116,14 @@ class CognitionStore:
                     CREATE TABLE IF NOT EXISTS cognition_call_receipts (
                         run_id TEXT NOT NULL, actor TEXT NOT NULL, sequence INTEGER NOT NULL,
                         receipt TEXT NOT NULL, PRIMARY KEY(run_id,actor,sequence));
+                    CREATE TABLE IF NOT EXISTS cognition_context_requests (
+                        run_id TEXT NOT NULL, actor TEXT NOT NULL, sequence INTEGER NOT NULL,
+                        request_sha256 TEXT NOT NULL, authorization TEXT NOT NULL,
+                        status TEXT NOT NULL, created_at TEXT NOT NULL, decided_at TEXT,
+                        PRIMARY KEY(run_id,actor,sequence));
+                    CREATE TABLE IF NOT EXISTS cognition_request_bodies (
+                        run_id TEXT NOT NULL, actor TEXT NOT NULL, sequence INTEGER NOT NULL,
+                        request TEXT NOT NULL, PRIMARY KEY(run_id,actor,sequence));
                     PRAGMA user_version=1;
                     """)
                 yield conn
@@ -173,6 +181,7 @@ class CognitionStore:
                                    "status": f["status"], "review": json.loads(f["review"]) if f["review"] else None}
                                   for f in conn.execute("SELECT * FROM cognition_findings WHERE run_id=? ORDER BY id", (run_id,))]
             result["events"] = [dict(event) for event in conn.execute("SELECT actor,action,detail,created_at FROM cognition_events WHERE run_id=? ORDER BY seq DESC LIMIT 100", (run_id,))][::-1]
+            result["context_requests"] = self._context_records(conn, run_id)
             if include_envelope:
                 result["envelope"] = envelope
             if include_calls:
@@ -182,8 +191,97 @@ class CognitionStore:
                                 conn.execute("SELECT * FROM cognition_call_receipts WHERE run_id=?", (run_id,))}
                     for call in result["calls"]:
                         call["receipt"] = receipts.get((call["actor"], call["sequence"]))
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cognition_request_bodies'").fetchone():
+                    requests = {(row["actor"], row["sequence"]): json.loads(row["request"]) for row in
+                                conn.execute("SELECT * FROM cognition_request_bodies WHERE run_id=?", (run_id,))}
+                    for call in result["calls"]:
+                        call["request"] = requests.get((call["actor"], call["sequence"]))
         result["worker_active"] = self.worker_active(run_id)
         return result
+
+    @staticmethod
+    def _context_records(conn, run_id, *, full=False):
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cognition_context_requests'").fetchone():
+            return []
+        records = []
+        for row in conn.execute("SELECT * FROM cognition_context_requests WHERE run_id=? ORDER BY actor,sequence", (run_id,)):
+            try:
+                value = json.loads(row["authorization"])
+                request = value["request"]
+                if (digest(value) != row["request_sha256"] or value["run_id"] != run_id
+                        or value["actor"] != row["actor"] or value["sequence"] != row["sequence"]
+                        or len(request["body_text"]) != request["chars"]
+                        or hashlib.sha256(request["body_text"].encode()).hexdigest() != request["body_sha256"]
+                        or not 0 < value["default_chars"] < request["chars"] <= value["max_chars"]):
+                    raise ValueError
+            except (ValueError, TypeError, KeyError, RecursionError) as exc:
+                raise FileReadError("cognition_record_corrupt", "扩展请求身份损坏，不能审阅或执行。") from exc
+            record = {key: row[key] for key in ("run_id", "actor", "sequence", "request_sha256", "status", "created_at", "decided_at")}
+            chars, default = value["request"]["chars"], value["default_chars"]
+            record.update(chars=chars, default_chars=default, max_chars=value["max_chars"],
+                          over_percent=round((chars / default - 1) * 100, 2))
+            if full:
+                record["authorization"] = value
+            records.append(record)
+        return records
+
+    def context_requests(self, run_id):
+        self.show(run_id)
+        with self.open() as conn:
+            return self._context_records(conn, run_id, full=True)
+
+    def require_context(self, run_id, actor, sequence, envelope, request):
+        """Persist an unsent exact request before asking; never reserve a call."""
+        authorization = {"run_id": run_id, "actor": actor, "sequence": sequence,
+                         "envelope_sha256": digest(envelope), "request": request,
+                         "default_chars": envelope["policy"]["max_prompt_chars"],
+                         "max_chars": envelope["policy"]["max_extended_prompt_chars"]}
+        identity = digest(authorization)
+        with self.open(write=True) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM cognition_runs WHERE id=?", (run_id,)).fetchone()
+            if row is None or row["status"] not in ("planning", "investigating", "reviewing") or row["envelope_sha256"] != digest(envelope):
+                raise FileReadError("approval_mismatch", "请求未匹配正在执行的固定授权包。")
+            old = conn.execute("SELECT * FROM cognition_context_requests WHERE run_id=? AND actor=? AND sequence=?", (run_id, actor, sequence)).fetchone()
+            if old and (old["request_sha256"] != identity or digest(json.loads(old["authorization"])) != identity):
+                raise FileReadError("cognition_request_changed", "待扩展请求已变化，需要重新准备；旧批准不能放行。")
+            if old is None:
+                conn.execute("INSERT INTO cognition_context_requests VALUES (?,?,?,?,?,?,?,NULL)",
+                             (run_id, actor, sequence, identity, canonical(authorization), "awaiting_approval", now()))
+            status = old["status"] if old else "awaiting_approval"
+        if status == "approved":
+            return identity
+        if status == "rejected":
+            raise FileReadError("cognition_context_rejected", "本次完整请求的字符扩展已拒绝，未外发；保留已有证据与缺口。")
+        raise FileReadError("cognition_context_approval_required", "完整请求适度超限，已保存并暂停；请审阅完整请求后批准本次扩展。")
+
+    def decide_context(self, run_id, actor, sequence, *, approved, request_sha256):
+        from .cognition import execution_lock
+        valid_id(run_id)
+        with execution_lock(self.state_dir, f"run-{run_id}"):
+            with self.open(write=True) as conn, conn:
+                conn.execute("BEGIN IMMEDIATE")
+                run = conn.execute("SELECT * FROM cognition_runs WHERE id=?", (run_id,)).fetchone()
+                if run is None or run["status"] not in ("awaiting_context_approval", "planning", "investigating", "reviewing"):
+                    raise FileReadError("cognition_not_pending", "工作流未等待请求扩展，不能重复决定。")
+                records = self._context_records(conn, run_id, full=True)
+                record = next((item for item in records if item["actor"] == actor and item["sequence"] == sequence), None)
+                if record is None or record["status"] != "awaiting_approval":
+                    raise FileReadError("cognition_not_pending", "该请求未等待扩展批准。")
+                if request_sha256 != record["request_sha256"] or record["authorization"]["envelope_sha256"] != run["envelope_sha256"]:
+                    raise FileReadError("approval_mismatch", "批准未匹配固定资料包与本次完整请求。")
+                self.envelope(run)
+                if conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status!='completed' LIMIT 1", (run_id,)).fetchone():
+                    raise FileReadError("cognition_execution_unknown", "存在无有效结果的旧调用，扩展批准不能允许重发。")
+                conn.execute("UPDATE cognition_context_requests SET status=?,decided_at=? WHERE run_id=? AND actor=? AND sequence=?",
+                             ("approved" if approved else "rejected", now(), run_id, actor, sequence))
+                pending = conn.execute("SELECT 1 FROM cognition_context_requests WHERE run_id=? AND status='awaiting_approval' LIMIT 1", (run_id,)).fetchone()
+                conn.execute("UPDATE cognition_runs SET status=?,error=NULL,updated_at=? WHERE id=?",
+                             ("awaiting_context_approval" if pending else "queued", now(), run_id))
+                if not pending:
+                    conn.execute("UPDATE cognition_jobs SET status='queued' WHERE run_id=? AND status='awaiting_context_approval'", (run_id,))
+            self.event(run_id, actor, "context_approved" if approved else "context_rejected", {"sequence": sequence, "request_sha256": request_sha256})
+        return self.show(run_id)
 
     def worker_active(self, run_id):
         """Read an existing advisory lock without creating state or changing a run."""
@@ -346,6 +444,8 @@ class CognitionStore:
         if current["status"] not in ("planning", "investigating", "reviewing", "pending_execution"):
             raise FileReadError("cognition_not_recoverable", "该状态不需要恢复。")
         with self.open(write=True) as conn, conn:
+            if any(item["status"] == "awaiting_approval" for item in self._context_records(conn, run_id)):
+                raise FileReadError("cognition_context_approval_required", "待扩展请求尚未批准，不能通过恢复绕过。")
             unknown = conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status!='completed' LIMIT 1", (run_id,)).fetchone()
             if unknown:
                 raise FileReadError("cognition_execution_unknown", "存在结果未知的模型请求，仅读取核对，不重复调用。")

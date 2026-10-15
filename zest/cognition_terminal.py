@@ -62,6 +62,49 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
         def action_close(self):
             self.dismiss(None)
 
+    class ContextPreview(ModalScreen[bool | None]):
+        BINDINGS = [("escape", "close", "返回")]
+        CSS = """
+        ContextPreview { align: center middle; }
+        #context-box { width: 96%; height: 96%; padding: 1; border: solid #888888; background: $surface; }
+        #context-json { height: 1fr; }
+        #context-consent { height: auto; }
+        #context-actions { height: 3; }
+        #context-actions Button { width: 1fr; }
+        """
+
+        def __init__(self, record):
+            super().__init__()
+            self.record = record
+
+        def compose(self):
+            record = self.record
+            with Vertical(id="context-box"):
+                yield Label("完整请求 · 本次字符扩展")
+                yield Static(display_text(f"{record['actor']} / {record['sequence']}：{record['chars']} 字符；默认 {record['default_chars']}，超出 {record['over_percent']}%，最高 {record['max_chars']}。尚未外发；不扩大资料、调用或修改权限。"), markup=False)
+                yield TextArea(display_text(json.dumps(record, ensure_ascii=False, indent=2)), read_only=True, id="context-json")
+                yield Checkbox("我已审阅完整请求，批准本次字符扩展", id="context-consent")
+                with Horizontal(id="context-actions"):
+                    yield Button("返回", id="context-close")
+                    yield Button("拒绝本次扩展", id="context-reject")
+                    yield Button("批准并继续", disabled=True, id="context-approve")
+
+        @on(Checkbox.Changed, "#context-consent")
+        def consent(self, event):
+            self.query_one("#context-approve", Button).disabled = not event.value
+
+        @on(Button.Pressed)
+        def choose(self, event):
+            if event.button.id == "context-close":
+                self.dismiss(None)
+            elif event.button.id == "context-reject":
+                self.dismiss(False)
+            elif event.button.id == "context-approve" and self.query_one("#context-consent", Checkbox).value:
+                self.dismiss(True)
+
+        def action_close(self):
+            self.dismiss(None)
+
     class CognitionScreen(ModalScreen):
         BINDINGS = [("escape", "close", "返回对话")]
         CSS = """
@@ -88,6 +131,7 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
                 with Horizontal(id="cognition-actions"):
                     yield Button("新建调查", id="cognition-create")
                     yield Button("审阅资料包", id="cognition-preview", disabled=True)
+                    yield Button("审阅超限请求", id="cognition-context", disabled=True)
                     yield Button("安全恢复", id="cognition-recover", disabled=True)
                     yield Button("返回对话", id="cognition-close")
                 yield TextArea("正在读取历史…", read_only=True, id="cognition-result")
@@ -141,6 +185,8 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
                     self.query_one("#cognition-result", TextArea).load_text(display_text(format_cognition(record) + "\n\n" + format_dossier(dossier)))
                     self.fingerprint = fingerprint
                 self.query_one("#cognition-preview", Button).disabled = self.busy or record["status"] != "awaiting_approval"
+                self.query_one("#cognition-context", Button).disabled = (self.busy or record["worker_active"] or
+                    not any(item["status"] == "awaiting_approval" for item in record.get("context_requests", [])))
                 self.query_one("#cognition-recover", Button).disabled = self.busy or record["worker_active"] or record["status"] not in ("planning", "investigating", "reviewing", "pending_execution")
             except FileReadError as exc:
                 self.notice(str(exc))
@@ -158,6 +204,11 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
         def preview(self):
             if self.record:
                 self.perform("preview", self.record["id"])
+
+        @on(Button.Pressed, "#cognition-context")
+        def context_preview(self):
+            if self.record:
+                self.perform("context", self.record["id"])
 
         @work(exclusive=True, group="cognition-action")
         async def perform(self, action, run_id=None):
@@ -179,6 +230,19 @@ def cognition_screen(state_dir, project_id, *, store=None, launch=None):
                         if decision:
                             await asyncio.to_thread(launch, state_dir)
                         self.notice("已批准，后台 worker 已启动。可返回主对话。" if decision else "本次调查已拒绝。")
+                elif action == "context":
+                    requests = await asyncio.to_thread(store.context_requests, run_id)
+                    for request in requests:
+                        if request["status"] != "awaiting_approval":
+                            continue
+                        decision = await self.app.push_screen_wait(ContextPreview(request))
+                        if decision is None:
+                            break
+                        record = await asyncio.to_thread(store.decide_context, run_id, request["actor"], request["sequence"],
+                            approved=decision, request_sha256=request["request_sha256"])
+                        if record["status"] == "queued":
+                            await asyncio.to_thread(launch, state_dir)
+                    self.notice("扩展决定已保存；尚未决定的请求继续等待。拒绝的请求不外发，已有证据保留。")
                 else:
                     await asyncio.to_thread(store.recover, run_id)
                     await asyncio.to_thread(launch, state_dir)

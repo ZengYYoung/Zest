@@ -3,12 +3,13 @@
 import time
 from .terminal import display_text
 
-TERMINAL_STATUSES = {"completed", "partial", "failed", "pending_execution", "rejected"}
+TERMINAL_STATUSES = {"completed", "partial", "failed", "pending_execution", "rejected", "awaiting_context_approval"}
 LABELS = {"awaiting_approval": "等待资料包批准", "queued": "已入队", "planning": "制定调查计划",
           "investigating": "后台调查", "reviewing": "核对认知", "completed": "本轮任务完成",
           "partial": "已形成部分认知", "failed": "失败", "pending_execution": "执行结果待核对",
           "rejected": "已拒绝", "running": "正在调查", "blocked": "等待依赖结果",
-          "auto_reviewed": "自动核对", "needs_investigation": "待核实", "pending_review": "待核对", "invalidated": "已失效"}
+          "auto_reviewed": "自动核对", "needs_investigation": "待核实", "pending_review": "待核对", "invalidated": "已失效",
+          "awaiting_context_approval": "完整请求待字符扩展批准"}
 
 
 def format_cognition(record):
@@ -25,6 +26,9 @@ def format_cognition(record):
             lines.extend("    待扩展授权：" + display_text(item) for item in job["result"]["report"]["scope_requests"])
     if record["error"]:
         lines.append("错误：" + display_text(record["error"]))
+    for request in record.get("context_requests", []):
+        if request["status"] == "awaiting_approval":
+            lines.append(f"待扩展：{request['actor']} / {request['sequence']} · {request['chars']} 字符，默认 {request['default_chars']}，超出 {request['over_percent']}%；最高 {request['max_chars']}。尚未外发，需审阅完整请求。")
     if record.get("worker_active") is False and record["status"] in ("planning", "investigating", "reviewing"):
         lines.append("worker 已退出；请核对保存的请求记录并显式恢复，未知请求不会重发。")
     lines.append(f"自动核对成果：{sum(f['status'] == 'auto_reviewed' for f in record['findings'])} 项；其余发现保留待核实/失效状态。")

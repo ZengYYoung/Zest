@@ -3,6 +3,7 @@ import importlib.util
 import json
 import threading
 import unittest
+from unittest.mock import patch
 
 from tests import test_projects as fixtures
 from tests.test_cognition import OfflineCognitionModel
@@ -50,6 +51,41 @@ class CognitionTerminalTest(unittest.IsolatedAsyncioTestCase):
             if predicate():
                 return
         self.fail("Cognition UI did not reach expected state")
+
+    async def test_context_preview_escape_and_explicit_consent_bind_exact_unsent_request(self):
+        from textual.widgets import Button, TextArea
+        from zest.cognition_contracts import COGNITION_PROMPTS
+        from zest.models import PROMPTS
+        extended = COGNITION_PROMPTS["project_plan"] + "\n" + "x" * 28000
+        launched = []
+        with patch.dict(COGNITION_PROMPTS, {"project_plan": extended}), patch.dict(PROMPTS, {"project_plan": extended}):
+            record = self.store.create(self.project["id"])
+            self.store.decide(record["id"], approved=True, approval_sha256=record["approval_sha256"])
+            result = CognitionEngine(self.state_dir, model=self.model).run(record["id"])
+            self.assertEqual(result["status"], "awaiting_context_approval")
+            request = self.store.context_requests(record["id"])[0]
+            app = create_workspace(self.state_dir, cognition_store=self.store, cognition_launch=launched.append)
+            async with app.run_test(size=(100, 32)) as pilot:
+                await pilot.click("#cognition")
+                await self.wait_for(pilot, lambda: getattr(app.screen, "record", None) is not None)
+                await pilot.click("#cognition-context")
+                await self.wait_for(pilot, lambda: app.screen.__class__.__name__ == "ContextPreview")
+                shown = json.loads(app.screen.query_one("#context-json", TextArea).text)
+                self.assertEqual(shown["request_sha256"], request["request_sha256"])
+                self.assertEqual(shown["authorization"], request["authorization"])
+                self.assertTrue(app.screen.query_one("#context-approve", Button).disabled)
+                await pilot.press("escape")
+                await self.wait_for(pilot, lambda: app.screen.__class__.__name__ == "CognitionScreen")
+                self.assertEqual(self.store.context_requests(record["id"])[0]["status"], "awaiting_approval")
+                self.assertEqual(self.model.calls, [])
+                await pilot.click("#cognition-context")
+                await self.wait_for(pilot, lambda: app.screen.__class__.__name__ == "ContextPreview")
+                await pilot.click("#context-consent")
+                await pilot.click("#context-approve")
+                await self.wait_for(pilot, lambda: bool(launched))
+                self.assertEqual(self.store.show(record["id"])["status"], "queued")
+                self.assertEqual(self.store.context_requests(record["id"])[0]["status"], "approved")
+                self.assertEqual(self.model.calls, [])
 
     async def test_preview_consent_background_progress_and_return_to_main_conversation(self):
         from textual.widgets import Button, TextArea, Input

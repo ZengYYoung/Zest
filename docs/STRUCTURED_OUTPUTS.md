@@ -14,6 +14,7 @@
 | 修改建议 | RepairProposalResponse | 完整文件、新文件及锚点替换建议 |
 | 初步认知与计划 | ProjectPlanResponse | 主 Agent 规划 |
 | 自主调查 | ProjectResearchResponse | 工具动作与最终报告 |
+| 保留报告轮 | ProjectReportResponse | 末轮/上下文预警只允许交付报告 |
 | 原文核对 | ProjectReviewResponse | 每条发现的支持性判断 |
 
 [models.py](../zest/models.py) 是唯一真实模型适配入口：
@@ -55,4 +56,4 @@ schema 使用闭合对象、必填字段、enum 和 anyOf；导出展开引用�
 
 离线测试覆盖五类真实 LangChain/HTTP MockTransport schema、必填/额外/错误类型、原始参数、敏感输出、调用次数、批准变化与恢复事务。它们不证明 DeepSeek 在线 strict 的效果，也不替代项目理解质量评价。
 
-完整请求字符计数、证据去重、报告收束及适度超限暂停批准仍是下一模块，见 [已确认的扩展规则](COGNITION.md)。当前认知请求预算检查 canonical(payload)，尚未把系统消息与工具 schema 算入整条实际 HTTP 请求。新 schema 增加的上下文必须在该模块纳入统计，再准备真实复测；不能沿用旧 run 的外发批准。
+M038 已补齐完整请求体计数、证据去重、保留报告轮和适度超限暂停批准，见 [认知上下文与单次扩展](COGNITION_CONTEXT.md)。新增的报告类型仍使用同一原生结构化输出路径；完整请求体和实际 URL 通过本地内存传输编译，发送前核对。线上 strict 效果仍未验证，不能沿用旧 run 的外发批准。

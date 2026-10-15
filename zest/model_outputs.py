@@ -211,6 +211,12 @@ class ProjectResearchResponse(OutputModel):
         description="选择一个互斥的响应变体：kind=actions 时提供工具动作；kind=report 时提供最终报告。不得混合两种变体。")
 
 
+class ProjectReportResponse(OutputModel):
+    """Reserved closing turn: report findings and gaps without more tool calls."""
+
+    response: FinishInvestigation = Field(description="本次只提交 kind=report 的最终报告；依据已读原文保留发现与未知，不再请求工具。")
+
+
 class FindingJudgment(OutputModel):
     """Original-text support judgment for one specific investigated finding."""
 
@@ -230,6 +236,7 @@ OUTPUT_MODELS = {
     "repair_proposal": RepairProposalResponse,
     "project_plan": ProjectPlanResponse,
     "project_research": ProjectResearchResponse,
+    "project_report": ProjectReportResponse,
     "project_review": ProjectReviewResponse,
 }
 
@@ -270,7 +277,7 @@ def output_to_protocol(response):
     if not isinstance(response, tuple(OUTPUT_MODELS.values())):
         raise TypeError("expected a supported typed model response")
     output = response.model_dump(mode="json")
-    if isinstance(response, ProjectResearchResponse):
+    if isinstance(response, (ProjectResearchResponse, ProjectReportResponse)):
         variant = output["response"]
         if isinstance(response.response, FinishInvestigation):
             return {"actions": [], "report": variant["report"]}
