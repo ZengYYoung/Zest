@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-当前重点是[代表性项目整体认知与问答验收（M080）](docs/PROJECT_ACCEPTANCE_M080.md)：已导入公开RealWorld样本，按主要模块、核心流程、档案与知识问答的实用性评价，轻微细节不作阻塞项。[M082规划接收修复](docs/COGNITION_PLAN_RECEPTION.md) 后，[新冷启动（M083）](docs/PROJECT_ACCEPTANCE_M083.md) [本轮结果（M086）](docs/PROJECT_ACCEPTANCE_M086.md) 为27次物理请求、37条候选（16自动核对/8待调查/13待核对）；一批核对补试用尽导致整轮failed，其已核对成果也被问答读取规则排除，整条使用路径尚未跑通。[M087已完成核对批次失败隔离与部分交付](docs/COGNITION_REVIEW_BATCH_ISOLATION.md)，离线验证可继续其他批次并让已核对事实进入问答；旧实测状态保留，尚未进行修复后的新真实验收。Web/接口补齐按用户要求暂缓，后续另行确认。
+当前重点是[代表性项目整体认知与问答验收（M080）](docs/PROJECT_ACCEPTANCE_M080.md)：已导入公开RealWorld样本，按主要模块、核心流程、档案与知识问答的实用性评价，轻微细节不作阻塞项。[M082规划接收修复](docs/COGNITION_PLAN_RECEPTION.md) 后，[新冷启动（M083）](docs/PROJECT_ACCEPTANCE_M083.md) [本轮结果（M086）](docs/PROJECT_ACCEPTANCE_M086.md) 为27次物理请求、37条候选（16自动核对/8待调查/13待核对）；一批核对补试用尽导致整轮failed，其已核对成果也被问答读取规则排除，整条使用路径尚未跑通。[M087已完成核对批次失败隔离与部分交付](docs/COGNITION_REVIEW_BATCH_ISOLATION.md)，离线验证可继续其他批次并让已核对事实进入问答；旧实测状态保留，尚未进行修复后的新真实验收；[M088单次续批实测包](docs/COGNITION_BATCH_ISOLATION_M088.md)已准备，待具体冻结批准。Web/接口补齐按用户要求暂缓，后续另行确认。
 
 已具备项目创建/导入、证据问答、词法 RAG、已审核知识、MCP 协作、模型修复建议、批准候选修改、容器验证和管理源码版本切换/回退。完整开发能力与实际部署继续分模块实现，进度和验证记录见开发日志。
 
