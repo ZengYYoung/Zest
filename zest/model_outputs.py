@@ -333,6 +333,34 @@ class CognitionEvaluationResponse(OutputModel):
     coverage: list[CoverageJudgment] = Field(description="身份集合必须与本批 requirements.id 完全相同；每个属性恰好一次，requirements 为空则返回空列表。candidates 仅供判断覆盖，不新增评分目标。")
     judgments: list[EvaluationFindingJudgment] = Field(description="身份集合必须与本批 findings.finding_id 完全相同；逐项先描述证据再判断原属性与冲突，findings 为空则返回空列表。不为 other_findings、report_unknowns 或 candidates 输出 judgment；对方矛盾只放入目标的 conflicts。解释使用 reason，不新增 note 等字段。原系统核对结果不作为正确依据。")
 
+    @model_validator(mode="before")
+    @classmethod
+    def discard_unused_evaluation_fields(cls, value):
+        """Project scoring objects onto their fields, retaining the raw receipt.
+
+        Only object keys are ignored. Known values, list membership and missing
+        fields remain subject to strict type and evidence validation. Keep the
+        shared review types and the provider's closed schema unchanged.
+        """
+        def project(row, model):
+            if not isinstance(row, dict):
+                return row
+            return {name: item for name, item in row.items() if name in model.model_fields}
+
+        result = project(value, cls)
+        if not isinstance(result, dict):
+            return result
+        for field, model in (("coverage", CoverageJudgment), ("judgments", EvaluationFindingJudgment)):
+            if isinstance(result.get(field), list):
+                result[field] = [project(row, model) for row in result[field]]
+        if isinstance(result.get("judgments"), list):
+            for row in result["judgments"]:
+                if isinstance(row, dict):
+                    for field, model in (("checks", EvaluationClaimCheck), ("conflicts", ReviewConflict)):
+                        if isinstance(row.get(field), list):
+                            row[field] = [project(item, model) for item in row[field]]
+        return result
+
 
 class ResolutionCheck(OutputModel):
     """One old assertion attribute answered by freshly reviewed findings."""

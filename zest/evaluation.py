@@ -212,8 +212,7 @@ class EvaluationStore:
         error, value = None, None
         try:
             from .model_outputs import CognitionEvaluationResponse
-            raw = parse_response(receipt)
-            CognitionEvaluationResponse.model_validate(raw)
+            raw = CognitionEvaluationResponse.model_validate(parse_response(receipt)).model_dump(mode='json')
             value = validate_evaluation(raw, batch['payload'])
         except Exception:
             error = {'code': 'evaluation_response_invalid', 'message': '已保存评分响应，但结构、原文身份或逐项覆盖校验未通过；不修补或重发。'}

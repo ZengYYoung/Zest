@@ -272,6 +272,95 @@ class EvaluationTest(unittest.TestCase):
             self.assertLess(list(check['properties']).index('evidence_observation'), list(check['properties']).index('verdict'))
         self.assertTrue(all(c['evidence_observation'] for j in report['result']['judgments'] for c in j['checks']))
 
+    def test_native_metadata_is_retained_in_receipts_but_cannot_change_scores(self):
+        import httpx
+        from tests.test_model_transport import reply
+        seen, outputs = [], []
+        def handle(request):
+            body = json.loads(request.content); seen.append(body)
+            payload = json.loads(body['messages'][1]['content'])
+            wire = json.loads(self.scorer.complete(payload, purpose='cognition_evaluation')['text'])
+            wire['overall_passed'] = True  # A model cannot override computed aggregates.
+            for row in wire['coverage']: row['reason_extra'] = ''
+            for row in wire['judgments']:
+                row['supported'] = True  # Only the business validator derives this value.
+                for check in row['checks']: check['note'] = '离线额外备注'
+                if payload['other_findings']:
+                    row['conflicts'] = [{'reference_id': payload['other_findings'][0]['finding_id'],
+                                         'reason': '人工冲突门控夹具。', 'resolved': True}]
+            outputs.append(deepcopy(wire))
+            return reply(body, wire)
+        with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+            store = EvaluationStore(self.state_dir, model=DeepSeekModel(self.scorer.settings, http_client=client))
+            record = store.create(self.source['id'], self.criteria)
+            before = self.store.db_path.read_bytes()
+            store.decide(record['id'], approved=True, approval_sha256=record['approval_sha256'])
+            report = store.run(record['id'])
+        self.assertEqual(report['workflow_status'], 'completed', report)
+        self.assertEqual(len(seen), 4)
+        self.assertEqual(report['result']['coverage']['facts'], {'full': 1, 'total': 1})
+        self.assertFalse(report['result']['overall_passed'])  # Preserved conflicts block acceptance.
+        for call, raw in zip(store.show(record['id'])['calls'], outputs):
+            self.assertEqual(call['status'], 'completed')
+            receipt = call['receipt']
+            self.assertEqual(receipt['structured_status'], 'valid')
+            self.assertEqual(json.loads(receipt['raw_response']['provider_tool_calls'][0]['function']['arguments']), raw)
+            self.assertNotIn('overall_passed', json.loads(receipt['text']))
+            self.assertNotIn('reason_extra', canonical(call['response']))
+            self.assertNotIn('resolved', canonical(call['response']))
+            for judgment in call['response']['judgments']:
+                self.assertTrue(judgment['conflicts'])
+                self.assertFalse(judgment['supported'])
+        self.assertEqual(self.store.db_path.read_bytes(), before)
+
+    def test_non_sdk_evaluator_uses_same_projection_and_preserves_original_text(self):
+        original = self.scorer.complete
+        def complete(payload, *, purpose):
+            receipt = original(payload, purpose=purpose)
+            raw = json.loads(receipt['text']); raw['unused'] = 'raw-only'
+            for row in raw['coverage']: row['reason_extra'] = ''
+            receipt['text'] = json.dumps(raw, ensure_ascii=False)
+            return receipt
+        record = self.queued()
+        with patch.object(self.scorer, 'complete', side_effect=complete):
+            report = self.evaluator.run(record['id'])
+        self.assertTrue(report['result']['overall_passed'], report)
+        calls = self.evaluator.show(record['id'])['calls']
+        self.assertEqual(len(calls), 4)
+        self.assertTrue(all(json.loads(c['receipt']['text'])['unused']=='raw-only' for c in calls))
+        self.assertTrue(all('unused' not in c['response'] for c in calls))
+
+    def test_previous_reception_contract_cannot_execute_under_new_policy(self):
+        record = self.queued()
+        old = self.evaluator.show(record['id'], preview=True)['envelope']
+        self.assertEqual(old['contract'].pop('local_reception'), 'discard_unused_evaluation_fields_v1')
+        before = self.evaluator.db_path.read_bytes()
+        with self.assertRaises(FileReadError) as caught:
+            self.evaluator._call(record['id'], 0, old)
+        self.assertEqual(caught.exception.code, 'evaluation_contract_changed')
+        self.assertEqual(self.scorer.calls, [])
+        self.assertEqual(self.evaluator.db_path.read_bytes(), before)
+
+    def test_metadata_does_not_hide_forged_ids_references_or_duplicate_targets(self):
+        from zest.model_outputs import CognitionEvaluationResponse
+        units = evaluation_units(self.source_full, self.criteria)
+        for kind, mutate in (
+            ('coverage', lambda w: w['coverage'][0].update(id='forged')),
+            ('coverage', lambda w: w['coverage'][0].update(finding_ids=['forged'])),
+            ('coverage', lambda w: w['coverage'][0].update(evidence_ids=['P999'])),
+            ('coverage', lambda w: w['coverage'].append(deepcopy(w['coverage'][0]))),
+            ('semantics', lambda w: w['judgments'][0].update(finding_id='forged')),
+            ('semantics', lambda w: w['judgments'][0]['checks'][0].update(evidence_ids=['P999'])),
+            ('semantics', lambda w: w['judgments'][0]['conflicts'].append({'reference_id':'forged','reason':'人工夹具。','unused':True})),
+        ):
+            payload = next(u['payload'] for u in units if u['kind']==kind)
+            wire = json.loads(self.scorer.complete(payload, purpose='cognition_evaluation')['text'])
+            wire['approved'] = True
+            mutate(wire)
+            normalized = CognitionEvaluationResponse.model_validate(wire).model_dump(mode='json')
+            with self.subTest(kind=kind, wire=wire), self.assertRaises(FileReadError):
+                validate_evaluation(normalized, payload)
+
     def test_conflict_hint_is_preserved_without_becoming_a_scored_target(self):
         unit = next(u for u in evaluation_units(self.source_full, self.criteria) if u['kind'] == 'semantics')
         payload = unit['payload']
@@ -306,24 +395,23 @@ class EvaluationTest(unittest.TestCase):
         # The labels are local expectations only, never part of a model payload.
         self.assertNotIn('expected_verdict', canonical(payload))
 
-    def test_native_hint_promotion_or_extra_fields_stop_whole_batch_without_retry(self):
+    def test_native_hint_promotion_or_missing_observation_stops_whole_batch_without_retry(self):
         import httpx
         from tests.test_model_transport import reply
-        for fault in ('extra_hint', 'substituted_hint', 'extra_field', 'missing_observation', 'empty_observation'):
+        for fault in ('extra_hint', 'substituted_hint', 'missing_observation', 'empty_observation'):
             with self.subTest(fault=fault):
                 seen, raw_outputs = [], []
                 def handle(request):
                     body = json.loads(request.content)
                     payload = json.loads(body['messages'][1]['content'])
                     wire = json.loads(self.scorer.complete(payload, purpose='cognition_evaluation')['text'])
+                    wire['unused'] = 'ignored without relaxing targets or observations'
                     if payload['findings']:
                         hint = {**payload['other_findings'][0], 'evidence_ids': []}
                         if fault == 'extra_hint':
                             wire['judgments'].append(evaluation_judgment(hint, supported=False))
                         elif fault == 'substituted_hint':
                             wire['judgments'][0] = evaluation_judgment(hint, supported=False)
-                        elif fault == 'extra_field':
-                            wire['judgments'][0]['note'] = '不允许的额外字段'
                         elif fault == 'missing_observation':
                             del wire['judgments'][0]['checks'][0]['evidence_observation']
                         else:
@@ -347,7 +435,7 @@ class EvaluationTest(unittest.TestCase):
                     receipt = calls[1]['receipt']
                     native = receipt['raw_response']['provider_tool_calls'][0]['function']['arguments']
                     self.assertEqual(json.loads(native), raw_outputs[1])
-                    self.assertEqual(receipt['structured_status'], 'invalid' if fault in ('extra_field', 'missing_observation', 'empty_observation') else 'valid')
+                    self.assertEqual(receipt['structured_status'], 'invalid' if fault in ('missing_observation', 'empty_observation') else 'valid')
                     with self.assertRaises(FileReadError):
                         store.recover(record['id'])
                     with self.assertRaises(FileReadError):

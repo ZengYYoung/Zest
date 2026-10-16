@@ -70,6 +70,8 @@ def output_contract(purpose):
             "prompt_sha256": hashlib.sha256(PROMPTS[purpose].encode()).hexdigest()}
     if purpose == "project_plan":
         contract["local_reception"] = "discard_unused_plan_fields_v1"
+    elif purpose == "cognition_evaluation":
+        contract["local_reception"] = "discard_unused_evaluation_fields_v1"
     return contract
 
 

@@ -10,6 +10,8 @@ M071 [区分检查完整与证据支持](COGNITION_EVIDENCE_SUPPORT.md)：covera
 
 M076对新报告的13次真实评分全部有效，但仍误收含内部空格字符串的“无空格”描述。M077按用户确认范围增加[评分专用证据观察](COGNITION_EVALUATION_OBSERVATION.md)：每个EvaluationClaimCheck先用必填evidence_observation描述原文，再比较原属性并判定；原文核对和结案协议不变，旧结果不补字段、新评分不兼容缺字段输出。108项相关回归通过，尚无新真实模型调用，不能据此声称语义质量改善。
 
+M097针对M096评分因空reason_extra停止的问题，增加[评分接收兼容](COGNITION_EVALUATION_RECEPTION.md)：只在评分本地入口隔离各层对象的非判定额外字段，保留完整原始安全收据。必需字段、待评身份、引用、有效冲突与预算仍校验；供应商Schema/Skill保持，接收版本单独进入批准契约，旧包不能套用新规则。两份实际响应离线回放接收成功，原评分仍partial，0新真实调用。
+
 ## 使用与权限
 
 ```bash

@@ -1589,3 +1589,15 @@ M058 最终清单 **128 份原始材料 SHA256/字节长度全部一致**，没�
 - 输入25334/输出1453/总26787 token，cache_read9088，finish_reason均tool_calls，0未知/pending。25份冻结、原46/46/3/40和163/21/17/533历史、45原生及8问答/原认知保持；完整收据/批准/诊断/指标和两个SQLite一致备份保存，integrity_check均ok。
 
 验证：真实接收/停止、请求与收据一致、原Schema离线诊断、调用/用量、全部冻结与历史保护、SQLite、文档链接和git diff --check。本次仅验收证据/文档，不重复142项或完整回归；无生产改动、LangSmith、样本执行、补查、知识发布、Web/API、推送、部署或新会话。详见[M096评分结果](PROJECT_EVALUATION_M096.md)。下一小模块建议限定评分对非判定额外字段的兼容，尚未实施。
+
+## 2026-10-16 — M097：评分额外字段接收兼容
+
+提交标题：`fix(evaluation): tolerate unused response metadata`
+
+- 用户确认修复，现场核对main/d6f4fe5干净。仅评分父模型在本地投影顶层、coverage、judgments、checks和conflicts对象到已定义字段；隔离reason_extra/note和自报通过等额外字段，完整安全收据保留。必需字段、值、类型、评分成员和有效冲突不改，继续原有身份/引用/预算门控，不改变模型评分准则。
+- 生产EvaluationStore用Pydantic解析后的协议进行业务校验，真实SDK与非SDK一致。9种供应商Schema及指令逐份较修复前相同，共享子类型/核对/结案/其他用途保持；local_reception版本进入评分contract/批准哈希，旧包在新规则下执行前阻断，无自动恢复或迁移旧成绩。
+- 6项新增及既有结构/评分/传输/观察回归，共56项唯一用例最终均通过，覆盖全部嵌套层、输入不变、缺必填/错误类型、原始收据、有效冲突、伪造身份/引用、多余目标、非SDK、旧契约和未知不重发。首轮一项旧字符索引额外字段拒收断言按新兼容边界更新后通过；增强自报通过不能覆盖有效冲突的复核通过。
+- M096两份实际供应商响应通过真实LangChain/MockTransport/生产图在独立SQLite原样回放，2批均接收；HTTP正文一致，首批内容相同，第2批原三个partial与理由不改。0新真实调用、不计新质量成绩；原评分仍partial、四问未评分。
+- 原M096的44份文件、此前全部冻结/历史、45原生及8问答/认知保持；独立回放数据库/checkpoint integrity_check均ok。原始诊断和评分不改写，新回放及最终清单存忽略目录。
+
+验证：56项相关用例最终通过、两份实际响应原样离线回放、全部Schema/指令及批准版本对照、历史保护、SQLite、文档链接和git diff --check；不重复完整回归。无LangSmith、样本执行、补查、知识发布、Web/API、推送、部署或新会话。详见[评分接收兼容](COGNITION_EVALUATION_RECEPTION.md)。

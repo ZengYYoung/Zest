@@ -83,13 +83,13 @@ class ModelOutputContractTest(unittest.TestCase):
             with self.subTest(purpose=purpose):
                 check(get_output_schema(purpose))
 
-    def test_required_fields_and_non_planning_extra_fields_are_rejected(self):
+    def test_required_fields_and_extra_fields_outside_reception_exceptions_are_rejected(self):
         for purpose, wire in self.wire_examples().items():
             for key in wire:
                 with self.subTest(purpose=purpose, missing=key), self.assertRaises(ValidationError):
                     model_for(purpose).model_validate({name: value for name, value in wire.items() if name != key})
             with self.subTest(purpose=purpose, extra="type"):
-                if purpose == "project_plan":
+                if purpose in ("project_plan", "cognition_evaluation"):
                     parsed = model_for(purpose).model_validate({**wire, "type": "json_object"})
                     self.assertEqual(output_to_protocol(parsed), wire)
                 else:
@@ -123,6 +123,52 @@ class ModelOutputContractTest(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 model_for("project_plan").model_validate(wire)
 
+    def evaluation_example(self):
+        examples = self.wire_examples()
+        wire = examples['cognition_evaluation']
+        wire['judgments'] = examples['project_review']['judgments']
+        wire['judgments'][0]['checks'][0]['evidence_observation'] = '原文显示该入口调用。'
+        wire['judgments'][0]['conflicts'] = [{'reference_id': 'T2:F1', 'reason': '人工冲突夹具。'}]
+        return wire
+
+    def test_evaluation_metadata_is_isolated_at_all_object_levels_without_mutating_raw(self):
+        from zest.model_outputs import CoverageJudgment, EvaluationClaimCheck, ReviewConflict
+        good = self.evaluation_example()
+        wire = deepcopy(good)
+        rows = [wire, wire['coverage'][0], wire['judgments'][0],
+                wire['judgments'][0]['checks'][0], wire['judgments'][0]['conflicts'][0]]
+        for row in rows:
+            row['unused'] = {'approved': True, 'execute': 'outside-package'}
+        wire['coverage'][0]['reason_extra'] = ''
+        before = deepcopy(wire)
+        self.assertEqual(output_to_protocol(model_for('cognition_evaluation').model_validate(wire)), good)
+        self.assertEqual(wire, before)
+        # Shared child models stay closed outside the evaluation parent.
+        for model, value in ((CoverageJudgment, wire['coverage'][0]),
+                             (EvaluationClaimCheck, wire['judgments'][0]['checks'][0]),
+                             (ReviewConflict, wire['judgments'][0]['conflicts'][0])):
+            with self.subTest(model=model.__name__), self.assertRaises(ValidationError):
+                model.model_validate(value)
+
+    def test_evaluation_metadata_never_supplies_required_fields_or_coerces_values(self):
+        good = self.evaluation_example()
+        paths = [(), ('coverage', 0), ('judgments', 0),
+                 ('judgments', 0, 'checks', 0), ('judgments', 0, 'conflicts', 0)]
+        for path in paths:
+            node = good
+            for key in path: node = node[key]
+            for key in node:
+                bad = deepcopy(good); row = bad
+                for part in path: row = row[part]
+                row['unused'] = row.pop(key)
+                with self.subTest(path=path, missing=key), self.assertRaises(ValidationError):
+                    model_for('cognition_evaluation').model_validate(bad)
+        for field, value in (('verdict', 'supported'), ('id', 1), ('finding_ids', 'T1:F1'),
+                             ('evidence_ids', [1]), ('reason', {'text': 'reason'})):
+            bad = deepcopy(good); bad['coverage'][0].update({field: value, 'note': 'ignored'})
+            with self.subTest(field=field), self.assertRaises(ValidationError):
+                model_for('cognition_evaluation').model_validate(bad)
+
     def test_review_evaluation_and_resolution_never_request_character_offsets(self):
         examples = self.wire_examples()
         examples['cognition_evaluation']['judgments'] = deepcopy(examples['project_review']['judgments'])
@@ -135,7 +181,10 @@ class ModelOutputContractTest(unittest.TestCase):
                 wire = deepcopy(examples[purpose])
                 model_for(purpose).model_validate(wire)
                 wire['judgments'][0]['checks'][0].update(start=0, end=1)
-                with self.assertRaises(ValidationError): model_for(purpose).model_validate(wire)
+                if purpose == 'cognition_evaluation':
+                    self.assertEqual(output_to_protocol(model_for(purpose).model_validate(wire)), examples[purpose])
+                else:
+                    with self.assertRaises(ValidationError): model_for(purpose).model_validate(wire)
 
     def test_nested_types_and_authority_shape_are_not_coerced(self):
         invalid_actions = [

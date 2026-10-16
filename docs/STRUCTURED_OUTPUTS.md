@@ -4,7 +4,7 @@
 
 ## 类型与调用方式
 
-[model_outputs.py](../zest/model_outputs.py) 集中定义 Pydantic v2 模型。每个模型有说明，每个字段有 `Field(description=...)`；使用枚举、明确的嵌套对象和互斥变体。所有字段显式返回，供应商 Schema 禁止额外字段，并进行严格本地类型校验。M082仅对普通项目规划在本地隔离不参与执行的额外字段，必需字段、类型、来源和权限检查不变，详见[规划接收兼容](COGNITION_PLAN_RECEPTION.md)。
+[model_outputs.py](../zest/model_outputs.py) 集中定义 Pydantic v2 模型。每个模型有说明，每个字段有 `Field(description=...)`；使用枚举、明确的嵌套对象和互斥变体。所有字段显式返回，供应商 Schema 禁止额外字段，并进行严格本地类型校验。M082对普通项目规划、M097对独立评分在本地隔离不参与执行或判定的额外字段，必需字段、类型、来源和权限检查不变，详见[规划接收兼容](COGNITION_PLAN_RECEPTION.md)、[评分接收兼容](COGNITION_EVALUATION_RECEPTION.md)。
 
 模型返回的是外部不可信数据，需要运行时校验并自动生成可审阅 schema，因此采用 Pydantic。内部 LangGraph 状态继续使用 TypedDict，模型配置继续使用 dataclass；它们并非模型输出，无需为统一格式替换。
 
@@ -48,7 +48,7 @@ M051 在新具体批准下运行相同 10120 字符请求：本次 JSON/Pydantic
 
 DeepSeek 的原生 strict 工具调用使用官方 `/beta` 接口。配置根地址 `https://api.deepseek.com` 时，在准备预览前就解析为 `https://api.deepseek.com/beta`；doctor 显示配置地址及实际目标。自定义地址保持原值，其 strict 兼容性需另行确认。[供应商 strict 契约](https://api-docs.deepseek.com/guides/tool_calls/)
 
-完整输出 schema、用途、调用方式、strict/include_raw、schema 哈希和系统指令哈希进入批准内容：问答/建议的 execution_policy，以及认知包的 structured_outputs。调用前再核对实际目标和当前契约。旧预览缺少新契约或契约变化时拒绝执行，需要重新准备批准；已完成历史仍可只读查看，旧文件不被改写。
+完整输出 schema、用途、调用方式、strict/include_raw、schema 哈希、系统指令哈希和适用的local_reception进入批准内容：问答/建议的 execution_policy、认知包的 structured_outputs，以及评分包的contract。调用前再核对实际目标和当前契约。旧预览缺少新契约或契约变化时拒绝执行，需要重新准备批准；已完成历史仍可只读查看，旧文件不被改写。
 
 上述冻结身份检查适用于持久 task 和认知工作流。直接 `project ask --preview` 也展示问答 schema，但 `--allow-model` 仍是即时执行入口，会重新准备当次上下文，不能将独立的预览命令当成带哈希的持久批准；需要固定目标与资料身份时使用 task 入口。
 
