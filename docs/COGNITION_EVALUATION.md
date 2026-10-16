@@ -6,6 +6,8 @@ M067 另为 M066 保存的四条独立探针准备限定语义评分包，复用
 
 M069 修正 [本批目标与冲突线索的职责说明](COGNITION_EVALUATION_SCOPE.md)：程序安排完整范围，模型仅为 findings 输出 judgments，仅为 requirements 输出 coverage；candidates、other_findings、report_unknowns 不扩展目标。Skill 与具名 Schema 字段说明同步更新，接收器仍拒绝任何多余身份/字段。随后 M070 经具体批准完成四次真实复测，均通过契约，整条支持三条/覆盖不足一条；单项标签与理由一致性、清洗支持边界仍待打磨，见 [复测结果](COGNITION_EVALUATION_M070.md)。
 
+M071 [区分检查完整与证据支持](COGNITION_EVIDENCE_SUPPORT.md)：coverage_complete 仅表示原句全部属性是否已检查，证据不足由单项 verdict 保留，不能用 supported 加理由承认缺口。原断言强度保持不变，区分测试输入、结果断言与实际运行。Skill、共用字段说明和核对提示已同步，79 项定向回归通过，少量真实复测待新精确包批准。
+
 ## 使用与权限
 
 ```bash

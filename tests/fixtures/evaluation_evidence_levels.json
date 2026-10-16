@@ -1,0 +1,10 @@
+{
+  "fixture_kind": "synthetic_labelled_gate_and_future_model_controls_not_real_execution",
+  "source_file": "evaluation_evidence_levels.py.txt",
+  "findings": [
+    {"id": "L1", "statement": "test_normalization_input 使用输入字符串 \"  Mixed CASE  \" 调用 normalize。", "expected_verdict": "supported"},
+    {"id": "L2", "statement": "test_normalization_input 验证 normalize 能去除首尾空格并转换大小写，输出为 \"mixed case\"。", "expected_verdict": "insufficient_evidence"},
+    {"id": "L3", "statement": "test_normalization_result 包含 normalize(\"  Mixed CASE  \") == \"mixed case\" 的结果断言。", "expected_verdict": "supported"},
+    {"id": "L4", "statement": "test_normalization_result 已在当前版本实际执行并通过。", "expected_verdict": "insufficient_evidence"}
+  ]
+}

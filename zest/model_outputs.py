@@ -240,10 +240,10 @@ class ClaimCheck(OutputModel):
     subject: str = Field(description="该独立命题的具体对象，如函数、配置项或业务步骤。")
     attribute: str = Field(description="单独核对的属性，如生命周期、错误分支、返回值；不能把多个独立属性打包。")
     condition: str = Field(description="原断言的触发条件或适用范围；原句无条件写明无条件，不得偷偷补入正确条件来替原断言解围。")
-    assertion: str = Field(description="原句对该属性的断言，忠实保留否定、数量和条件；不是修正后的正确答案。")
+    assertion: str = Field(description="原句对该属性的断言，忠实保留否定、数量、条件和结论强度；不能改成只陈述证据可见的较弱说法后判支持，也不补入原句未声称的内容。")
     evidence_ids: list[str] = Field(description="仅可引用该 finding.evidence_ids 中的 P 原文身份；支持判定至少一项，其他发现和 unknowns 不是原文证据。")
-    verdict: Literal["supported", "contradicted", "insufficient_evidence"] = Field(description="supported 为关联原文完整支持；contradicted 为存在相反证据；insufficient_evidence 包括语义依赖、边界或条件没有依据，不能仅因配置值吻合而支持行为解释。")
-    reason: str = Field(description="该属性的支持点或具体错误/缺口；区分源码明示与外部框架默认语义，不假称外部知识是包内原文。")
+    verdict: Literal["supported", "contradicted", "insufficient_evidence"] = Field(description="supported 须关联原文完整支持原属性及其条件；只支持一部分、所需窗口/条件/语义依据缺失则 insufficient_evidence，不以 supported 加理由说明不足。contradicted 须有相反证据，未见证据本身不是反驳。检查完但证据不足仍用 insufficient_evidence，与 coverage_complete 分开。")
+    reason: str = Field(description="与本项 verdict 一致地说明完整支持点、相反证据或具体缺口；区分输入/声明、结果断言和实际运行记录，只依据该项获准证据，不假称外部知识或测试意图证明更强结论。")
 
 
 class ReviewConflict(OutputModel):
@@ -258,7 +258,7 @@ class FindingJudgment(OutputModel):
 
     finding_id: str = Field(description="本批待核对发现的原始 finding_id；每个身份必须恰好输出一次。")
     checks: list[ClaimCheck] = Field(description="围绕 finding_id 对应的完整原结论，逐个独立属性核对，包括括号内解释、条件、否定和数量；不返回字符位置，不修正或替换原断言。")
-    coverage_complete: bool = Field(description="模型判断是否已逐项覆盖原结论的全部独立属性；不能确认或发现遗漏则为 false。此标志不是程序证明的语义完整性。")
+    coverage_complete: bool = Field(description="仅表示模型是否已逐项检查原结论的全部独立属性，包括否定/数量/条件/概括；全部已检查时即使有反驳或证据不足也可 true，分别在各项 verdict 标明。遗漏或不能确认拆分完整则 false；不是证据充分或整条正确的标志，也不是程序证明。")
     conflicts: list[ReviewConflict] = Field(description="与本批、other_findings 或 report_unknowns 中明确陈述的未解决矛盾；无矛盾为空。线索不作为支持证据，冲突双方及来源须保留。")
     reason: str = Field(description="中文核对理由，说明原文支持点或具体不足，不根据多个 Agent 一致就认定正确。")
 

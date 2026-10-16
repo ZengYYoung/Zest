@@ -49,6 +49,29 @@ class AttributeReviewTest(unittest.TestCase):
             j = judgment(p); j['coverage_complete'] = complete
             self.assertFalse(validate_judgments([j], p)[0]['supported'])
 
+    def test_inspection_completeness_and_evidence_support_are_independent(self):
+        p = payload('配送查询支持地区、承运人、开始日期和结束日期过滤。')
+        p['evidence']['P1']['text'] = 'if region: filters.append(("region", region))'
+        j = judgment(p)
+        j['checks'] = [{**deepcopy(j['checks'][0]), 'subject': '配送查询', 'attribute': attribute,
+                        'assertion': f'支持{attribute}过滤', 'verdict': verdict,
+                        'reason': '显式标注的门控夹具，不是模型判断。'}
+                       for attribute, verdict in [('地区', 'supported'), ('承运人', 'insufficient_evidence'),
+                                                   ('开始日期', 'insufficient_evidence'), ('结束日期', 'insufficient_evidence')]]
+        for complete, verdicts, accepted in (
+                (True, ['supported', *(['insufficient_evidence'] * 3)], False),
+                (True, ['supported', 'contradicted', 'supported', 'supported'], False),
+                (False, ['supported'] * 4, False),
+                (True, ['supported'] * 4, True)):
+            with self.subTest(complete=complete, verdicts=verdicts):
+                j['coverage_complete'] = complete
+                for check, verdict in zip(j['checks'], verdicts):
+                    check['verdict'] = verdict
+                result = validate_judgments([j], p)[0]
+                self.assertEqual(result['coverage_complete'], complete)
+                self.assertEqual([c['verdict'] for c in result['checks']], verdicts)
+                self.assertEqual(result['supported'], accepted)
+
     def test_old_offsets_and_borrowed_evidence_are_rejected(self):
         for change in ({'start': True}, {'start': 1}, {'end': 2}, {'end': 1000},
                        {'evidence_ids': ['P999']}, {'evidence_ids': []}):

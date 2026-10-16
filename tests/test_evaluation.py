@@ -272,6 +272,28 @@ class EvaluationTest(unittest.TestCase):
         self.assertEqual(result['judgments'][0]['conflicts'], [conflict])
         self.assertFalse(result['judgments'][0]['supported'])
 
+    def test_evidence_level_controls_preserve_complete_but_unsupported_checks(self):
+        from zest.model_outputs import CognitionEvaluationResponse
+        fixture = json.loads((Path(__file__).parent / 'fixtures/evaluation_evidence_levels.json').read_text())
+        source = (Path(__file__).parent / 'fixtures' / fixture['source_file']).read_text()
+        payload = {'commit': 'synthetic', 'requirements': [], 'candidates': [], 'other_findings': [],
+                   'report_unknowns': [], 'evidence': {'P1': {'text': source}},
+                   'findings': [{'finding_id': f['id'], 'kind': 'observed', 'statement': f['statement'],
+                                 'evidence_ids': ['P1']} for f in fixture['findings']]}
+        wire = {'coverage': [], 'judgments': []}
+        for f, labelled in zip(payload['findings'], fixture['findings']):
+            j = fixtures.review_judgment(f)
+            j['checks'][0].update(verdict=labelled['expected_verdict'], reason='人工标注的门控夹具，不是模型评分。')
+            wire['judgments'].append(j)
+        CognitionEvaluationResponse.model_validate(wire)
+        result = validate_evaluation(wire, payload)
+        self.assertTrue(all(j['coverage_complete'] for j in result['judgments']))
+        self.assertEqual([j['supported'] for j in result['judgments']], [True, False, True, False])
+        self.assertEqual([j['checks'][0]['assertion'] for j in result['judgments']],
+                         [f['statement'] for f in fixture['findings']])
+        # The labels are local expectations only, never part of a model payload.
+        self.assertNotIn('expected_verdict', canonical(payload))
+
     def test_native_hint_promotion_or_extra_fields_stop_whole_batch_without_retry(self):
         import httpx
         from tests.test_model_transport import reply

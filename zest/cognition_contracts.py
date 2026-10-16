@@ -68,8 +68,9 @@ REPORT_PROMPT = RESEARCH_PROMPT + "\n本次是保留的报告轮：只能提交�
 REVIEW_PROMPT += "\nevidence 是本批唯一原文表；findings.evidence_ids 指向对应的原文身份。每项结论只依据其关联原文核对，不能借用未关联证据。"
 REVIEW_PROMPT += """\n本版不输出 supported 布尔值，judgments 每项严格为 finding_id、checks、coverage_complete、conflicts、reason。
 checks 逐个独立命题返回 subject、attribute、condition、assertion、evidence_ids、verdict、reason。通过 finding_id 关联程序保留的完整原结论，不计算或返回字符位置。
-逐项核对完整 statement 的所有属性，包括括号内解释、条件、否定和数量；每项只判断一个独立属性，不用正确大意掩盖错误细节。不能确认语义拆分完整或发现遗漏则 coverage_complete=false；这是模型判断，不是程序证明。
-verdict 为 supported/contradicted/insufficient_evidence。严格检查条件、默认值、数量、否定、输入分支、返回值与解释边界；配置声明与行为语义分别核对，不以内部知识冒充包内证据。
+逐项核对完整 statement 的所有属性，包括括号内解释、条件、否定、数量和概括；每项只判断一个独立属性，不用正确大意掩盖错误细节。coverage_complete 只表示原句全部属性是否已检查，不表示证据充分或原句正确；全部已检查但有反驳/证据不足仍可 true。遗漏或不能确认拆分完整则 false；这是模型判断，不是程序证明。
+verdict 为 supported/contradicted/insufficient_evidence。supported 要求原属性及条件被完整支持，只支持一部分或缺少所需原文/语义依据则 insufficient_evidence，不能写 supported 再在 reason 承认缺口；相反证据才是 contradicted。严格检查条件、默认值、数量、否定、输入分支、返回值与解释边界；配置声明与行为语义分别核对，不以内部知识冒充包内证据。
+保留原断言的强度，不将“验证某结果”缩成“出现某输入”后判支持。测试中的输入/调用只支持这些可见事实；结果断言支持测试所要求的结果；实际运行通过还需对应版本/范围的获准运行记录。完整原文足以证明的弱断言可 supported，不因没有运行记录而一律否定静态测试内容。reason 与该项 verdict 一致。
 report_unknowns 带 reference_id，保留任务内可能相反的陈述，仅供矛盾检查；与 other_findings 一样不是支持性证据。conflicts 每项为 reference_id、reason，保留同一对象/属性/条件下不兼容的陈述，不因任务未读就认定矛盾。
 不替原句修正措辞后再判支持。示例：配置值存在不证明无条件硬限制；输入空白与非数字可能走不同错误分支。这些是维度示例，不限于这些框架和函数。
 程序仅在 observed、完整逐项支持且无未解决矛盾时接收整条；部分正确只保存核对明细，不发布子项。"""

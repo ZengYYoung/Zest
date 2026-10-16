@@ -1,0 +1,5 @@
+def test_normalization_input():
+    result = normalize("  Mixed CASE  ")
+
+def test_normalization_result():
+    assert normalize("  Mixed CASE  ") == "mixed case"
