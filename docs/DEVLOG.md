@@ -1334,3 +1334,17 @@ M058 最终清单 **128 份原始材料 SHA256/字节长度全部一致**，没�
 - 本模块提交后冻结干净执行HEAD及完整新包再申请具体外发批准，当前0新模型调用，不复用已消费许可，不把准备或接收夹具通过称真实效果改善。
 
 验证：18次原生引用、13批协议门控、四脚本语法/授权前阻断、历史材料哈希与旧记录回读、文档链接和git diff --check。本模块仅准备与文档，不重复完整后端/前端回归；M073相关76项已通过。无LangSmith、样本/合成程序或测试执行、包外资料读取、旧run恢复、评分/结案、知识发布、推送、部署或新会话。详见 [M075评分预览与边界](COGNITION_EVALUATION_M075.md)。
+
+## 2026-10-16 — M076：新报告的十三条真实独立评分与明确漏判
+
+提交标题：`docs(eval): record independent report scoring and literal semantic miss`
+
+- 现场核对main/1aabc58干净工作区，用户已审阅并批准具体包5c0b8d72-fae9-4fe5-8b0b-0b9bf3dfe8dc，冻结清单421c38a10c17eba7381e2fe21d7885f06233c70616f48b1d18cab25653115877。单独记录授权，原样使用现有内置Skill、具名CognitionEvaluationResponse/with_structured_output、接收器及13份精确请求，不调整准则/参数或提供疑点答案。
+- 实际13次物理请求、13份有效响应、0无效/未知/补试，限定流程completed，本包13次预算已消费。评分对象为9条Finance和4条合成observed，其余2inferred及15unknowns仅冲突线索；全部15原候选/6资料需求保留，不创建假run/auto_reviewed、不发布知识。无项目参考属性，coverage为空，不复用旧覆盖分母。
+- 模型13条coverage_complete均true、conflicts均空，57个check全部supported（Finance48/合成9），生产门控据此派生13条支持。这是模型判定分布，不是准确率、唯一原子分母或质量通过；多处check仍合并属性。
+- Finance新F:F9把输入、可见断言、清洗用例末尾未读边界分开，模型12项及理由也保留1–60行/more_after，不再把未读清洗断言当作已验证结果；仅记录局部现象，不据此声称复杂结论可靠。F:F5仍混合多个字段规则，拆分问题保留。
+- 合成S:F4出现明确误收：原句“全小写且无空格的mixed case”被原样纳入第2check，模型仍supported且理由再称无空格；固定字面量实际含内部U+0020空格。不是字符位置、响应协议或缺运行证据问题，而是模型对合并属性的语义判断失误。保留错误标签/收据及可直接检查反例，不人工改为contradicted、补算12/13或56/57正确率、临时改Skill或追加调用。
+- 13份reported_model=deepseek-flash、finish_reason=tool_calls；输入66017/输出8374/总计74391 token，cache_read41856，耗时约45.613秒含保存和本地检查。原始安全收据、授权/预占、逐批接收、outcome与结果复核另存新私有目录，未覆盖准备期verification或原包。
+- 15份冻结文件不变、18次引用固定原文核对通过，七份历史清单365文件字节/SHA256一致，原M064完整调查/调用回读相同，failed/44pending保留，没有旧结论结案、知识入库或历史分数修改。
+
+验证：13批收据/具名Schema/生产接收原样回读、请求/引用/历史哈希、身份/计数/用量、字面量反例、文档链接和git diff --check。本模块仅文档，不重复完整后端/前端回归；M073相关76项已通过。无LangSmith、包外资料、样本/合成程序或测试执行、旧run恢复、补查结案、知识发布、推送、部署或新会话。详见 [M076真实评分与漏判](COGNITION_EVALUATION_M076.md)。

@@ -1,6 +1,8 @@
 # M075：新报告的独立语义评分准备
 
-日期：2026-10-16（Asia/Shanghai）。本模块只完成离线准备，**尚未执行真实评分，0次新模型调用**。
+日期：2026-10-16（Asia/Shanghai）。本页记录离线准备阶段，**准备结束时尚未执行真实评分，0次新模型调用**。
+
+后续获批执行见 [M076真实评分结果](COGNITION_EVALUATION_M076.md)：13次全部有效，但合成字符串属性出现明确误收。本页保留准备时状态与冻结边界，不视为未消费的调用额度。
 
 [M074](COGNITION_REPORT_GENERATION_M074.md) 的两次报告生成有效，但候选正确性尚未独立评分。本次复用内置专职评分 Agent 的 [版本化 Skill](../zest/skills/cognition-evaluation/SKILL.md)、CognitionEvaluationResponse / model.with_structured_output 与现有生产接收器，不修改准则、Schema或接收算法，不由主协作 Agent 临时补成绩。
 
