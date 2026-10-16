@@ -1613,3 +1613,15 @@ M058 最终清单 **128 份原始材料 SHA256/字节长度全部一致**，没�
 - 原M096的44份、M097的7份及全部更早材料、45原生、8问答任务与认知保持；独立准备数据库备份integrity_check=ok。完整请求/准则/来源/复用/演练在忽略目录，提交后绑定干净HEAD与冻结清单供具体审批。
 
 验证：8份实际SDK编译及旧正文逐字一致、显式复用身份/3+21完整集合、六种执行演练、来源与全部历史保护、SQLite备份、脚本语法、文档链接和git diff --check；仅限定验收准备/文档，不重复56项或完整回归。0新真实调用，无LangSmith、样本执行、调查补查、知识发布、Web/API、推送、部署或新会话。详见[M098复测准备](PROJECT_EVALUATION_M098.md)。
+
+## 2026-10-16 — M099：真实评分复测，额外字段兼容生效但候选关联失败
+
+提交标题：`docs(evaluation): record retest stopped by missing candidate links`
+
+- 用户明确批准M098新包4435080c及六份扩展/显式复用；执行干净8bac922，生产修复仍917ba34。内置Skill/具名结构化输出/生产图新增2次真实调用、0补试，实际HTTP匹配冻结40743/43785字符。第1批completed，第2批invalid后停，6批未发，0未知/pending。
+- 原首批D1三项full按批准原样复用，新D2三项full形式接收；正式已有6项模型full、另18项未评，整体partial/complete=false。四问尚未评分，不写6/24质量或未评项目不合格，也不将结构/身份接收当语义正确。
+- 新第2批Schema有效，三个额外空contradiction_note按M097隔离且原样留收据，证明兼容生效。三个full/partial均空finding_ids，原业务校验逐项拒收；本批实际61候选，模型误称没有候选被指定为目标；unknowns一项full与理由称partial矛盾。不补身份/改判定/重发。
+- 同一D2请求由旧未接收回复三partial变为新三full；只做异常定位，不重打分。新理由称D_T3_F4明确表达保存返回，但原句仅写follow/unfollow调用，暴露源码支持与候选表达混用的评分可靠性疑点。下一功能点应聚焦评分候选关联与覆盖判断，本次尚未修改。
+- 输入28123/输出1729/总29852 token、cache_read18816，finish_reason均tool_calls。25冻结、原44/7及全部更早材料、45原生、8问答与原认知保持；完整批准/响应/诊断/用量、评分及checkpoint两个SQLite一致备份保存，integrity_check均ok。
+
+验证：真实接收/停止、HTTP/收据/用量、三个空候选关联拒收、接收兼容、显式复用、判定与原句只读对照、全部历史保护、SQLite、文档链接和git diff --check；仅实测记录/文档，不重复56项或完整回归，无生产代码变化。无LangSmith、样本执行、补查、知识发布、Web/API、推送、部署或新会话。详见[M099复测结果](PROJECT_EVALUATION_M099.md)。
