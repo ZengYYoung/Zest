@@ -1,6 +1,6 @@
 # M067：四条探针结果的独立评分包准备
 
-日期：2026-10-16（Asia/Shanghai）。状态：**准备完成，等待具体外发批准，零模型调用、无评分结果**。
+日期：2026-10-16（Asia/Shanghai）。本模块提交时：**准备完成，等待具体外发批准，零模型调用、无评分结果**。随后用户批准并执行，结果为 partial：两次请求、一条有效评分，详见 [M068 执行结果](COGNITION_EVALUATION_M068.md)；下文保留准备时的范围与预算。
 
 用户同意先由内置专职评分 Agent 独立审查 M066 的四条，再决定核对规则如何改进。本模块只准备限定范围的完整评分包；复用现有 [评分 Skill](../zest/skills/cognition-evaluation/SKILL.md)、CognitionEvaluationResponse、模型适配器和生产接收器，不修改评分准则、调查图或公开 CLI，不运行模型。
 
