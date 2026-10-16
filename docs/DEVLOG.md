@@ -1625,3 +1625,15 @@ M058 最终清单 **128 份原始材料 SHA256/字节长度全部一致**，没�
 - 输入28123/输出1729/总29852 token、cache_read18816，finish_reason均tool_calls。25冻结、原44/7及全部更早材料、45原生、8问答与原认知保持；完整批准/响应/诊断/用量、评分及checkpoint两个SQLite一致备份保存，integrity_check均ok。
 
 验证：真实接收/停止、HTTP/收据/用量、三个空候选关联拒收、接收兼容、显式复用、判定与原句只读对照、全部历史保护、SQLite、文档链接和git diff --check；仅实测记录/文档，不重复56项或完整回归，无生产代码变化。无LangSmith、样本执行、补查、知识发布、Web/API、推送、部署或新会话。详见[M099复测结果](PROJECT_EVALUATION_M099.md)。
+
+## 2026-10-16 — M100：覆盖评分候选关联与表达观察
+
+提交标题：`fix(evaluation): ground coverage in candidate observations`
+
+- 用户确认修复后实测，核对main/209f335干净。仅评分Skill与具名CoverageJudgment增加候选表达观察：自主从全部candidates找覆盖依据，findings为空仅影响judgments，不代表没有可用候选。先finding_ids/candidate_observation，再以原文比较，最后verdict/reason；源码有答案不能自动算候选交付。
+- 明确观察/判定/理由一致保留必要主干缺口；允许语义概括/多条共同覆盖，不要求逐字引用或字符位置，不机械要求全部源码细节。程序只校验必填观察/类型/既有文本保护及原身份/引用/预算，不按理由关键词重打分；语义效果尚待真实验收。
+- 继续M097额外字段隔离/原始收据保全；另8种用途Schema、评分judgments结构逐份保持。新Schema/Skill进入新批准，旧记录只读回看、不补新字段/不迁移分数，后续完整实测统一重评9批24项。
+- 新5项及既有结构/评分/传输/观察回归共61项唯一用例通过，追加旧历史回读定向复核通过。M099两份原响应保持且不补新字段；实际失败payload61候选用真实LangChain/MockTransport/生产接收器演练人工协议夹具，不当作模型改善成绩。
+- 原M099的44份、原M096的44份、M097的7份及更早材料、45原生、8问答和认知保持；离线资料存忽略目录。无新真实调用，原评分仍未完成，不复用旧意见伪造新观察。
+
+验证：61项相关用例最终通过、旧历史定向复核、实际payload离线协议控制、8种非评分/语义检查Schema一致、全部历史保护、文档链接与git diff --check；不重复完整回归。0新真实调用，无LangSmith、样本执行、补查、知识发布、Web/API、推送、部署或新会话。详见[候选表达评分](COGNITION_EVALUATION_CANDIDATES.md)。修复提交后准备新完整实测包申请具体批准。

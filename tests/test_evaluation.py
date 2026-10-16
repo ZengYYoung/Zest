@@ -36,6 +36,7 @@ class EvaluationFixture:
         if self.unknown: raise TimeoutError('offline unknown transport')
         value = {'coverage': [dict(id=r['id'], verdict=self.coverage_verdict,
                     finding_ids=[payload['candidates'][0]['finding_id']] if self.coverage_verdict in ('full', 'partial') else [],
+                    candidate_observation='人工标注的候选表达夹具，不是实际模型观察。',
                     evidence_ids=r['evidence_ids'], reason='独立人工标注夹具，非真实评分。') for r in payload['requirements']],
                  'judgments': [evaluation_judgment(f, supported=self.semantic_support) for f in payload['findings']]}
         if self.invalid: value['coverage'].append({'id': 'forged'})
@@ -452,6 +453,9 @@ class EvaluationTest(unittest.TestCase):
             props = envelope['contract']['schema']['properties']['judgments']['items']['properties']['checks']['items']
             del props['properties']['evidence_observation']
             props['required'].remove('evidence_observation')
+            coverage_props = envelope['contract']['schema']['properties']['coverage']['items']
+            del coverage_props['properties']['candidate_observation']
+            coverage_props['required'].remove('candidate_observation')
             envelope['contract']['schema_sha256'] = digest(envelope['contract']['schema'])
             conn.execute('UPDATE evaluations SET envelope=?,envelope_sha256=? WHERE id=?',
                          (canonical(envelope), digest(envelope), record['id']))
@@ -459,6 +463,7 @@ class EvaluationTest(unittest.TestCase):
                 response, receipt = json.loads(row['response']), json.loads(row['receipt'])
                 raw = json.loads(receipt['text'])
                 for value in (response, raw):
+                    for c in value['coverage']: del c['candidate_observation']
                     for j in value['judgments']:
                         for check in j['checks']: del check['evidence_observation']
                 receipt['text'] = canonical(raw)
@@ -467,6 +472,7 @@ class EvaluationTest(unittest.TestCase):
         before = self.evaluator.db_path.read_bytes()
         source_before, calls_before = self.store.db_path.read_bytes(), len(self.scorer.calls)
         saved = self.evaluator.show(record['id'], preview=True)
+        self.assertTrue(all('candidate_observation' not in c for call in saved['calls'] for c in call['response']['coverage']))
         report = self.evaluator.report(record['id'])
         self.assertTrue(report['result']['overall_passed'])
         self.assertTrue(report['result']['judgments'])

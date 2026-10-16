@@ -89,3 +89,5 @@ M063 增加 cognition_resolution，绑定 CognitionResolutionResponse、Resoluti
 M065 同步调整核对、评分与结案：移除 ClaimCheck / ResolutionCheck 的字符索引，保留逐属性、条件、证据、语义覆盖和冲突判断；结案历史读取按冻结 Schema 保留旧范围校验，不把旧结果迁移成新成绩。详见 [移除模型字符索引](COGNITION_SEMANTIC_REVIEW.md)。
 
 M077为独立评分拆出具名EvaluationFindingJudgment / EvaluationClaimCheck，后者在verdict前必填evidence_observation（严格字符串、非空、最多800字符），先描述获准原文，再对比原属性。原文核对的ClaimCheck、结案及其他八种输出完整契约不变；生产评分接收器同步要求并保留观察，缺失不回退补写。历史响应按原冻结Schema回读，不迁移为新评分。观察仍是模型描述，不是程序认证的证据或语义正确保证，详见 [评分证据观察](COGNITION_EVALUATION_OBSERVATION.md)。
+
+M100为CoverageJudgment增加必填candidate_observation，在最终verdict前记录所选候选实际表达与缺口；Skill明确覆盖目标与候选依据不同，findings为空不妨碍coverage关联candidates。无需逐字引用或字符位置，观察及判定不由关键词规则认证/修正。新Schema/Skill须新批准；其他8种用途及评分逐发现检查结构保持，旧响应不补字段，详见[覆盖评分候选表达](COGNITION_EVALUATION_CANDIDATES.md)。

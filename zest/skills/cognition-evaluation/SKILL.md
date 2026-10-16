@@ -11,15 +11,21 @@ description: 独立评价 Zest 固定版本认知结果的事实与流程覆盖�
 
 程序把整个评分包分成多次请求；你只处理当前请求中的明确目标：
 
-- requirements 是本批覆盖度目标，每个 id 对应一个 coverage；candidates 仅用于判断这些目标是否被明确表达，不因此增加 judgments。
+- requirements 是本批覆盖度目标，每个 id 对应一个 coverage。candidates 是已交付结论/回答/未知陈述，供你自主逐条查找哪些表达了该目标；无需程序预先为每个目标指派候选，也无需候选同时出现在 findings 中。所选身份填 coverage.finding_ids，不因此增加 judgments。
 - findings 是本批语义评分目标，每个 finding_id 对应一个 judgment。judgments 的身份集合必须与 findings 完全相同；findings 为空时 judgments 为空。
 - other_findings 与 report_unknowns 只供检查目标与其他陈述的冲突，不能为它们新增 judgment。即使线索标为 observed，或当前原文恰好涉及它，也不改变本批目标。发现不兼容陈述时，在目标 judgment 的 conflicts 中保留对方身份及原因；重复、未读或证据不足本身不是冲突。
 
 例如 findings 只有 A、other_findings 包含 B 时，只输出 A 的 judgment；若 A 与 B 有直接矛盾，在 A.conflicts 引用 B，不单独给 B 评分。每批目标和可用证据由程序冻结，不能自行扩展。
 
+如果 requirements 非空、findings 为空，仍须逐项完成 coverage 并从 candidates 选择表达依据，只将 judgments 留空。不能因 findings 为空就声称本批没有候选或候选没有被指派；真正没有表达时按 missing 判断，不用没有候选身份的 partial/full 凑齐结果。
+
 ## 通用准则
 
 **覆盖度**：逐个评价冻结参考项的每个必要属性。既检查原文是否支持参考，也检查候选结论是否明确表达该属性；只有引用里有答案、结论没有说出，不算覆盖。跨多条结论可以共同覆盖，重复表达不加分。完整表达且被原文支持为 full；只表达部分、漏条件或不够精确为 partial；没有表达为 missing；参考本身缺乏原文依据为 reference_unsupported，说明问题，不私自改参考或分母。事实、流程、未知项分别统计。
+
+每个coverage按以下顺序形成判断：先从全部candidates选择相关finding_ids，在candidate_observation简述这些原句实际表达的主干及缺口；再用本项evidence原文检查参考依据及候选内容；最后给出verdict与reason。观察可按语义概括，不要求逐字摘抄或字符位置，但不得把仅在源码看到的步骤补进候选表达。没有候选时说明查找结果；full/partial必须关联实际所选候选。
+
+候选可以用不同措辞表达同一主干，也可以由多条合起来覆盖；按冻结的项目实用性准则判断，不机械要求源码细节齐全。若参考明确要求处理、保存与返回，而候选只列入口或关系，源码中另有完整实现仍不能代替交付内容。若必要主干确有缺口，应在观察、判定、理由中一致保留；非关键措辞不因此扣分。不要先默认full，再在理由承认只有partial；模型负责这项语义比较，程序不会通过理由关键词擅自改分。
 
 流程评价关注触发条件、入口与调用链、关键转换/分支、状态或持久化变化、错误处理及可观察结果。具体必要属性由样本冻结，不要求所有项目具备同一种架构或实现。缺失某个必要环节不能因总体描述合理而补计。
 

@@ -12,6 +12,8 @@ M076对新报告的13次真实评分全部有效，但仍误收含内部空格�
 
 M097针对M096评分因空reason_extra停止的问题，增加[评分接收兼容](COGNITION_EVALUATION_RECEPTION.md)：只在评分本地入口隔离各层对象的非判定额外字段，保留完整原始安全收据。必需字段、待评身份、引用、有效冲突与预算仍校验；供应商Schema/Skill保持，接收版本单独进入批准契约，旧包不能套用新规则。两份实际响应离线回放接收成功，原评分仍partial，0新真实调用。
 
+M100修复M099暴露的[覆盖评分候选关联](COGNITION_EVALUATION_CANDIDATES.md)：Skill明确自主从candidates查找表达依据，即使findings为空也要完成coverage；新增candidate_observation先说明候选主干与缺口，再和原文比较并判定。61项相关用例及保存材料离线协议控制通过，0新真实调用；语义质量改善仍待新统一版本完整实测，旧评分不混入。
+
 ## 使用与权限
 
 ```bash

@@ -100,7 +100,7 @@ def validate_evaluation(response, payload):
     keys(response, ('coverage', 'judgments'))
     expected = {r['id']: r for r in payload['requirements']}
     for judgment in items(response['coverage'], len(expected), minimum=len(expected)):
-        keys(judgment, ('id', 'verdict', 'finding_ids', 'evidence_ids', 'reason'))
+        keys(judgment, ('id', 'finding_ids', 'candidate_observation', 'evidence_ids', 'verdict', 'reason'))
         identity = judgment['id']
         if not isinstance(identity, str) or identity not in expected:
             raise FileReadError('invalid_evaluation_output', '评分参考身份重复或无效。')
@@ -110,6 +110,7 @@ def validate_evaluation(response, payload):
         matched = judgment['verdict'] in ('full', 'partial')
         strings(judgment['finding_ids'], None, allowed={f['finding_id'] for f in payload['candidates']}, minimum=1 if matched else 0)
         strings(judgment['evidence_ids'], None, allowed=set(requirement['evidence_ids']), minimum=1 if matched else 0)
+        text(judgment['candidate_observation'], 1600)
         text(judgment['reason'], 1600)
     return {'coverage': response['coverage'], 'judgments': validate_judgments(
         response['judgments'], payload, require_evidence_observation=True)}
