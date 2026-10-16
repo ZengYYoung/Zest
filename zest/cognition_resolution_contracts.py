@@ -9,11 +9,11 @@ from .files import FileReadError
 
 RESOLUTION_PROMPT = """你负责审阅同一固定 commit 的新旧认知，提出处理建议，不直接关闭问题或改写知识。
 references 是待核实的旧断言或未知问题，old_review 仅为线索；candidates 是本次补查经逐项核对的结论，但仍须对照 evidence 原文。
-对每个 reference 按独立对象、属性、条件和断言拆分 checks，start/end 为 Unicode 字符位置，按顺序连续覆盖原 statement 全文。
+对每个 reference 按独立对象、属性、条件和断言拆分 checks，通过 reference_id 对照程序保存的完整原 statement，不计算或返回字符位置。
 逐项 confirmed 表示旧断言及条件完整成立；corrected 表示候选完整纠正或补全这一属性；unresolved 表示证据不足、仅部分回答或仍矛盾。
 未知问题只能 corrected（已完整回答）或 unresolved，不能把问句标成 confirmed。
 每个已处理属性必须列出明确回答它的候选 finding_ids，以及这些候选的 evidence_ids；主题相近不算回答。
-coverage_complete 只在所有语义属性、条件和旧核对意见均已交代时为 true，字符覆盖不代表语义完整。
+coverage_complete 只在所有语义属性、条件和旧核对意见均已交代时为 true，不确定或遗漏时为 false；这是模型判断，不是程序证明。
 逐条回答 conflicts 的 left/right 身份，解释错误归属或条件边界；resolved 须两端全部属性已有结论并有本次原文支持。
 一侧有结论不意味着整条冲突链解决；不得用 run completed、旧 supported、重复表述或预算耗尽代替证据。
 corrected 的候选集合必须保留旧结论中仍正确的全部属性，不得只修一个词而丢掉其他内容。
@@ -76,7 +76,8 @@ def build_payload(value):
                               for f in value['findings'] if f['id'] not in {c['finding_id'] for c in candidates}]}}
 
 
-def validate_resolution(response, payload):
+def validate_resolution(response, payload, *, _legacy_ranges=False):
+    """New responses omit offsets; legacy mode is only for saved-history reads."""
     keys(response, ('judgments', 'conflicts'))
     candidates = {c['finding_id']: c for c in payload['candidates']}
     references = {r['reference_id']: r for r in payload['references']}
@@ -97,15 +98,17 @@ def validate_resolution(response, payload):
             raise FileReadError('invalid_resolution', '语义覆盖标志必须为布尔值。')
         text(judgment['reason'])
         for check in items(judgment['checks'], None, minimum=1):
-            keys(check, ('start', 'end', 'subject', 'attribute', 'condition', 'assertion', 'outcome', 'finding_ids', 'evidence_ids', 'reason'))
-            if type(check['start']) is not int or type(check['end']) is not int or check['start'] != cursor or not cursor < check['end'] <= len(reference['statement']):
-                raise FileReadError('invalid_resolution', '属性范围须连续覆盖原句，不得遗漏、重叠或越界。')
-            cursor = check['end']
+            fields = ('subject', 'attribute', 'condition', 'assertion', 'outcome', 'finding_ids', 'evidence_ids', 'reason')
+            keys(check, ('start', 'end', *fields) if _legacy_ranges else fields)
+            if _legacy_ranges:
+                if type(check['start']) is not int or type(check['end']) is not int or check['start'] != cursor or not cursor < check['end'] <= len(reference['statement']):
+                    raise FileReadError('invalid_resolution', '历史属性范围须连续覆盖原句，不得遗漏、重叠或越界。')
+                cursor = check['end']
             for field in ('subject', 'attribute', 'condition', 'assertion', 'reason'): text(check[field])
             if check['outcome'] not in ('confirmed', 'corrected', 'unresolved') or (reference['kind'] == 'unknown' and check['outcome'] == 'confirmed'):
                 raise FileReadError('invalid_resolution', '属性处理结果无效；未知问题不能直接确认为事实。')
             evidence_links(check, check['outcome'] != 'unresolved')
-        if cursor != len(reference['statement']):
+        if _legacy_ranges and cursor != len(reference['statement']):
             raise FileReadError('invalid_resolution', '属性核对未覆盖旧结论全文。')
         answered = judgment['coverage_complete'] and all(c['outcome'] != 'unresolved' for c in judgment['checks'])
         outcome = ('corrected' if any(c['outcome'] == 'corrected' for c in judgment['checks']) else 'confirmed') if answered else 'unresolved'
@@ -145,7 +148,9 @@ def validate_resolution(response, payload):
                         'replacement_ids': sorted({i for c in judgment['checks'] for i in c['finding_ids']}) if closable else []})
     return {'judgments': judgments, 'conflicts': conflicts, 'effects': effects,
             'open_work_clear': bool(clear), 'selected_closable': next(e['closable'] for e in effects if e['reference_id'] == payload['references'][0]['reference_id']),
-            'limitations': ['model_relation_not_human_gold', 'character_coverage_not_semantic_proof', 'requires_explicit_adoption']}
+            'limitations': ['model_relation_not_human_gold',
+                           'character_coverage_not_semantic_proof' if _legacy_ranges else 'semantic_coverage_is_model_judgment',
+                           'requires_explicit_adoption']}
 
 
 def proposal_hash(envelope, result):

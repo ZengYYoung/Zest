@@ -24,10 +24,8 @@ class AttributeReviewTest(unittest.TestCase):
     def test_mixed_composite_is_blocked_and_correct_subclaim_is_retained(self):
         p = payload()
         j = judgment(p)
-        boundary = p['findings'][0]['statement'].index('；') + 1
-        first = deepcopy(j['checks'][0]); first['end'] = boundary
-        second = deepcopy(first); second.update(start=boundary, end=len(p['findings'][0]['statement']),
-            attribute='生命周期', assertion='session', verdict='contradicted')
+        first = deepcopy(j['checks'][0]); first.update(attribute='存储', assertion='内存库')
+        second = deepcopy(first); second.update(attribute='生命周期', assertion='session', verdict='contradicted')
         j['checks'] = [first, second]
         result = validate_judgments([j], p)[0]
         self.assertFalse(result['supported'])
@@ -51,7 +49,7 @@ class AttributeReviewTest(unittest.TestCase):
             j = judgment(p); j['coverage_complete'] = complete
             self.assertFalse(validate_judgments([j], p)[0]['supported'])
 
-    def test_bad_spans_and_borrowed_evidence_cannot_hide_a_clause(self):
+    def test_old_offsets_and_borrowed_evidence_are_rejected(self):
         for change in ({'start': True}, {'start': 1}, {'end': 2}, {'end': 1000},
                        {'evidence_ids': ['P999']}, {'evidence_ids': []}):
             p = payload(); j = judgment(p); j['checks'][0].update(change)

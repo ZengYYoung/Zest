@@ -237,8 +237,6 @@ class ProjectReportResponse(OutputModel):
 class ClaimCheck(OutputModel):
     """One independently checked assertion within an unchanged finding."""
 
-    start: int = Field(description="原 statement 的 Unicode 字符起始偏移，含起点；与 end 定位被核对的原句，不改写原结论。")
-    end: int = Field(description="原 statement 的 Unicode 字符结束偏移，不含终点。逐项按原顺序覆盖整段，包括连接词和标点，不遗漏限定词。")
     subject: str = Field(description="该独立命题的具体对象，如函数、配置项或业务步骤。")
     attribute: str = Field(description="单独核对的属性，如生命周期、错误分支、返回值；不能把多个独立属性打包。")
     condition: str = Field(description="原断言的触发条件或适用范围；原句无条件写明无条件，不得偷偷补入正确条件来替原断言解围。")
@@ -259,8 +257,8 @@ class FindingJudgment(OutputModel):
     """Attribute checks and conflicts; whole-finding acceptance is computed locally."""
 
     finding_id: str = Field(description="本批待核对发现的原始 finding_id；每个身份必须恰好输出一次。")
-    checks: list[ClaimCheck] = Field(description="逐个独立命题核对全部原文，包括括号内解释、条件、否定和数量；每项用原始字符范围定位，不能只核对大致正确的主干。")
-    coverage_complete: bool = Field(description="是否已逐项覆盖全部独立属性；不能确认拆分完整时为 false，程序的字符覆盖检查不能证明语义拆分完整。")
+    checks: list[ClaimCheck] = Field(description="围绕 finding_id 对应的完整原结论，逐个独立属性核对，包括括号内解释、条件、否定和数量；不返回字符位置，不修正或替换原断言。")
+    coverage_complete: bool = Field(description="模型判断是否已逐项覆盖原结论的全部独立属性；不能确认或发现遗漏则为 false。此标志不是程序证明的语义完整性。")
     conflicts: list[ReviewConflict] = Field(description="与本批、other_findings 或 report_unknowns 中明确陈述的未解决矛盾；无矛盾为空。线索不作为支持证据，冲突双方及来源须保留。")
     reason: str = Field(description="中文核对理由，说明原文支持点或具体不足，不根据多个 Agent 一致就认定正确。")
 
@@ -291,8 +289,6 @@ class CognitionEvaluationResponse(OutputModel):
 class ResolutionCheck(OutputModel):
     """One old assertion attribute answered by freshly reviewed findings."""
 
-    start: int = Field(description="旧 statement 的 Unicode 起始字符，包含。")
-    end: int = Field(description="旧 statement 的 Unicode 结束字符，不包含；连续覆盖全文。")
     subject: str = Field(description="本项核对的对象。")
     attribute: str = Field(description="对象的独立属性，不能用主题近似代替。")
     condition: str = Field(description="断言成立的完整条件或边界。")
@@ -307,8 +303,8 @@ class ResolutionJudgment(OutputModel):
     """Complete response to one old finding or located unknown."""
 
     reference_id: str = Field(description="提供的旧发现或未知项身份，必须恰好判断一次。")
-    checks: list[ResolutionCheck] = Field(description="按独立属性逐项判断，连续完整覆盖原 statement；至少一项。")
-    coverage_complete: bool = Field(description="所有语义属性、边界和旧核对意见均已处理；字符覆盖本身不保证语义完整。")
+    checks: list[ResolutionCheck] = Field(description="通过 reference_id 关联完整旧结论，按独立对象、属性、条件逐项判断；至少一项，不计算字符位置。")
+    coverage_complete: bool = Field(description="模型判断所有语义属性、边界和旧核对意见是否已处理；不确定或遗漏时为 false，不是程序证明的完整性。")
     reason: str = Field(description="总体说明本问题是否已完整回答，不替代逐项证据。")
 
 

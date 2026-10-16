@@ -38,7 +38,7 @@ class ResolutionModel:
             outcome = 'unresolved' if ref['reference_id'] in self.unresolved_refs else self.outcome
             judgments.append({'reference_id':ref['reference_id'], 'coverage_complete':self.coverage,
                 'reason':'离线人工标注关系，不代表模型质量。', 'checks':[{
-                    'start':0,'end':len(ref['statement']),'subject':'add','attribute':'返回值',
+                    'subject':'add','attribute':'返回值',
                     'condition':'固定版本','assertion':ref['statement'],'outcome':outcome,
                     'finding_ids':[candidate['finding_id']] if outcome != 'unresolved' else [],
                     'evidence_ids':candidate['evidence_ids'] if outcome != 'unresolved' else [],
@@ -199,7 +199,7 @@ class ResolutionTest(unittest.TestCase):
         bad=[]
         v=deepcopy(raw);v['judgments'].pop();bad.append(v)
         v=deepcopy(raw);v['conflicts']=[];bad.append(v)
-        v=deepcopy(raw);v['judgments'][0]['checks'][0]['end']-=1;bad.append(v)
+        v=deepcopy(raw);v['judgments'][0]['checks'][0]['end']=1;bad.append(v)
         v=deepcopy(raw);v['judgments'][0]['checks'][0]['evidence_ids']=['P999'];bad.append(v)
         v=deepcopy(raw);v['judgments'][0]['checks'][0]['finding_ids']=['forged'];bad.append(v)
         v=deepcopy(raw);v['judgments'][0]['checks'][0]['outcome']='unresolved';bad.append(v)
@@ -356,3 +356,27 @@ class ResolutionTest(unittest.TestCase):
         self.assertEqual(len(seen),1)
         self.assertEqual(seen[0]['tools'][0]['function']['name'],'CognitionResolutionResponse')
         self.assertTrue(seen[0]['tools'][0]['function']['strict'])
+
+    def test_legacy_resolution_is_read_with_its_frozen_contract_without_rewriting(self):
+        record=self.proposed()
+        preview=self.resolver.show(record['id'],preview=True)
+        envelope=deepcopy(preview['envelope']);result=deepcopy(preview['result'])
+        properties=envelope['contract']['schema']['properties']['judgments']['items']['properties']['checks']['items']['properties']
+        properties.update(start={'type':'integer'},end={'type':'integer'})
+        schema=envelope['contract']['schema']['properties']['judgments']['items']['properties']['checks']['items']
+        schema['required']+=['start','end']
+        statements={r['reference_id']:r['statement'] for r in envelope['payload']['references']}
+        for judgment in result['judgments']:
+            self.assertEqual(len(judgment['checks']),1)
+            judgment['checks'][0].update(start=0,end=len(statements[judgment['reference_id']]))
+        result['limitations'][1]='character_coverage_not_semantic_proof'
+        with self.resolver.open(write=True) as conn,conn:
+            conn.execute('UPDATE resolutions SET envelope=?,envelope_sha256=?,result=? WHERE id=?',
+                         (canonical(envelope),digest(envelope),canonical(result),record['id']))
+        before=self.resolver.db_path.read_bytes()
+        historical=self.resolver.show(record['id'])
+        self.assertEqual(historical['result'],result)
+        self.assertEqual(before,self.resolver.db_path.read_bytes())
+        wire=deepcopy(result)
+        for judgment in wire['judgments']:judgment.pop('outcome')
+        with self.assertRaises(FileReadError):validate_resolution({k:wire[k] for k in ('judgments','conflicts')},envelope['payload'])

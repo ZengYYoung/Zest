@@ -24,7 +24,7 @@ from zest.storage import ProjectRegistry
 def review_judgment(finding, *, supported=True):
     return {"finding_id": finding["finding_id"], "coverage_complete": True, "conflicts": [],
             "reason": "离线核对夹具，不代表模型语义质量。", "checks": [
-                {"start": 0, "end": len(finding["statement"]), "subject": "add", "attribute": "返回值",
+                {"subject": "add", "attribute": "返回值",
                  "condition": "无附加条件", "assertion": finding["statement"],
                  "evidence_ids": finding["evidence_ids"],
                  "verdict": "supported" if supported else "insufficient_evidence", "reason": "原文包含返回表达式。"}]}

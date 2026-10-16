@@ -18,7 +18,7 @@ from zest.model_outputs import (
 class ModelOutputContractTest(unittest.TestCase):
     def wire_examples(self):
         return {
-            "cognition_resolution": {"judgments": [{"reference_id":"T1:F1", "checks":[{"start":0,"end":1,"subject":"对象","attribute":"属性","condition":"无附加条件","assertion":"旧断言","outcome":"corrected","finding_ids":["T1:F1"],"evidence_ids":["P1"],"reason":"原文与新结论完整回答。"}],"coverage_complete":True,"reason":"逐项处理。"}], "conflicts":[]},
+            "cognition_resolution": {"judgments": [{"reference_id":"T1:F1", "checks":[{"subject":"对象","attribute":"属性","condition":"无附加条件","assertion":"旧断言","outcome":"corrected","finding_ids":["T1:F1"],"evidence_ids":["P1"],"reason":"原文与新结论完整回答。"}],"coverage_complete":True,"reason":"逐项处理。"}], "conflicts":[]},
             "cognition_evaluation": {"coverage": [{"id": "G01/A1", "verdict": "full", "finding_ids": ["T1:F1"], "evidence_ids": ["P1"], "reason": "原文与候选均明确表达。"}], "judgments": []},
             "qa": {"status": "answered", "answer": "使用 Python。[E1]", "citations": ["E1"], "unknowns": []},
             "repair_proposal": {"status": "proposed", "summary": "修复边界判断。", "changes": [
@@ -38,7 +38,7 @@ class ModelOutputContractTest(unittest.TestCase):
                 "status": "partial", "findings": [], "unknowns": ["尚缺证据。"], "material_requests": [
                     {"source_id": "S1", "path": "app.py", "reason": "需要续读。"},
                     {"source_id": "", "path": "operations/run.log", "reason": "需要运行证据。"}]}}},
-            "project_review": {"judgments": [{"finding_id": "T1-F1", "coverage_complete": True, "conflicts": [], "reason": "原文直接支持。", "checks": [{"start": 0, "end": 1, "subject": "入口", "attribute": "调用", "condition": "无附加条件", "assertion": "入口调用", "evidence_ids": ["P1"], "verdict": "supported", "reason": "原文直接支持。"}]}]},
+            "project_review": {"judgments": [{"finding_id": "T1-F1", "coverage_complete": True, "conflicts": [], "reason": "原文直接支持。", "checks": [{"subject": "入口", "attribute": "调用", "condition": "无附加条件", "assertion": "入口调用", "evidence_ids": ["P1"], "verdict": "supported", "reason": "原文直接支持。"}]}]},
         }
 
     def test_all_model_purposes_preserve_protocol_shape(self):
@@ -90,6 +90,18 @@ class ModelOutputContractTest(unittest.TestCase):
                     model_for(purpose).model_validate({name: value for name, value in wire.items() if name != key})
             with self.subTest(purpose=purpose, extra="type"), self.assertRaises(ValidationError):
                 model_for(purpose).model_validate({**wire, "type": "json_object"})
+
+    def test_review_evaluation_and_resolution_never_request_character_offsets(self):
+        examples = self.wire_examples()
+        examples['cognition_evaluation']['judgments'] = deepcopy(examples['project_review']['judgments'])
+        for purpose in ('project_review', 'cognition_evaluation', 'cognition_resolution'):
+            with self.subTest(purpose=purpose):
+                schema = get_output_schema(purpose)
+                properties = schema['properties']['judgments']['items']['properties']['checks']['items']['properties']
+                self.assertNotIn('start', properties); self.assertNotIn('end', properties)
+                wire = deepcopy(examples[purpose])
+                wire['judgments'][0]['checks'][0].update(start=0, end=1)
+                with self.assertRaises(ValidationError): model_for(purpose).model_validate(wire)
 
     def test_nested_types_and_authority_shape_are_not_coerced(self):
         invalid_actions = [

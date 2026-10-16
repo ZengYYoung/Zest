@@ -59,6 +59,8 @@ category 为 facts / flows / unknowns；每项含一个或多个不可遗漏的�
 
 CognitionEvaluationResponse 通过 model.with_structured_output 返回具名 CoverageJudgment / FindingJudgment / ClaimCheck / ReviewConflict。每批要求身份完整且唯一；支持判定必须关联本项原文，覆盖度须指出明确表达的候选。整条语义支持沿用 M059 的严格属性门控。
 
+M065 同步移除 ClaimCheck 的 start/end，评分 Skill 按 finding_id 对照完整原句作逐属性判断，coverage_complete 是模型判断，不是程序证明。固定参考、分母、证据与误收门槛保持原样；旧评分包仍可查看，未执行旧包不能在新 Skill/Schema 下外发，须重新准备。见 [职责与验证边界](COGNITION_SEMANTIC_REVIEW.md)。
+
 准备时按最多四个参考属性或两个语义发现尝试分批，合并重复原文并重定位 P 身份；完整真实请求超过 32000 字符就缩批，单项仍超过 32000 但不超过 48000 时冻结为精确扩展清单，未获额外同意不能执行；超过 48000 停止准备，不能截原文或静默丢候选。输出上限每批 8192 tokens。默认所选评分调用上限 32，实际批准预算固定为本包精确批次数，调查预算不变；需要更多时 prepare 显式传 `--max-calls`（最多 128），仍须审阅新包再批准。执行前复核完整请求、Skill、Schema、模型接口和超时；默认字符预算不变；含扩展清单的包须审阅每条完整请求，approve 还必须显式传 `--allow-extended-requests`，决定、清单及包哈希一起留存。没有新增工具权限。
 
 评分请求单独预占并留账，已知响应及校验结果原子保存，再推进 SQLite checkpoint。该初版评分流程 max_format_retries=0；已知无效保留收据后停止，未知请求不重发。新包有新批准，不能通过另建任务暗中替用户补试。模型输出结构、引用或完整性无效都不补写字段。

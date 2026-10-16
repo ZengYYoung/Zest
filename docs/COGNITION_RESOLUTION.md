@@ -34,7 +34,7 @@ zest project context <project-id> --format text
 
 `CognitionResolutionResponse` 通过 `model.with_structured_output` 绑定具名 `ResolutionJudgment / ResolutionCheck / ResolutionConflict`。
 
-每个旧发现或定位未知必须恰好判断一次。checks 按对象、属性、条件、断言给出字符段，连续覆盖原 statement；程序检查引用和字符覆盖，语义拆分及完整性仍由模型判断，不能把字符齐全称为语义正确。
+每个旧发现或定位未知必须恰好判断一次。M065 起，checks 通过 reference_id 关联完整旧结论，按对象、属性、条件和断言判断，不再返回字符位置；程序检查身份、结构和引用，语义拆分及完整性仍由模型判断。见 [职责与历史兼容](COGNITION_SEMANTIC_REVIEW.md)。
 
 | 属性结果 | 含义 |
 | --- | --- |

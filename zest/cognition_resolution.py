@@ -109,7 +109,8 @@ class ResolutionStore:
                 if result is not None:
                     raw = {k: result[k] for k in ('judgments', 'conflicts')}
                     for j in raw['judgments']: j.pop('outcome', None)
-                    result = validate_resolution(raw, envelope['payload'])
+                    properties = envelope['contract']['schema']['properties']['judgments']['items']['properties']['checks']['items']['properties']
+                    result = validate_resolution(raw, envelope['payload'], _legacy_ranges='start' in properties and 'end' in properties)
                     if result != json.loads(row['result']): raise ValueError
                 output = {k: row[k] for k in ('id', 'project_id', 'created_at', 'status')}
                 output.update(commit=envelope['commit'], followup_run_id=envelope['snapshot']['run_id'],

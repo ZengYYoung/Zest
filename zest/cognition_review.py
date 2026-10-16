@@ -18,21 +18,14 @@ def validate_judgments(judgments, payload):
         if type(judgment["coverage_complete"]) is not bool:
             raise FileReadError("invalid_cognition_output", "核对覆盖标志必须为布尔值。")
         text(judgment["reason"])
-        cursor = 0
         for check in items(judgment["checks"], None, minimum=1):
-            keys(check, ("start", "end", "subject", "attribute", "condition", "assertion", "evidence_ids", "verdict", "reason"))
-            if (type(check["start"]) is not int or type(check["end"]) is not int
-                    or check["start"] != cursor or not cursor < check["end"] <= len(finding["statement"])):
-                raise FileReadError("invalid_cognition_output", "核对字符范围须按顺序连续覆盖原结论，不能重叠、遗漏或越界。")
-            cursor = check["end"]
+            keys(check, ("subject", "attribute", "condition", "assertion", "evidence_ids", "verdict", "reason"))
             for field in ("subject", "attribute", "condition", "assertion", "reason"):
                 text(check[field])
             if check["verdict"] not in ("supported", "contradicted", "insufficient_evidence"):
                 raise FileReadError("invalid_cognition_output", "独立命题判定无效。")
             strings(check["evidence_ids"], None, allowed=set(finding["evidence_ids"]),
                     minimum=1 if check["verdict"] == "supported" else 0, field="check.evidence_ids")
-        if cursor != len(finding["statement"]):
-            raise FileReadError("invalid_cognition_output", "核对没有覆盖原结论的全部字符。")
         seen = set()
         for conflict in items(judgment["conflicts"], None):
             keys(conflict, ("reference_id", "reason"))
@@ -46,7 +39,7 @@ def validate_judgments(judgments, payload):
 
 
 def accepts(judgment, finding):
-    """Whole-finding gate. Character coverage does not prove semantic coverage."""
+    """Whole-finding gate; semantic completeness remains a model judgment."""
     return (finding["kind"] == "observed" and judgment.get("coverage_complete") is True
             and bool(judgment.get("checks"))
             and all(c["verdict"] == "supported" for c in judgment["checks"])

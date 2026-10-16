@@ -78,10 +78,12 @@ M042 仅在完整结构通过后隔离单条业务校验失败，保留原报告
 
 M044 同步将 findings 描述与工作指令改为约六条的软建议，接收器取消条数硬门槛。Pydantic 列表类型、严格字段、逐条引用和完整响应字符/token 预算继续生效；POLICY 显式记录原 32000 字符响应保护，变化后的包须重新绑定批准。没有绕过 with_structured_output 或自动修补响应。
 
-M059 的核对输出使用 ClaimCheck / ReviewConflict，逐项属性检查、原句范围完整性和冲突保留见 [逐项核对](COGNITION_ATTRIBUTE_REVIEW.md)。supported 仅为内部派生字段；新 Schema 不沿用旧批准。
+M059 的核对输出使用 ClaimCheck / ReviewConflict，逐项属性检查和冲突保留见 [逐项核对](COGNITION_ATTRIBUTE_REVIEW.md)。M065 移除模型填写的 start/end，改用已有身份关联完整原句；coverage_complete 仍是模型语义判断。supported 仅为内部派生字段；新 Schema 不沿用旧批准。
 
 M060 新增独立评分的 CognitionEvaluationResponse，具名 CoverageJudgment 与属性核对模型共同约束逐项输出；评分 Skill 全文、Schema、精确请求和样本门槛单独冻结批准，详见 [独立认知评分](COGNITION_EVALUATION.md)。
 
 M062 增加 project_followup_plan，用具名 FollowupPlanResponse 约束定向规划，程序从已批准 followup_context 构造单任务 spec，不接受模型改写固定目标。新 Schema/指令进入完整包，旧审批不能复用，见 [定向调查](COGNITION_FOLLOWUP.md)。
 
 M063 增加 cognition_resolution，绑定 CognitionResolutionResponse、ResolutionJudgment、ResolutionCheck、ResolutionConflict。模型逐属性判断 confirmed/corrected/unresolved 并解释冲突，程序检查完整覆盖、候选/原文身份，派生整条 outcome 与逐项 closable。模型输出不直接改知识；完整建议须另行显式采纳。见 [补查结果处理](COGNITION_RESOLUTION.md)。
+
+M065 同步调整核对、评分与结案：移除 ClaimCheck / ResolutionCheck 的字符索引，保留逐属性、条件、证据、语义覆盖和冲突判断；结案历史读取按冻结 Schema 保留旧范围校验，不把旧结果迁移成新成绩。详见 [移除模型字符索引](COGNITION_SEMANTIC_REVIEW.md)。
