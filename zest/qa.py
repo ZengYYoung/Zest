@@ -1,6 +1,7 @@
 """Grounded project questions, with bounded context and checked citation IDs."""
 
 import json
+import os
 from pathlib import Path
 import re
 
@@ -11,7 +12,89 @@ from .search import search_project
 
 
 MAX_SOURCES = 8
-MAX_CONTEXT_CHARS = 24000
+MAX_CONTEXT_CHARS = 128000
+
+
+def context_budget():
+    """Application source budget, independent of a provider's token window."""
+    value = os.environ.get("ZEST_QA_CONTEXT_CHARS")
+    if value is None:
+        try:
+            from dotenv import dotenv_values
+        except ImportError:
+            pass
+        else:
+            value = dotenv_values(Path.cwd() / ".env", interpolate=False).get("ZEST_QA_CONTEXT_CHARS")
+    if value is None:
+        return MAX_CONTEXT_CHARS
+    try:
+        budget = int(value)
+    except (TypeError, ValueError) as exc:
+        raise FileReadError("invalid_qa_context_budget", "ZEST_QA_CONTEXT_CHARS 须为 1—1000000 的整数字符数。") from exc
+    if not 1 <= budget <= 1000000:
+        raise FileReadError("invalid_qa_context_budget", "ZEST_QA_CONTEXT_CHARS 须为 1—1000000 的整数字符数。")
+    return budget
+
+
+def compact_provenance(proofs):
+    """Keep every distinct original window once, with no duplicated text form."""
+    result, seen = [], set()
+    for proof in proofs:
+        item = {key: proof[key] for key in ("source_id", "evidence", "more_after") if key in proof}
+        if "lines" in proof:
+            item["lines"] = proof["lines"]
+        else:
+            item["text"] = proof["text"]
+        identity = json.dumps({k: v for k, v in item.items() if k != "source_id"}, sort_keys=True, ensure_ascii=False)
+        if identity not in seen:
+            seen.add(identity)
+            result.append(item)
+    return result
+
+
+def _symbol_ranges(project, question, commit, warnings):
+    # Exact declaration names locate implementations before TF-IDF examples.
+    names = list(dict.fromkeys(re.findall(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", question)))
+    if not names:
+        return []
+    from .structure import build_structure
+    structure = build_structure(project, commit=commit)
+    warnings.extend(structure["warnings"])
+    declarations = [symbol for module in structure["modules"] for symbol in module["symbols"]]
+    declarations.sort(key=lambda s: any(p == "tests" or p.startswith("test_") for p in Path(s["evidence"]["path"]).parts))
+    ranges = []
+    for name in names:
+        for symbol in declarations:
+            if name.casefold() not in (symbol["name"].casefold(), symbol["lexical_name"].casefold()):
+                continue
+            e = symbol["evidence"]
+            end = min(e["end_line"], e["start_line"] + 199)
+            if end < e["end_line"]:
+                warnings.append({"code": "symbol_context_partial", "path": e["path"]})
+            ranges.append((e["path"], e["start_line"], end))
+            if len(ranges) >= MAX_SOURCES:
+                return ranges
+    return ranges
+
+
+def _merge_ranges(ranges):
+    """Merge overlapping/adjacent windows while preserving first priority."""
+    result = []
+    for path, start, end in ranges:
+        first = len(result)
+        changed = True
+        while changed:
+            changed = False
+            for index, (previous, left, right) in enumerate(result):
+                if (previous == path and max(start, left) <= min(end, right) + 1
+                        and max(end, right) - min(start, left) < 200):
+                    first = min(first, index)
+                    start, end = min(start, left), max(end, right)
+                    result.pop(index)
+                    changed = True
+                    break
+        result.insert(first, (path, start, end))
+    return result
 
 
 def prepare_context(project: dict, question: str, *, keywords=None, files=None, state_dir=None, retrieval="keyword") -> dict:
@@ -23,6 +106,7 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
     files = files or []
     if len(keywords) > 3 or len(files) > 5:
         raise FileReadError("context_input_limit", "最多指定 3 个关键词和 5 个文件。")
+    budget = context_budget()
     state = inspect_repository(project["root_path"])
     commit = selected_commit(project, state)
     result = {"project_id": project["id"], "question": question, "commit": commit,
@@ -41,7 +125,7 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
                                    "confirmed_at": note["confirmed_at"]},
                       "title": note["title"], "body": note["body"]}
             added = len(json.dumps(source, ensure_ascii=False))
-            if size + added <= MAX_CONTEXT_CHARS:
+            if len(result["sources"]) < MAX_SOURCES and size + added <= budget:
                 result["sources"].append(source)
                 size += added
             else:
@@ -54,9 +138,9 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
                                    "finding_id": note["id"], "observed_commit": note["commit"],
                                    "finding_sha256": note["finding_sha256"]},
                       "title": "项目认知 · 自动核对", "body": note["body"],
-                      "provenance": note["evidence"], "review": note["review"]}
+                      "provenance": compact_provenance(note["evidence"])}
             added = len(json.dumps(source, ensure_ascii=False))
-            if len(result["sources"]) < MAX_SOURCES and size + added <= MAX_CONTEXT_CHARS:
+            if len(result["sources"]) < MAX_SOURCES and size + added <= budget:
                 result["sources"].append(source)
                 size += added
             else:
@@ -84,7 +168,7 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
         source = {"id": f"E{len(result['sources']) + 1}", "evidence": record["evidence"],
                   "lines": record["lines"], "content_sha256": record["content_sha256"]}
         added = len(json.dumps(source, ensure_ascii=False))
-        if size + added > MAX_CONTEXT_CHARS:
+        if size + added > budget:
             result["warnings"].append({"code": "context_budget", "path": path})
             return
         result["sources"].append(source)
@@ -92,17 +176,21 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
 
     if retrieval not in ("keyword", "lexical"):
         raise FileReadError("invalid_retrieval", "不支持的检索方式。")
+    ranges = [(path, 1, 60) for path in files]
     if retrieval == "lexical":
         if state_dir is None:
             raise FileReadError("index_missing", "词法检索需要指定索引状态目录。")
         from .index import RetrievalIndex
         ranked = RetrievalIndex(state_dir).search(project, question, commit=commit, limit=5)
+        ranges.extend(_symbol_ranges(project, question, commit, result["warnings"]))
         for item in ranked["matches"]:
             e = item["evidence"]
-            add(e["path"], e["start_line"], e["end_line"])
+            ranges.append((e["path"], e["start_line"], e["end_line"]))
         if ranked["metadata"]["skipped_counts"]:
             result["warnings"].append({"code": "index_skipped_sources"})
-    for path in [*files, "README.md", "pyproject.toml", "package.json"]:
+    for path, start, end in _merge_ranges(ranges):
+        add(path, start, end)
+    for path in ["README.md", "pyproject.toml", "package.json"]:
         add(path)
     for keyword in keywords:
         matches = search_project(project, keyword, commit=commit, limit=8)
