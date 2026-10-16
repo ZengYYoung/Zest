@@ -8,7 +8,7 @@ existing tool or result protocols.  No model grants read or modification rights.
 from copy import deepcopy
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from .cognition_contracts import POLICY
 
 
@@ -115,6 +115,27 @@ class ProjectPlanResponse(OutputModel):
     overview: list[PreliminaryFinding] = Field(description="最多六项初步认识；不直接写入已核对共享知识。")
     tasks: list[InvestigationTask] = Field(description="一至四个静态调查任务，可以并行或有依赖；不按六部分机械拆分。")
     gaps: list[PlanGap] = Field(description="最多十二项缺口；tasks 和 gaps 合起来必须交代六部分档案的覆盖。")
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_unused_plan_fields(cls, value):
+        """Accept inert metadata only here; keep required fields and types strict.
+
+        The provider still receives a closed schema. Work on copies so the
+        original safe receipt retains every field, including ignored metadata.
+        Shared nested types remain closed when used by other response models.
+        """
+        if not isinstance(value, dict):
+            return value
+        plan = {name: item for name, item in value.items() if name in cls.model_fields}
+        for field, model in (("overview", PreliminaryFinding), ("tasks", InvestigationTask), ("gaps", PlanGap)):
+            if isinstance(plan.get(field), list):
+                plan[field] = [
+                    {name: item for name, item in row.items() if name in model.model_fields}
+                    if isinstance(row, dict) else row
+                    for row in plan[field]
+                ]
+        return plan
 
 
 class FollowupPlanResponse(OutputModel):

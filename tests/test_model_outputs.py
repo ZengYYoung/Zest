@@ -83,13 +83,45 @@ class ModelOutputContractTest(unittest.TestCase):
             with self.subTest(purpose=purpose):
                 check(get_output_schema(purpose))
 
-    def test_missing_required_or_extra_top_level_fields_are_rejected(self):
+    def test_required_fields_and_non_planning_extra_fields_are_rejected(self):
         for purpose, wire in self.wire_examples().items():
             for key in wire:
                 with self.subTest(purpose=purpose, missing=key), self.assertRaises(ValidationError):
                     model_for(purpose).model_validate({name: value for name, value in wire.items() if name != key})
-            with self.subTest(purpose=purpose, extra="type"), self.assertRaises(ValidationError):
-                model_for(purpose).model_validate({**wire, "type": "json_object"})
+            with self.subTest(purpose=purpose, extra="type"):
+                if purpose == "project_plan":
+                    parsed = model_for(purpose).model_validate({**wire, "type": "json_object"})
+                    self.assertEqual(output_to_protocol(parsed), wire)
+                else:
+                    with self.assertRaises(ValidationError):
+                        model_for(purpose).model_validate({**wire, "type": "json_object"})
+
+    def test_plan_metadata_is_discarded_without_mutating_input_or_relaxing_shared_types(self):
+        good = self.wire_examples()["project_plan"]
+        good["gaps"] = [{"section": "constraints", "question": "运行是否受限？"}]
+        wire = deepcopy(good)
+        wire["approved"] = True
+        for field in ("overview", "tasks", "gaps"):
+            wire[field][0]["unused"] = {"execute": "outside the approved package"}
+        before = deepcopy(wire)
+        self.assertEqual(output_to_protocol(model_for("project_plan").model_validate(wire)), good)
+        self.assertEqual(wire, before)
+        with self.assertRaises(ValidationError):
+            InvestigationTask.model_validate(wire["tasks"][0])
+        followup = self.wire_examples()["project_followup_plan"]
+        followup["overview"] = wire["overview"]
+        with self.assertRaises(ValidationError):
+            model_for("project_followup_plan").model_validate(followup)
+
+    def test_plan_metadata_does_not_fill_missing_fields_or_coerce_known_fields(self):
+        for change in (lambda task: task.pop("sections"),
+                       lambda task: task.update(priority="1"),
+                       lambda task: task.update(sections="flows")):
+            wire = self.wire_examples()["project_plan"]
+            wire["tasks"][0]["unused"] = True
+            change(wire["tasks"][0])
+            with self.assertRaises(ValidationError):
+                model_for("project_plan").model_validate(wire)
 
     def test_review_evaluation_and_resolution_never_request_character_offsets(self):
         examples = self.wire_examples()

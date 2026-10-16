@@ -4,7 +4,7 @@
 
 ## 类型与调用方式
 
-[model_outputs.py](../zest/model_outputs.py) 集中定义 Pydantic v2 模型。每个模型有说明，每个字段有 `Field(description=...)`；使用枚举、明确的嵌套对象和互斥变体。所有字段显式返回，禁止额外字段，并进行严格本地类型校验。
+[model_outputs.py](../zest/model_outputs.py) 集中定义 Pydantic v2 模型。每个模型有说明，每个字段有 `Field(description=...)`；使用枚举、明确的嵌套对象和互斥变体。所有字段显式返回，供应商 Schema 禁止额外字段，并进行严格本地类型校验。M082仅对普通项目规划在本地隔离不参与执行的额外字段，必需字段、类型、来源和权限检查不变，详见[规划接收兼容](COGNITION_PLAN_RECEPTION.md)。
 
 模型返回的是外部不可信数据，需要运行时校验并自动生成可审阅 schema，因此采用 Pydantic。内部 LangGraph 状态继续使用 TypedDict，模型配置继续使用 dataclass；它们并非模型输出，无需为统一格式替换。
 

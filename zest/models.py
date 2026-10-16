@@ -65,9 +65,12 @@ def output_contract(purpose):
         raise FileReadError("ai_dependencies_missing", "请安装 ai 可选依赖。") from exc
     schema = get_output_schema(purpose)
     encoded = json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    return {"version": 1, "purpose": purpose, "method": "function_calling", "strict": True,
+    contract = {"version": 1, "purpose": purpose, "method": "function_calling", "strict": True,
             "include_raw": True, "schema": schema, "schema_sha256": hashlib.sha256(encoded).hexdigest(),
             "prompt_sha256": hashlib.sha256(PROMPTS[purpose].encode()).hexdigest()}
+    if purpose == "project_plan":
+        contract["local_reception"] = "discard_unused_plan_fields_v1"
+    return contract
 
 
 def safe_model_receipt(response):

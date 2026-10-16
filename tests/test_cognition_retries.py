@@ -15,7 +15,7 @@ from tests import test_cognition as fixtures
 from tests import test_model_outputs as outputs
 from tests.test_model_transport import reply
 from zest.cognition import CognitionEngine
-from zest.cognition_contracts import POLICY, partition_report
+from zest.cognition_contracts import POLICY, partition_report, validate_plan
 from zest.cognition_views import format_cognition
 from zest.files import FileReadError
 from zest.models import DeepSeekModel
@@ -48,7 +48,9 @@ class CognitionRetryTest(unittest.TestCase):
 
     def test_bad_json_or_schema_then_success_preserves_both_attempts_and_reuses_result(self):
         good = outputs.ModelOutputContractTest().wire_examples()["project_plan"]
-        for bad in ("{} }", "{}", json.dumps({**good, "unexpected": 1})):
+        missing_sections = copy.deepcopy(good)
+        del missing_sections["tasks"][0]["sections"]
+        for bad in ("{} }", "{}", json.dumps(missing_sections)):
             with self.subTest(bad=bad):
                 run, envelope = self.active()
                 sent = []
@@ -90,6 +92,64 @@ class CognitionRetryTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "cognition_response_invalid")
         self.assertEqual(len(sent), 2)
         self.assertEqual(record["call_count"], 2)
+
+    def test_plan_extras_use_one_attempt_keep_raw_receipt_and_never_grant_sources(self):
+        run, envelope = self.active()
+        good = outputs.ModelOutputContractTest().wire_examples()["project_plan"]
+        source = envelope["files"][0]["id"]
+        good["overview"][0]["source_ids"] = [source]
+        good["tasks"][0]["source_ids"] = [source]
+        wire = copy.deepcopy(good)
+        wire["approved"] = True
+        wire["tasks"][0]["accepectance_placeholder"] = "unused"
+        wire["tasks"][0]["editable_source_ids"] = ["outside"]
+        raw = json.dumps(wire, ensure_ascii=False)
+        sent = []
+
+        def handle(request):
+            sent.append(request.content.decode())
+            return reply(json.loads(request.content), wire, argument_text=raw)
+
+        self.install(handle)
+        result = self.invoke(run, envelope)
+        self.assertEqual(validate_plan(result, {source}), good)
+        record, call = self.record(run)
+        self.assertEqual(record["call_count"], 1)
+        self.assertEqual([a["status"] for a in call["attempts"]], ["completed"])
+        self.assertEqual(sent, [call["request"]["body_text"]])
+        self.assertEqual(call["receipt"]["raw_response"]["provider_tool_calls"][0]["function"]["arguments"], raw)
+        self.assertEqual(self.invoke(run, envelope), good)
+        self.assertEqual(len(sent), 1)
+        result["tasks"][0]["source_ids"] = ["outside"]
+        with self.assertRaises(FileReadError):
+            validate_plan(result, {source})
+
+    def test_plan_reception_contract_change_blocks_old_envelope_before_sending(self):
+        run, envelope = self.active()
+        del envelope["structured_outputs"]["project_plan"]["local_reception"]
+        self.install(lambda request: self.fail("an old approval cannot send"))
+        with self.assertRaises(FileReadError):
+            self.invoke(run, envelope)
+        self.assertEqual(self.store.show(run, include_calls=True)["call_count"], 0)
+
+    def test_sensitive_extra_plan_metadata_is_still_rejected_without_retry(self):
+        run, envelope = self.active()
+        wire = outputs.ModelOutputContractTest().wire_examples()["project_plan"]
+        secret = "sk-" + "z" * 32
+        wire["unused"] = secret
+        sent = []
+
+        def handle(request):
+            sent.append(request)
+            return reply(json.loads(request.content), wire)
+
+        self.install(handle)
+        with self.assertRaises(FileReadError):
+            self.invoke(run, envelope)
+        _, call = self.record(run)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(call["receipt"]["structured_error"], "sensitive_model_output")
+        self.assertNotIn(secret, json.dumps(call))
 
     def test_timeouts_never_retry_including_on_second_attempt(self):
         for first_invalid in (False, True):
