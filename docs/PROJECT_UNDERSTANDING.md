@@ -70,4 +70,4 @@ M068 对这四条进行 [独立评分实测](COGNITION_EVALUATION_M068.md)，两
 
 M071 在 [证据支持规则](COGNITION_EVIDENCE_SUPPORT.md) 中明确检查完整性与支持判定独立，保留原断言强度；核对/评分共用字段及指令同步，79 项定向回归通过，原材料和成绩保留。随后 [M072真实复测](COGNITION_EVALUATION_M072.md) 三次请求全部有效，过滤项证据不足与检查完整标志正确分开，四项合成对照均吻合本地预期；T1:F12 的清洗概括疑点未消除，不能据小片段成功声称稳定理解真实复合结论。
 
-M073 按确认范围 [调整报告生成粒度](COGNITION_FINDING_GRANULARITY.md)，复用原findings列表，将不同对象/证据要求/强度的断言分开，概括按依据保留observed/inferred或未知；接收器不自动拆改历史原句。76项相关回归通过，新原样报告输入与合成生成验证待具体包批准，尚无新真实生成或评分结果。
+M073 按确认范围 [调整报告生成粒度](COGNITION_FINDING_GRANULARITY.md)，复用原findings列表，将不同对象/证据要求/强度的断言分开，概括按依据保留observed/inferred或未知；接收器不自动拆改历史原句，76项相关回归通过。随后 [M074两次真实生成](COGNITION_REPORT_GENERATION_M074.md) 均有效，两份报告partial，真实报告清洗断言缺口明确保留，但长句仍混合多种规则；正式语义评分尚未执行，候选未发布知识，原调查状态与历史分数不变。
