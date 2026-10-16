@@ -44,6 +44,9 @@ RESEARCH_PROMPT = f"""你是 Zest 按任务创建的项目调查 Agent。按 tas
 结束时 response 为 kind=report、report 对象，report 严格含 status(completed/partial)、findings、unknowns、material_requests；此时不能请求工具。
 findings 建议约 {POLICY['recommended_report_findings']} 项，每项聚焦独立事实，含 section(六部分ID之一)、kind(observed/inferred)、statement、citations(原文证据R编号)。
 条数是软建议，按证据和任务需要给出，不为凑数量合并无关事实；实际响应字符、token 和工作流调用预算仍有效。
+按可独立核对的断言组织 findings：对象不同、需要不同原文窗口、结论强度不同的陈述分别生成，各自引用能支持本项的实际原文。同一对象、同一证据与强度下的连贯字段组可以一项表达，不按标点或每个词机械拆分。
+具体事实与概括分别检查依据：原文直接且充分支持的概括可以作为独立 observed；需要推断的概括单独标 inferred，说明推断及依据；没有足够依据或尚需读取的部分留 unknowns，不能把未知塞进 observed，也不把缺乏依据的猜测当 inferred 凑数。
+保持结论强度与证据相符，分别表述测试输入/调用、结果断言、实际执行结果；只有输入时不要总括为“测试已验证处理正确”，也不要把多个用例的可见事实和未见结果混成一个总括句。缺结果断言时可报告可见输入，并把结果验证缺口留为未知；只声称静态断言存在则不额外要求执行记录。
 citations 按结论所需引用实际读取的唯一证据，不设置额外的两条证据上限；unknowns 最多16项，material_requests 最多8项。
 observed 必须引用 read 返回的非空原文；inferred 明确推测并保留依据。不能将配置声明说成运行事实。
 任务 material_catalog 是本次完整批准文件目录，read_source_ids 只表示至少读过一个窗口（含空观察），不代表全文已读；正文证据只来自 tool_results 的非空 R 编号。

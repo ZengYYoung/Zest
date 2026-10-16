@@ -90,6 +90,45 @@ class ReportReceiptTest(unittest.TestCase):
         self.assertEqual(accepted, {**original, "in_scope_requests": [], "scope_requests": []})
         self.assertEqual(audit["rejected_findings"], [])
 
+    def test_separate_statements_keep_their_own_evidence_kind_and_unknowns(self):
+        from zest.model_outputs import ProjectReportResponse, ProjectResearchResponse, output_to_protocol
+        value = {"status": "partial", "findings": [
+            {"section": "development", "kind": "observed", "statement": "输入用例以带空格字符串调用 convert。", "citations": ["R1"]},
+            {"section": "development", "kind": "observed", "statement": "来源用例断言 source_row 等于 2。", "citations": ["R2"]},
+            {"section": "purpose", "kind": "inferred", "statement": "根据命名推测该用例旨在覆盖空白处理，实际结果尚未确认。", "citations": ["R1"]}],
+            "unknowns": ["输入用例后续的结果断言未在读取窗口内，尚不能确认其验证的输出。"], "material_requests": []}
+        evidence = {"R1": {"text": 'def test_convert_whitespace():\n    result = convert(" value ")'},
+                    "R2": {"text": "assert record.source_row == 2"}}
+        original = copy.deepcopy(value)
+        for schema in (ProjectReportResponse, ProjectResearchResponse):
+            wire = {"response": {"kind": "report", "report": value}}
+            protocol = output_to_protocol(schema.model_validate(wire))
+            accepted, audit = partition_report(protocol["report"], evidence)
+            self.assertEqual(accepted["findings"], original["findings"])
+            self.assertEqual(accepted["unknowns"], original["unknowns"])
+            self.assertEqual(accepted["status"], "partial")
+            self.assertEqual(audit["accepted_indices"], [0, 1, 2])
+            self.assertEqual(audit["original_report"], original)
+        # A rejected citation quarantines only its own finding, preserving the
+        # independent observation/inference and their original indices.
+        bad = copy.deepcopy(value); bad["findings"][1]["citations"] = ["outside"]
+        accepted, audit = partition_report(bad, evidence)
+        self.assertEqual(audit["accepted_indices"], [0, 2])
+        self.assertEqual([f["kind"] for f in accepted["findings"]], ["observed", "inferred"])
+        self.assertEqual(accepted["unknowns"], original["unknowns"])
+        self.assertEqual(value, original)
+
+    def test_legacy_composite_is_not_rewritten_or_split_by_receipt(self):
+        value = report([["R1", "R2"]])
+        value["findings"][0]["statement"] = "测试验证清洗和行号追踪：使用含空格输入；另一个用例断言行号为2。"
+        original = copy.deepcopy(value)
+        accepted, audit = partition_report(value, {"R1": {"text": 'convert(" value ")'},
+                                                  "R2": {"text": "assert row == 2"}})
+        self.assertEqual(accepted["findings"], original["findings"])
+        self.assertEqual(audit["accepted_indices"], [0])
+        self.assertEqual(audit["original_report"], original)
+        self.assertEqual(value, original)  # Semantic support is a later model review.
+
     def test_whole_report_contract_is_never_repaired(self):
         missing = report([["R1"]]); missing.pop("material_requests")
         bad_scopes = report([["R1"]]); bad_scopes["material_requests"] = "not a list"

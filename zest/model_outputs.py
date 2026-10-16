@@ -184,8 +184,8 @@ class ResearchFinding(OutputModel):
     """A text-grounded finding; saved file metadata is a separate input channel."""
 
     section: Section = Field(description="该发现所属的六部分档案 ID。")
-    kind: FindingKind = Field(description="observed 为原文直接支持的事实；inferred 为明确标注、仍待核实的推测。")
-    statement: str = Field(description="中文发现，仅限实际非空原文支持的固定版本内容；静态配置不能描述为生产运行事实。metadata_observations 中已保存的空文件/空窗口元数据不在此重复输出，其成因或无法回答的问题可留为未知。")
+    kind: FindingKind = Field(description="本项只有一种性质：observed 为原文直接且充分支持的事实或概括；有依据但需要推断的概括单独写 inferred，说明推断依据；无法判断或没有依据的猜测留 unknowns，不混入 observed 或用 inferred 凑数。")
+    statement: str = Field(description="固定版本的一项可独立核对断言；对象、所需原文或结论强度不同则分条，同一对象/证据/强度的连贯字段组可保留。具体事实与概括分别陈述和给依据，不能以输入/调用或测试名概括为结果已验证、也不把静态断言说成已运行通过。metadata_observations 不重复为正文发现，其成因/未答问题留未知。")
     citations: list[str] = Field(description="至少一个实际 read 返回且含非空原文的唯一 R 证据编号，按结论所需引用、不设额外数量上限；observed/inferred 都不允许空数组。没有这样的证据就不输出该发现；空元数据没有正文编号，不得编造引用。")
 
 
@@ -201,7 +201,7 @@ class InvestigationReport(OutputModel):
     """Static findings and honest unresolved questions at task completion."""
 
     status: Literal["completed", "partial"] = Field(description="completed 表示目标已回答且无缺口；有未知、包外需求或未完成目标时为 partial。")
-    findings: list[ResearchFinding] = Field(description=f"建议约 {POLICY['recommended_report_findings']} 项独立、非空原文支持的发现；条数不是硬上限，也不为凑数输出元数据或无依据推测。元数据已由程序记录，不是此列表的内容；证据不足可少交或为空并交代未知，遵守完整响应字符/token 与总调用预算。")
+    findings: list[ResearchFinding] = Field(description=f"按独立断言、各自证据与性质组织发现，具体事实和概括不混成一项；有依据的概括可保留。建议约 {POLICY['recommended_report_findings']} 项并非硬上限，不为凑数合并不同断言或输出元数据/无依据推测。证据不足可少交或为空并交代未知，遵守完整响应字符/token 与总调用预算。")
     unknowns: list[str] = Field(description=f"最多 {POLICY['report_unknowns']} 项尚未回答的问题或预算造成的缺口；不把推测当事实。空文件/窗口本身已作为元数据记录，其成因/意图或因此无法回答的问题可保持未知，不必把已知元数据假装为未知。")
     material_requests: list[MaterialRequest] = Field(description=f"最多 {POLICY['report_material_requests']} 项尚需读取的具体资料，包内待补读与真正包外需求统一列出位置/来源/原因；程序对照批准包分类，不将未读等同包外。没有需求时为空。")
 
