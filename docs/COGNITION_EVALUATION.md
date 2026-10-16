@@ -4,6 +4,8 @@ M060。评分 Agent 与调查 Agent、逐条知识核对 Agent 分工独立，�
 
 M067 另为 M066 保存的四条独立探针准备限定语义评分包，复用本模块 Skill/Schema/接收器，每条只附本条获准原文；不计算整轮覆盖度，不伪造完整调查记录，见 [四条评分包](COGNITION_EVALUATION_M067.md)。随后获批的 M068 两次调用取得一条有效评分，第二条将冲突线索混为待评对象并增加额外字段，停止为 partial；后两条未调用，见 [真实评分结果](COGNITION_EVALUATION_M068.md)。公开 CLI 仍按下述整轮调查入口使用。
 
+M069 修正 [本批目标与冲突线索的职责说明](COGNITION_EVALUATION_SCOPE.md)：程序安排完整范围，模型仅为 findings 输出 judgments，仅为 requirements 输出 coverage；candidates、other_findings、report_unknowns 不扩展目标。Skill 与具名 Schema 字段说明同步更新，接收器仍拒绝任何多余身份/字段。新真实复测须另备精确包批准，当前仅完成修复与离线回归。
+
 ## 使用与权限
 
 ```bash

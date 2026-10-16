@@ -9,7 +9,7 @@ from unittest.mock import patch
 from tests import test_cognition as fixtures
 from zest.cognition_store import canonical, digest
 from zest.evaluation import EvaluationStore, format_evaluation, load_criteria
-from zest.evaluation_contracts import aggregate, evaluation_units
+from zest.evaluation_contracts import aggregate, evaluation_units, validate_evaluation
 from zest.files import FileReadError
 from zest.models import DeepSeekModel
 
@@ -259,3 +259,60 @@ class EvaluationTest(unittest.TestCase):
         self.assertTrue(report['result']['overall_passed'], report)
         self.assertEqual(len(seen), 4)
         self.assertTrue(all(b['tools'][0]['function']['name'] == 'CognitionEvaluationResponse' and b['tools'][0]['function']['strict'] for b in seen))
+
+    def test_conflict_hint_is_preserved_without_becoming_a_scored_target(self):
+        unit = next(u for u in evaluation_units(self.source_full, self.criteria) if u['kind'] == 'semantics')
+        payload = unit['payload']
+        wire = json.loads(self.scorer.complete(payload, purpose='cognition_evaluation')['text'])
+        hint = payload['other_findings'][0]
+        conflict = {'reference_id': hint['finding_id'], 'reason': '人为构造的直接冲突夹具，不代表实际语义。'}
+        wire['judgments'][0]['conflicts'] = [conflict]
+        result = validate_evaluation(wire, payload)
+        self.assertEqual([j['finding_id'] for j in result['judgments']], [payload['findings'][0]['finding_id']])
+        self.assertEqual(result['judgments'][0]['conflicts'], [conflict])
+        self.assertFalse(result['judgments'][0]['supported'])
+
+    def test_native_hint_promotion_or_extra_fields_stop_whole_batch_without_retry(self):
+        import httpx
+        from tests.test_model_transport import reply
+        for fault in ('extra_hint', 'substituted_hint', 'extra_field'):
+            with self.subTest(fault=fault):
+                seen, raw_outputs = [], []
+                def handle(request):
+                    body = json.loads(request.content)
+                    payload = json.loads(body['messages'][1]['content'])
+                    wire = json.loads(self.scorer.complete(payload, purpose='cognition_evaluation')['text'])
+                    if payload['findings']:
+                        hint = {**payload['other_findings'][0], 'evidence_ids': []}
+                        if fault == 'extra_hint':
+                            wire['judgments'].append(fixtures.review_judgment(hint, supported=False))
+                        elif fault == 'substituted_hint':
+                            wire['judgments'][0] = fixtures.review_judgment(hint, supported=False)
+                        else:
+                            wire['judgments'][0]['note'] = '不允许的额外字段'
+                    seen.append(payload)
+                    raw_outputs.append(deepcopy(wire))
+                    return reply(body, wire)
+                with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+                    store = EvaluationStore(self.state_dir, model=DeepSeekModel(self.scorer.settings, http_client=client))
+                    record = store.create(self.source['id'], self.criteria)
+                    before = self.store.db_path.read_bytes()
+                    store.decide(record['id'], approved=True, approval_sha256=record['approval_sha256'])
+                    report = store.run(record['id'])
+                    self.assertEqual(report['workflow_status'], 'partial')
+                    self.assertFalse(report['result']['overall_passed'])
+                    self.assertEqual(report['result']['reviewed_observed_findings'], 0)
+                    calls = store.show(record['id'])['calls']
+                    self.assertEqual(len(seen), 2)  # One coverage batch, then invalid semantic batch.
+                    self.assertEqual([c['status'] for c in calls], ['completed', 'invalid'])
+                    self.assertIsNone(calls[1]['response'])  # Never salvage even the valid target portion.
+                    receipt = calls[1]['receipt']
+                    native = receipt['raw_response']['provider_tool_calls'][0]['function']['arguments']
+                    self.assertEqual(json.loads(native), raw_outputs[1])
+                    self.assertEqual(receipt['structured_status'], 'invalid' if fault == 'extra_field' else 'valid')
+                    with self.assertRaises(FileReadError):
+                        store.recover(record['id'])
+                    with self.assertRaises(FileReadError):
+                        store.run(record['id'])
+                    self.assertEqual(len(seen), 2)
+                    self.assertEqual(before, self.store.db_path.read_bytes())
