@@ -9,7 +9,7 @@ from pathlib import Path
 import sqlite3
 from uuid import UUID, uuid4
 
-from .cognition_contracts import canonical, COGNITION_PROMPTS, POLICY, text
+from .cognition_contracts import canonical, COGNITION_PROMPTS, POLICY, text, known_format_failure
 from .files import FileReadError, _find_file, load_text_blob
 from .git import inspect_repository, verify_commit
 from .storage import ProjectRegistry
@@ -230,6 +230,8 @@ class CognitionStore:
                                   for f in conn.execute("SELECT * FROM cognition_findings WHERE run_id=? ORDER BY id", (run_id,))]
             result["events"] = [dict(event) for event in conn.execute("SELECT actor,action,detail,created_at FROM cognition_events WHERE run_id=? ORDER BY seq DESC LIMIT 100", (run_id,))][::-1]
             result["context_requests"] = self._context_records(conn, run_id)
+            if envelope["policy"].get("review_batch_failure") == "isolate_known_format_v1":
+                result["review_failures"] = self._review_failures(conn, run_id, envelope["policy"])
             if include_envelope:
                 result["envelope"] = envelope
             if include_calls:
@@ -255,6 +257,51 @@ class CognitionStore:
                         call["attempts"] = attempts.get((call["actor"], call["sequence"]), [])
         result["worker_active"] = self.worker_active(run_id)
         return result
+
+    @staticmethod
+    def _review_failures(conn, run_id, policy):
+        """Derive isolated batches from durable terminal receipts, never exception text.
+
+        This also covers a crash after saving the final invalid receipt but before
+        the coordinator records its event. Historical policies keep their behavior.
+        """
+        if policy.get("review_batch_failure") != "isolate_known_format_v1":
+            return []
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cognition_call_attempts'").fetchone():
+            return []
+        failures = []
+        for call in conn.execute("SELECT * FROM cognition_calls WHERE run_id=? AND purpose='project_review' AND status='invalid' ORDER BY created_at,actor", (run_id,)):
+            payload = json.loads(call["payload"])
+            batch = payload.get("findings", [])
+            ids = [item.get("finding_id") for item in batch if isinstance(item, dict)]
+            if (not 0 < len(ids) <= 4 or len(ids) != len(batch) or any(not isinstance(i, str) for i in ids)
+                    or len(set(ids)) != len(ids) or call["sequence"] != 0
+                    or call["actor"] != "review_" + digest(ids)[:12]
+                    or call["payload_sha256"] != digest({"purpose": "project_review", "payload": payload})):
+                continue
+            attempts = list(conn.execute("SELECT * FROM cognition_call_attempts WHERE run_id=? AND actor=? AND sequence=? ORDER BY attempt",
+                                         (run_id, call["actor"], call["sequence"])))
+            if (len(attempts) != policy["max_format_retries"] + 1
+                    or any(a["attempt"] != index or a["status"] != "invalid" or not a["receipt"]
+                           or not known_format_failure(json.loads(a["receipt"]))
+                           for index, a in enumerate(attempts, 1))):
+                continue
+            saved = {row["id"]: json.loads(row["finding"]) for row in conn.execute(
+                "SELECT id,finding FROM cognition_findings WHERE run_id=?", (run_id,))}
+            if any(i not in saved or item.get("statement") != saved[i]["statement"]
+                   or item.get("kind") != saved[i]["kind"] for i, item in zip(ids, batch)):
+                continue
+            failures.append({"actor": call["actor"], "sequence": call["sequence"], "finding_ids": ids,
+                             "payload_sha256": call["payload_sha256"], "attempts": len(attempts),
+                             "code": "cognition_response_invalid"})
+        return failures
+
+    @classmethod
+    def _blocking_calls(cls, conn, run_id, policy, *, allow_retry=False):
+        isolated = {(f["actor"], f["sequence"]) for f in cls._review_failures(conn, run_id, policy)}
+        accepted = {"completed", "retry_ready"} if allow_retry else {"completed"}
+        return any(row["status"] not in accepted and (row["actor"], row["sequence"]) not in isolated
+                   for row in conn.execute("SELECT actor,sequence,status FROM cognition_calls WHERE run_id=?", (run_id,)))
 
     @staticmethod
     def _context_records(conn, run_id, *, full=False):
@@ -327,8 +374,8 @@ class CognitionStore:
                     raise FileReadError("cognition_not_pending", "该请求未等待扩展批准。")
                 if request_sha256 != record["request_sha256"] or record["authorization"]["envelope_sha256"] != run["envelope_sha256"]:
                     raise FileReadError("approval_mismatch", "批准未匹配固定资料包与本次完整请求。")
-                self.envelope(run)
-                if conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status!='completed' LIMIT 1", (run_id,)).fetchone():
+                envelope = self.envelope(run)
+                if self._blocking_calls(conn, run_id, envelope["policy"]):
                     raise FileReadError("cognition_execution_unknown", "存在无有效结果的旧调用，扩展批准不能允许重发。")
                 conn.execute("UPDATE cognition_context_requests SET status=?,decided_at=? WHERE run_id=? AND actor=? AND sequence=?",
                              ("approved" if approved else "rejected", now(), run_id, actor, sequence))
@@ -384,6 +431,8 @@ class CognitionStore:
                     record["jobs"] = [{"id": j["id"], "status": j["status"], "spec": json.loads(j["spec"]),
                                        "result": json.loads(j["result"]) if j["result"] else None}
                                       for j in conn.execute("SELECT * FROM cognition_jobs WHERE run_id=? ORDER BY id", (row["id"],))]
+                    if envelope.get("policy", {}).get("review_batch_failure") == "isolate_known_format_v1":
+                        record["review_failures"] = self._review_failures(conn, row["id"], envelope["policy"])
                 except (ValueError, TypeError, KeyError, RecursionError) as exc:
                     raise FileReadError("cognition_record_corrupt", "项目认知记录损坏，未生成总览。") from exc
                 records.append(record)
@@ -556,8 +605,7 @@ class CognitionStore:
         with self.open(write=True) as conn, conn:
             if any(item["status"] == "awaiting_approval" for item in self._context_records(conn, run_id)):
                 raise FileReadError("cognition_context_approval_required", "待扩展请求尚未批准，不能通过恢复绕过。")
-            unknown = conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status NOT IN ('completed','retry_ready') LIMIT 1", (run_id,)).fetchone()
-            if unknown:
+            if self._blocking_calls(conn, run_id, current["policy"], allow_retry=True):
                 raise FileReadError("cognition_execution_unknown", "存在结果未知的模型请求，仅读取核对，不重复调用。")
             retry_ready = conn.execute("SELECT 1 FROM cognition_calls WHERE run_id=? AND status='retry_ready' LIMIT 1", (run_id,)).fetchone() is not None
             conn.execute("UPDATE cognition_runs SET status='queued',error=NULL,updated_at=? WHERE id=?", (now(), run_id))
@@ -593,4 +641,6 @@ class CognitionStore:
                 "limitations": ["automatic_review_not_human_confirmation", "static_snapshot_not_runtime_verification"]}
         if record.get("followup"):
             result["followup"] = record["followup"]
+        if "review_failures" in record:
+            result["review_failures"] = record["review_failures"]
         return result

@@ -10,6 +10,7 @@ from .survey import SECTIONS
 SECTION_IDS = {item[0] for item in SECTIONS}
 POLICY = {"max_model_calls": 32, "max_tasks": 6, "max_initial_tasks": 4,
           "max_format_retries": 1,
+          "review_batch_failure": "isolate_known_format_v1",
           "max_turns_per_task": 4, "max_tool_actions_per_task": 16,
           "max_parallel_tasks": 2, "max_prompt_chars": 32000, "max_extended_prompt_chars": 48000, "max_seconds": 1800,
           "max_response_tokens": 4096, "max_report_tokens": 8192, "max_response_chars": 32000, "max_request_seconds": 120,
@@ -83,6 +84,14 @@ COGNITION_PROMPTS = {"project_plan": PLAN_PROMPT, "project_followup_plan": FOLLO
 
 def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def known_format_failure(receipt):
+    """A complete, safe provider response with a known structured-format error."""
+    return (isinstance(receipt, dict) and receipt.get("structured_status") == "invalid"
+            and receipt.get("structured_error") == "invalid_structured_output"
+            and isinstance(receipt.get("raw_response"), dict)
+            and isinstance(receipt["raw_response"].get("provider_response"), dict))
 
 
 def text(value, limit=800):

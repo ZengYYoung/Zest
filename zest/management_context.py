@@ -27,7 +27,10 @@ def _followup(record, finding):
     if review is not None and not isinstance(review, dict):
         raise ValueError("invalid saved review")
     review = review or {}
-    reason = review.get("reason") or ("尚未完成原文核对。" if finding["status"] == "pending_review"
+    batch_failure = next((item for item in record.get("review_failures", [])
+                          if finding["finding_id"] in item["finding_ids"]), None)
+    reason = review.get("reason") or ("核对批次格式失败且补试用尽，仍待核对。" if batch_failure else
+                                     "尚未完成原文核对。" if finding["status"] == "pending_review"
                                      else "原文核对尚未通过，需要补充调查。")
     text(reason)
     conflicts = []

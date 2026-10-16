@@ -106,7 +106,7 @@ M038 起还保存实际完整请求体、URL、字符数和正文 SHA-256。适�
 
 请求先记 pending 并扣预算，响应收据与解析分类在同一事务落库，再推进 checkpoint。响应已保存而节点未完成时，显式 recover 可复用同身份响应。M052 起，完整响应已收到但 JSON/类型不符合契约时，可依据新包中的 max_format_retries=1 在总预算内补试一次，原请求逐字不变、每次收据独立保存。补试用完的 invalid 不再发送；pending/uncertain 或无有效结果的请求不能重发：服务端可能已处理或计费。活动 worker/同 run 锁阻止重复执行和并发恢复。详见 [格式补试与恢复](COGNITION_RETRIES.md)。
 
-状态：awaiting_approval → queued → planning → investigating → reviewing → completed/partial；错误为 failed，未知调用为 pending_execution。worker 消失时界面显示退出，不冒充仍在执行。completed 仅表示任务完成、六部分有经核对发现且计划无剩余缺口，不是完整理解证明。
+状态：awaiting_approval → queued → planning → investigating → reviewing → completed/partial；错误为 failed，未知调用为 pending_execution。M087新批准包对已知格式失败且补试用尽的核对批次保持待核对并继续其他批次，以partial交付已核对成果；恢复与字符审批只越过此类已确认失败，不重发或放行未知请求，详见[批次失败隔离](COGNITION_REVIEW_BATCH_ISOLATION.md)。worker 消失时界面显示退出，不冒充仍在执行。completed 仅表示任务完成、六部分有经核对发现且计划无剩余缺口，不是完整理解证明。
 
 新接入项目的记录存于各项目 `.zest/state/` 内的独立数据库/文件，数据库创建权限 0600；`.zest/.gitignore` 忽略全部资源，不改变原生文件。旧记录按原位置/批准哈希兼容，worker 账本、锁和 checkpoint 跟随记录所属位置，见 [项目资源](PROJECT_RESOURCES.md)。授权哈希用于身份与损坏检查，不是防本地管理员篡改的签名。模型密钥只在执行时读取，不保存到包或请求记录；主图、子图、适配器关闭第三方自动 tracing。
 

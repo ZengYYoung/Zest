@@ -12,7 +12,7 @@ import time
 from typing import TypedDict
 
 from .cognition_contracts import (COGNITION_PROMPTS, POLICY, canonical, items, keys, parse_response,
-                                  text, validate_plan, partition_report)
+                                  text, validate_plan, partition_report, known_format_failure)
 from .cognition_store import CognitionStore, digest, now, valid_id
 from .cognition_tools import PackageTools, execute_mcp_actions
 from .cognition_context import compact_proof, investigation_view, review_payload, review_unknowns, material_catalog, approved_materials, read_source_ids
@@ -207,10 +207,7 @@ class CognitionEngine:
     def _retryable(receipt):
         # A complete provider body is required. Timeouts, sensitive/oversized
         # output, and later business/evidence rejection never qualify.
-        return (receipt.get("structured_status") == "invalid"
-                and receipt.get("structured_error") == "invalid_structured_output"
-                and isinstance(receipt.get("raw_response"), dict)
-                and isinstance(receipt["raw_response"].get("provider_response"), dict))
+        return known_format_failure(receipt)
 
     def check_knowledge(self, envelope):
         from .cognition_refresh import check_refresh_context
@@ -428,7 +425,9 @@ class CognitionEngine:
 
     def review(self, run_id, envelope):
         self.store.set_status(run_id, "reviewing")
-        pending = [f for f in self.store.show(run_id)["findings"] if f["status"] == "pending_review"]
+        record = self.store.show(run_id)
+        failed_ids = {identity for failure in record.get("review_failures", []) for identity in failure["finding_ids"]}
+        pending = [f for f in record["findings"] if f["status"] == "pending_review" and f["id"] not in failed_ids]
         offset = 0
         while offset < len(pending):
             batch = pending[offset:offset + 4]
@@ -442,12 +441,23 @@ class CognitionEngine:
                     response = self.call(run_id, actor, 0, "project_review", payload, envelope)
                     break
                 except FileReadError as exc:
+                    if exc.code == "cognition_response_invalid":
+                        failure = next((item for item in self.store.show(run_id).get("review_failures", [])
+                                        if item["actor"] == actor and item["sequence"] == 0
+                                        and item["finding_ids"] == [f["id"] for f in batch]), None)
+                        if failure is not None:
+                            self.store.event(run_id, actor, "review_batch_isolated", failure)
+                            response = None
+                            break
                     if exc.code != "cognition_prompt_budget" or len(batch) == 1:
                         raise
                     # Repartition only unsent overlarge candidates; never retry a
                     # received, unknown or approval-pending request.
                     batch = batch[:max(1, len(batch) // 2)]
                     self.store.event(run_id, "coordinator", "review_batch_reorganized", {"count": len(batch)})
+            if response is None:
+                offset += len(batch)
+                continue
             keys(response, ("judgments",))
             from .cognition_review import validate_judgments
             judgments = validate_judgments(response["judgments"], payload)
@@ -536,6 +546,7 @@ class CognitionEngine:
                                  if "followup_context" in envelope else
                                  reviewed_sections == {"purpose", "architecture", "flows", "dependencies", "development", "constraints"})
             complete = (all(job["status"] == "completed" for job in result["jobs"])
+                        and not result.get("review_failures")
                         and all(f["status"] == "auto_reviewed" for f in result["findings"])
                         and coverage_complete
                         and not result["plan"]["gaps"])

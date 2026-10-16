@@ -43,6 +43,8 @@ def format_cognition(record):
             lines.extend("    待补充：" + display_text(item) for item in job["result"]["report"]["unknowns"])
             for key in ("in_scope_requests", "scope_requests"):
                 lines.extend("    " + display_text(material_request_text(item)) for item in job["result"]["report"].get(key, []))
+    for failure in record.get("review_failures", []):
+        lines.append(display_text("核对批次格式失败已隔离；仍待核对：" + "、".join(failure["finding_ids"])))
     if record["error"]:
         lines.append("错误：" + display_text(record["error"]))
     for event in record.get("events", [])[-10:]:
@@ -70,6 +72,8 @@ def format_dossier(record):
         lines.extend(["定向调查来源：" + display_text(f"{followup['source_run_id']} / {followup['finding_id']}"),
                       "本轮完成仅针对选定问题：" + display_text(followup["statement"]),
                       "原发现与后续行动没有自动关闭。", ""])
+    for failure in record.get("review_failures", []):
+        lines.extend([display_text("核对批次格式失败，以下结论仍待核对：" + "、".join(failure["finding_ids"])), ""])
     for section in record["sections"]:
         lines.extend([f"## {section['title']}", ""])
         if not section["facts"]:
