@@ -1520,3 +1520,15 @@ M058 最终清单 **128 份原始材料 SHA256/字节长度全部一致**，没�
 - 原始任务/来源/Schema/指令/HTTP正文、保护清单与演练记录留在忽略目录，提交后绑定干净HEAD并冻结具体审批入口。实际问答答案和独立实用性评价尚未产生，不由主协作Agent临时打分；Web/API继续暂缓。
 
 验证：真实准备、四份SDK正文编译、身份/来源/预算、有效/无效/未知三种执行器演练、语法、历史哈希、文档链接和git diff --check。仅验收准备与文档，无生产代码变化，不重复完整回归；0真实调用，无LangSmith、样本执行、修改、推送、部署或新会话。详见[M090四问准备](PROJECT_QA_ACCEPTANCE_M090.md)。
+
+## 2026-10-16 — M091：四个真实认知问答完成，保留主要实用性缺口
+
+提交标题：`docs(acceptance): record four real answers and context gaps`
+
+- 用户明确批准M090冻结包f0f587a5；执行干净38ef9bf，固定RealWorld 4b95fb2及partial认知ad1782a3。通过普通TaskRunner/single/lexical新增4次真实请求、0补试，四份HTTP正文逐字匹配，QAResponse/with_structured_output及生产引用校验全部有效，0未知/传输错误/剩余任务。
+- 四问均完成并实际引用已有认知：Q1 insufficient_evidence，Q2/Q3/Q4 answered；引用认知/原生分别2/0、2/4、1/1、2/0。Q1明确缺create_app组装，Q3缺make_article本体/提交流程，Q4缺具体测试和视图；completed/answered不等于需求满足或实用性通过，独立评分仍0。
+- 执行器25.584秒，输入33809/输出3606/总37415 token、cache_read1152，finish_reason均tool_calls。完整答案、未知、原始响应和用量原样保存，不修辞补跑，不把引用身份有效当语义正确，本包4次预算已消费。
+- 只读诊断确认T3:F1正文412字符，完整认知来源20927字符（provenance18003/review2157），占据24000来源上下文大部分空间。Q1检索到app.py、Q4检索到profile视图/测试但均被预算挡住；Q3前五原生候选多为同一测试文件窗口，没有articles视图，兼有本体定位不足。下一小模块建议讨论紧凑认知输入与关键源码空间，未实施或扩预算。
+- 12次输入/引用来源槽位核对固定身份/正文或commit/blob/哈希/行段，19份冻结与12份已有资源、原认知/原failed调查保持；M089的40份、163/21/17/533历史及45原生不变。保存执行前/后任务SQLite备份及最终清单，答案未发布知识。只读验收脚本首轮误以为reviewed_finding返回完整证据，在快照前停止；改为对照原findings后通过，无额外模型调用。
+
+验证：真实结构/业务接收、请求精确匹配、调用上限、12次来源核对、上下文与检索诊断、任务SQLite integrity_check、全部历史哈希、文档链接和git diff --check。本模块仅实测记录/诊断，无生产代码变化，不重复完整回归；无独立评分、LangSmith、样本执行、修改、Web/API、推送、部署或新会话。详见[M091四问结果](PROJECT_QA_ACCEPTANCE_M091.md)。
