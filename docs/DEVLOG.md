@@ -1649,3 +1649,15 @@ M058 最终清单 **128 份原始材料 SHA256/字节长度全部一致**，没�
 - 原M099的44份、M100的6份、M096的44份、M097的7份与所有更早材料、45原生、8问答和认知保持，独立准备数据库备份integrity_check=ok。完整请求/Schema/Skill/准则/原材料/演练在忽略目录，提交后绑定干净HEAD和冻结清单供具体审批。
 
 验证：真实SDK编译、9份payload/准则不变、七种执行器演练、旧响应不迁移、来源与历史保护、SQLite、脚本语法、文档链接和git diff --check；仅验收准备/文档，不重复61项或完整回归。0新真实调用，无LangSmith、样本执行、补查、知识发布、Web/API、推送、部署或新会话。详见[M101完整实测准备](PROJECT_EVALUATION_M101.md)。
+
+## 2026-10-17 — M102：完整评分首批真实输出漏项，按批准停止
+
+提交标题：`docs(evaluation): record incomplete first-batch scoring response`
+
+- 用户明确批准M101新包13d482ab及七份精确扩展；执行干净fe772e8，生产修复仍424af06，独立评分9bc328a2。唯一实际HTTP正文37673字符匹配冻结，deepseek-flash/官方beta、具名结构化输出；新增1次真实调用、0补试，首批invalid后停止，8批未发、0未知/pending。
+- 首批要求D1/assembly、business、shared，实际仅返回assembly及新candidate_observation，漏后两项与必填judgments数组。实际Schema仍strict=true、required完整；finish_reason=tool_calls，输出629远低于8192，未见截断/超时，不推断供应商内部原因。
+- 只读诊断在内存副本补空judgments以隔离检查后，原业务校验仍拒绝1/3覆盖目标；额外空finding_ids_note按M097隔离，不构成此轮拒收原因。副本不写回、不计分，不生成遗漏评分或追加请求。
+- 整体partial/complete=false，正式接收0项、24项未评，不能写质量0/24；旧分数不混入。新候选观察出现不证明整体语义改善，未到D3和四问评价。当前直接阻塞点为评分多目标交付不完整，具体后续方案尚未确定，本次不改变准则/分批/预算。
+- 输入12636/输出629/总13265 token、cache_read0。24冻结、原44/6/44/7及所有更早资料、45原生、8问答/认知保持；完整批准/响应/漏项诊断/用量、评分及checkpoint两个SQLite一致备份保存，integrity_check均ok。
+
+验证：真实请求/必填Schema/漏项/用量、单次停止、内存诊断不接收、原始与全部历史保护、SQLite、文档链接和git diff --check。仅实测记录/文档，无生产变更，不重复61项或完整回归；无LangSmith、样本执行、包外资料、补查、知识发布、Web/API、推送、部署或新会话。详见[M102实测结果](PROJECT_EVALUATION_M102.md)。
