@@ -2,6 +2,8 @@
 
 日期：2026-10-16。用户要求“评分执行”。[M094四问复测](PROJECT_QA_ACCEPTANCE_M094.md)已经形成实际回答；本模块准备专职评分所需的完整冻结包，尚无新增真实调用。评分与问答分别批准，旧问答许可和预算不沿用。
 
+后续实际执行见[M096结果](PROJECT_EVALUATION_M096.md)：获批后调用2次，第2批因空额外字段被拒收而停止；评分未完成。本页保留准备阶段记录。
+
 ## 现有能力与本次适配
 
 公开`evaluation create`面向调查候选/固定参考，不能直接接收问答。本次使用限定本地适配器，复用内置版本化[评分Skill](../zest/skills/cognition-evaluation/SKILL.md)、具名`CognitionEvaluationResponse`/`with_structured_output`、`validate_evaluation`，以及原`EvaluationStore.decide/run`的批准、请求预占、收据、LangGraph/SQLite和停止规则。
