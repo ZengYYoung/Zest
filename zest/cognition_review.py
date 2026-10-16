@@ -4,7 +4,7 @@ from .cognition_contracts import items, keys, strings, text
 from .files import FileReadError
 
 
-def validate_judgments(judgments, payload):
+def validate_judgments(judgments, payload, *, require_evidence_observation=False):
     expected = {f["finding_id"]: f for f in payload["findings"]}
     references = set(expected) | {f["finding_id"] for f in payload["other_findings"]}
     references |= {u["reference_id"] for u in payload["report_unknowns"]}
@@ -19,7 +19,10 @@ def validate_judgments(judgments, payload):
             raise FileReadError("invalid_cognition_output", "核对覆盖标志必须为布尔值。")
         text(judgment["reason"])
         for check in items(judgment["checks"], None, minimum=1):
-            keys(check, ("subject", "attribute", "condition", "assertion", "evidence_ids", "verdict", "reason"))
+            fields = ("subject", "attribute", "condition", "assertion", "evidence_ids", "verdict", "reason")
+            keys(check, (*fields, 'evidence_observation') if require_evidence_observation else fields)
+            if require_evidence_observation:
+                text(check['evidence_observation'])
             for field in ("subject", "attribute", "condition", "assertion", "reason"):
                 text(check[field])
             if check["verdict"] not in ("supported", "contradicted", "insufficient_evidence"):

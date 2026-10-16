@@ -8,6 +8,8 @@ M069 修正 [本批目标与冲突线索的职责说明](COGNITION_EVALUATION_SC
 
 M071 [区分检查完整与证据支持](COGNITION_EVIDENCE_SUPPORT.md)：coverage_complete 仅表示原句全部属性是否已检查，证据不足由单项 verdict 保留，不能用 supported 加理由承认缺口。原断言强度保持不变，区分测试输入、结果断言与实际运行。Skill、共用字段说明和核对提示已同步，79 项定向回归通过。随后 M072 获批的三次请求均有效，T1:F11 的两个维度正确分开、四项合成对照吻合，T1:F12 的清洗概括仍有疑点，见 [真实结果](COGNITION_EVALUATION_M072.md)。
 
+M076对新报告的13次真实评分全部有效，但仍误收含内部空格字符串的“无空格”描述。M077按用户确认范围增加[评分专用证据观察](COGNITION_EVALUATION_OBSERVATION.md)：每个EvaluationClaimCheck先用必填evidence_observation描述原文，再比较原属性并判定；原文核对和结案协议不变，旧结果不补字段、新评分不兼容缺字段输出。108项相关回归通过，尚无新真实模型调用，不能据此声称语义质量改善。
+
 ## 使用与权限
 
 ```bash

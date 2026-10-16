@@ -14,6 +14,13 @@ from zest.files import FileReadError
 from zest.models import DeepSeekModel
 
 
+def evaluation_judgment(finding, *, supported=True):
+    value = fixtures.review_judgment(finding, supported=supported)
+    for check in value['checks']:
+        check['evidence_observation'] = '离线人工标注协议夹具，不是模型原文观察或质量评分。'
+    return value
+
+
 class EvaluationFixture:
     """Explicit labelled scorer; these tests are not LLM evaluation quality."""
     def __init__(self):
@@ -30,7 +37,7 @@ class EvaluationFixture:
         value = {'coverage': [dict(id=r['id'], verdict=self.coverage_verdict,
                     finding_ids=[payload['candidates'][0]['finding_id']] if self.coverage_verdict in ('full', 'partial') else [],
                     evidence_ids=r['evidence_ids'], reason='独立人工标注夹具，非真实评分。') for r in payload['requirements']],
-                 'judgments': [fixtures.review_judgment(f, supported=self.semantic_support) for f in payload['findings']]}
+                 'judgments': [evaluation_judgment(f, supported=self.semantic_support) for f in payload['findings']]}
         if self.invalid: value['coverage'].append({'id': 'forged'})
         return {'text': json.dumps(value, ensure_ascii=False), 'reported_model': 'offline-evaluation'}
 
@@ -259,6 +266,11 @@ class EvaluationTest(unittest.TestCase):
         self.assertTrue(report['result']['overall_passed'], report)
         self.assertEqual(len(seen), 4)
         self.assertTrue(all(b['tools'][0]['function']['name'] == 'CognitionEvaluationResponse' and b['tools'][0]['function']['strict'] for b in seen))
+        for body in seen:
+            check = body['tools'][0]['function']['parameters']['properties']['judgments']['items']['properties']['checks']['items']
+            self.assertIn('evidence_observation', check['required'])
+            self.assertLess(list(check['properties']).index('evidence_observation'), list(check['properties']).index('verdict'))
+        self.assertTrue(all(c['evidence_observation'] for j in report['result']['judgments'] for c in j['checks']))
 
     def test_conflict_hint_is_preserved_without_becoming_a_scored_target(self):
         unit = next(u for u in evaluation_units(self.source_full, self.criteria) if u['kind'] == 'semantics')
@@ -282,7 +294,7 @@ class EvaluationTest(unittest.TestCase):
                                  'evidence_ids': ['P1']} for f in fixture['findings']]}
         wire = {'coverage': [], 'judgments': []}
         for f, labelled in zip(payload['findings'], fixture['findings']):
-            j = fixtures.review_judgment(f)
+            j = evaluation_judgment(f)
             j['checks'][0].update(verdict=labelled['expected_verdict'], reason='人工标注的门控夹具，不是模型评分。')
             wire['judgments'].append(j)
         CognitionEvaluationResponse.model_validate(wire)
@@ -297,7 +309,7 @@ class EvaluationTest(unittest.TestCase):
     def test_native_hint_promotion_or_extra_fields_stop_whole_batch_without_retry(self):
         import httpx
         from tests.test_model_transport import reply
-        for fault in ('extra_hint', 'substituted_hint', 'extra_field'):
+        for fault in ('extra_hint', 'substituted_hint', 'extra_field', 'missing_observation', 'empty_observation'):
             with self.subTest(fault=fault):
                 seen, raw_outputs = [], []
                 def handle(request):
@@ -307,11 +319,15 @@ class EvaluationTest(unittest.TestCase):
                     if payload['findings']:
                         hint = {**payload['other_findings'][0], 'evidence_ids': []}
                         if fault == 'extra_hint':
-                            wire['judgments'].append(fixtures.review_judgment(hint, supported=False))
+                            wire['judgments'].append(evaluation_judgment(hint, supported=False))
                         elif fault == 'substituted_hint':
-                            wire['judgments'][0] = fixtures.review_judgment(hint, supported=False)
-                        else:
+                            wire['judgments'][0] = evaluation_judgment(hint, supported=False)
+                        elif fault == 'extra_field':
                             wire['judgments'][0]['note'] = '不允许的额外字段'
+                        elif fault == 'missing_observation':
+                            del wire['judgments'][0]['checks'][0]['evidence_observation']
+                        else:
+                            wire['judgments'][0]['checks'][0]['evidence_observation'] = '  '
                     seen.append(payload)
                     raw_outputs.append(deepcopy(wire))
                     return reply(body, wire)
@@ -331,10 +347,45 @@ class EvaluationTest(unittest.TestCase):
                     receipt = calls[1]['receipt']
                     native = receipt['raw_response']['provider_tool_calls'][0]['function']['arguments']
                     self.assertEqual(json.loads(native), raw_outputs[1])
-                    self.assertEqual(receipt['structured_status'], 'invalid' if fault == 'extra_field' else 'valid')
+                    self.assertEqual(receipt['structured_status'], 'invalid' if fault in ('extra_field', 'missing_observation', 'empty_observation') else 'valid')
                     with self.assertRaises(FileReadError):
                         store.recover(record['id'])
                     with self.assertRaises(FileReadError):
                         store.run(record['id'])
                     self.assertEqual(len(seen), 2)
                     self.assertEqual(before, self.store.db_path.read_bytes())
+
+    def test_archived_results_remain_readable_without_observation_backfill_or_calls(self):
+        record = self.queued()
+        self.evaluator.run(record['id'])
+        # Simulate a saved earlier contract/result, without running or migrating it.
+        with self.evaluator.open(write=True) as conn, conn:
+            envelope = json.loads(conn.execute('SELECT envelope FROM evaluations WHERE id=?', (record['id'],)).fetchone()[0])
+            props = envelope['contract']['schema']['properties']['judgments']['items']['properties']['checks']['items']
+            del props['properties']['evidence_observation']
+            props['required'].remove('evidence_observation')
+            envelope['contract']['schema_sha256'] = digest(envelope['contract']['schema'])
+            conn.execute('UPDATE evaluations SET envelope=?,envelope_sha256=? WHERE id=?',
+                         (canonical(envelope), digest(envelope), record['id']))
+            for row in conn.execute('SELECT batch,response,receipt FROM evaluation_calls WHERE evaluation_id=?', (record['id'],)).fetchall():
+                response, receipt = json.loads(row['response']), json.loads(row['receipt'])
+                raw = json.loads(receipt['text'])
+                for value in (response, raw):
+                    for j in value['judgments']:
+                        for check in j['checks']: del check['evidence_observation']
+                receipt['text'] = canonical(raw)
+                conn.execute('UPDATE evaluation_calls SET response=?,receipt=? WHERE evaluation_id=? AND batch=?',
+                             (canonical(response), canonical(receipt), record['id'], row['batch']))
+        before = self.evaluator.db_path.read_bytes()
+        source_before, calls_before = self.store.db_path.read_bytes(), len(self.scorer.calls)
+        saved = self.evaluator.show(record['id'], preview=True)
+        report = self.evaluator.report(record['id'])
+        self.assertTrue(report['result']['overall_passed'])
+        self.assertTrue(report['result']['judgments'])
+        self.assertTrue(all('evidence_observation' not in c for j in report['result']['judgments'] for c in j['checks']))
+        with self.assertRaises(FileReadError) as caught:
+            self.evaluator._call(record['id'], 0, saved['envelope'])
+        self.assertEqual(caught.exception.code, 'evaluation_contract_changed')
+        self.assertEqual(len(self.scorer.calls), calls_before)
+        self.assertEqual(self.evaluator.db_path.read_bytes(), before)
+        self.assertEqual(self.store.db_path.read_bytes(), source_before)

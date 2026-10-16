@@ -94,12 +94,14 @@ class ModelOutputContractTest(unittest.TestCase):
     def test_review_evaluation_and_resolution_never_request_character_offsets(self):
         examples = self.wire_examples()
         examples['cognition_evaluation']['judgments'] = deepcopy(examples['project_review']['judgments'])
+        examples['cognition_evaluation']['judgments'][0]['checks'][0]['evidence_observation'] = '原文显示该入口调用。'
         for purpose in ('project_review', 'cognition_evaluation', 'cognition_resolution'):
             with self.subTest(purpose=purpose):
                 schema = get_output_schema(purpose)
                 properties = schema['properties']['judgments']['items']['properties']['checks']['items']['properties']
                 self.assertNotIn('start', properties); self.assertNotIn('end', properties)
                 wire = deepcopy(examples[purpose])
+                model_for(purpose).model_validate(wire)
                 wire['judgments'][0]['checks'][0].update(start=0, end=1)
                 with self.assertRaises(ValidationError): model_for(purpose).model_validate(wire)
 

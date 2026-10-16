@@ -111,7 +111,8 @@ def validate_evaluation(response, payload):
         strings(judgment['finding_ids'], None, allowed={f['finding_id'] for f in payload['candidates']}, minimum=1 if matched else 0)
         strings(judgment['evidence_ids'], None, allowed=set(requirement['evidence_ids']), minimum=1 if matched else 0)
         text(judgment['reason'], 1600)
-    return {'coverage': response['coverage'], 'judgments': validate_judgments(response['judgments'], payload)}
+    return {'coverage': response['coverage'], 'judgments': validate_judgments(
+        response['judgments'], payload, require_evidence_observation=True)}
 
 
 def aggregate(envelope, results):

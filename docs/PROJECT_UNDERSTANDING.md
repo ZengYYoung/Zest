@@ -75,3 +75,5 @@ M073 按确认范围 [调整报告生成粒度](COGNITION_FINDING_GRANULARITY.md
 [M075独立评分准备](COGNITION_EVALUATION_M075.md) 复用现有Skill/Schema/接收器，保留新报告15候选及固定原文，13条observed逐条语义评分，2条inferred和15条未知只作冲突线索。没有新建项目参考分母或修改准则，预算最多13次、零补试，准备阶段0次调用，提交后冻结具体包申请批准；旧调查、评分与知识保持原样。
 
 后续 [M076真实独立评分](COGNITION_EVALUATION_M076.md) 已获批完成13次、零补试/无效/未知；全部13条/57个check被模型判支持，但S:F4把 `mixed case` 当作无空格，出现明确语义误收。评分模型自报完整与协议通过仍不能证明判断正确，复合属性仍存在；原标签保留，不补分/补跑、不计算总体准确率或覆盖成绩，本包预算已消费，知识和旧调查不变。
+
+M077按确认范围增加[先描述证据再判断属性](COGNITION_EVALUATION_OBSERVATION.md)：评分专用EvaluationClaimCheck必填evidence_observation，原文核对/结案及其他八种输出契约不变。108项相关回归通过，旧M076的13份响应/57个标签按原契约保留，不迁移为新成绩；新字段的观察内容仍可能误判，目前0次新真实调用。

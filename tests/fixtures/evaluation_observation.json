@@ -1,0 +1,54 @@
+{
+  "fixture_kind": "human_labelled_protocol_controls_not_model_accuracy_or_execution",
+  "source_file": "evaluation_observation.py.txt",
+  "cases": [
+    {
+      "id": "V1",
+      "statement": "EXPECTED_LABEL 的值为 quiet lake，英文字母均为小写，含一个内部空格。",
+      "checks": [
+        {"attribute": "具体值", "assertion": "EXPECTED_LABEL 的值为 quiet lake", "evidence_observation": "赋值字面量为 quiet lake。", "verdict": "supported"},
+        {"attribute": "字母大小写", "assertion": "英文字母均为小写", "evidence_observation": "该字面量的英文字母为 quiet 和 lake，均为小写。", "verdict": "supported"},
+        {"attribute": "内部空格", "assertion": "含一个内部空格", "evidence_observation": "quiet 与 lake 之间有一个空格。", "verdict": "supported"}
+      ]
+    },
+    {
+      "id": "V2",
+      "statement": "EXPECTED_LABEL 的值为 quiet lake，英文字母均为小写，不含任何空格。",
+      "checks": [
+        {"attribute": "具体值", "assertion": "EXPECTED_LABEL 的值为 quiet lake", "evidence_observation": "赋值字面量为 quiet lake。", "verdict": "supported"},
+        {"attribute": "字母大小写", "assertion": "英文字母均为小写", "evidence_observation": "字面量英文字母均为小写。", "verdict": "supported"},
+        {"attribute": "空格", "assertion": "不含任何空格", "evidence_observation": "quiet 与 lake 之间有一个空格。", "verdict": "contradicted"}
+      ]
+    },
+    {
+      "id": "B1",
+      "statement": "accepts_count 的上限为3，包含等于3的情况。",
+      "checks": [
+        {"attribute": "上限值", "assertion": "上限为3", "evidence_observation": "RETRY_LIMIT 赋值为3，比较式为 count <= RETRY_LIMIT。", "verdict": "supported"},
+        {"attribute": "等值边界", "assertion": "包含等于3的情况", "evidence_observation": "比较运算符为 <=，含等于的分支。", "verdict": "supported"}
+      ]
+    },
+    {
+      "id": "B2",
+      "statement": "accepts_count 的上限为3，但不包含等于3的情况。",
+      "checks": [
+        {"attribute": "上限值", "assertion": "上限为3", "evidence_observation": "RETRY_LIMIT 赋值为3。", "verdict": "supported"},
+        {"attribute": "等值边界", "assertion": "不包含等于3的情况", "evidence_observation": "原文为 count <= RETRY_LIMIT，使用含等于的比较。", "verdict": "contradicted"}
+      ]
+    },
+    {
+      "id": "E1",
+      "statement": "test_label 含 render_label() == EXPECTED_LABEL 的结果断言。",
+      "checks": [
+        {"attribute": "静态结果断言", "assertion": "含 render_label() == EXPECTED_LABEL 的结果断言", "evidence_observation": "test_label 的函数体为 assert render_label() == EXPECTED_LABEL。", "verdict": "supported"}
+      ]
+    },
+    {
+      "id": "E2",
+      "statement": "test_label 已在当前版本实际运行并通过。",
+      "checks": [
+        {"attribute": "实际执行结果", "assertion": "已在当前版本实际运行并通过", "evidence_observation": "本片段只有静态函数和断言，没有执行日志或结果记录。", "verdict": "insufficient_evidence"}
+      ]
+    }
+  ]
+}

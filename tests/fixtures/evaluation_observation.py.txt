@@ -1,0 +1,8 @@
+EXPECTED_LABEL = "quiet lake"
+RETRY_LIMIT = 3
+
+def accepts_count(count):
+    return count <= RETRY_LIMIT
+
+def test_label():
+    assert render_label() == EXPECTED_LABEL

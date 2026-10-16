@@ -234,16 +234,37 @@ class ProjectReportResponse(OutputModel):
     response: FinishInvestigation = Field(description="本次只提交 kind=report 的最终报告；依据已读原文保留发现与未知，不再请求工具。")
 
 
-class ClaimCheck(OutputModel):
-    """One independently checked assertion within an unchanged finding."""
+class _ClaimAssertion(OutputModel):
+    """Shared assertion fields; evidence observation belongs to scoring only."""
 
     subject: str = Field(description="该独立命题的具体对象，如函数、配置项或业务步骤。")
     attribute: str = Field(description="单独核对的属性，如生命周期、错误分支、返回值；不能把多个独立属性打包。")
     condition: str = Field(description="原断言的触发条件或适用范围；原句无条件写明无条件，不得偷偷补入正确条件来替原断言解围。")
     assertion: str = Field(description="原句对该属性的断言，忠实保留否定、数量、条件和结论强度；不能改成只陈述证据可见的较弱说法后判支持，也不补入原句未声称的内容。")
     evidence_ids: list[str] = Field(description="仅可引用该 finding.evidence_ids 中的 P 原文身份；支持判定至少一项，其他发现和 unknowns 不是原文证据。")
+
+
+class ClaimCheck(_ClaimAssertion):
+    """One independently checked assertion within an unchanged finding."""
+
     verdict: Literal["supported", "contradicted", "insufficient_evidence"] = Field(description="supported 须关联原文完整支持原属性及其条件；只支持一部分、所需窗口/条件/语义依据缺失则 insufficient_evidence，不以 supported 加理由说明不足。contradicted 须有相反证据，未见证据本身不是反驳。检查完但证据不足仍用 insufficient_evidence，与 coverage_complete 分开。")
     reason: str = Field(description="与本项 verdict 一致地说明完整支持点、相反证据或具体缺口；区分输入/声明、结果断言和实际运行记录，只依据该项获准证据，不假称外部知识或测试意图证明更强结论。")
+
+
+class EvaluationClaimCheck(_ClaimAssertion):
+    """Observe permitted evidence before judging one original assertion property."""
+
+    attribute: str = Field(description="一个可独立判真的属性；具体值与对值的描述分别核对，不能因字面量相同就合并其大小、单位、空白、范围或行为解释。只检查原句实际声称的属性。")
+    evidence_observation: str = Field(description="先独立描述本项获准 P 原文实际显示的相关值、行为或条件；缺少所需内容时明确写可见范围和缺口。保留影响本属性的符号、单位、边界和空白区别，不照抄待评断言作观察，不借用其他发现/未知作事实，不提前写支持结论。不要求字符位置；非空且最多800字符。它仍是模型对原文的描述，不是程序认证。")
+    verdict: Literal["supported", "contradicted", "insufficient_evidence"] = deepcopy(ClaimCheck.model_fields['verdict'])
+    reason: str = Field(description="将 evidence_observation 中的实际证据与 assertion 的原属性/条件直接比较，解释一致、相反或缺口，再与 verdict 保持一致；不因值能对上就默认描述和概括也成立。")
+
+    @field_validator('evidence_observation')
+    @classmethod
+    def nonempty_observation(cls, value):
+        if not value.strip() or len(value) > 800:
+            raise ValueError('evidence observation must be nonempty and at most 800 characters')
+        return value
 
 
 class ReviewConflict(OutputModel):
@@ -279,11 +300,17 @@ class CoverageJudgment(OutputModel):
     reason: str = Field(description="说明参考是否有依据、候选明确表达了什么以及具体缺口；不自报总分或更改分母。")
 
 
+class EvaluationFindingJudgment(FindingJudgment):
+    """Scoring-only attribute checks; the project review wire remains unchanged."""
+
+    checks: list[EvaluationClaimCheck] = Field(description="逐项检查完整原结论的独立属性；每项先描述证据观察，再比较并判定；将具体值和描述它的属性分别核对，不遗漏否定、条件、量词和概括。")
+
+
 class CognitionEvaluationResponse(OutputModel):
     """Independent evaluation, separate from investigation and knowledge approval."""
 
     coverage: list[CoverageJudgment] = Field(description="身份集合必须与本批 requirements.id 完全相同；每个属性恰好一次，requirements 为空则返回空列表。candidates 仅供判断覆盖，不新增评分目标。")
-    judgments: list[FindingJudgment] = Field(description="身份集合必须与本批 findings.finding_id 完全相同；逐项检查全部独立属性与冲突，findings 为空则返回空列表。不为 other_findings、report_unknowns 或 candidates 输出 judgment；对方矛盾只放入目标的 conflicts。解释使用 reason，不新增 note 等字段。原系统核对结果不作为正确依据。")
+    judgments: list[EvaluationFindingJudgment] = Field(description="身份集合必须与本批 findings.finding_id 完全相同；逐项先描述证据再判断原属性与冲突，findings 为空则返回空列表。不为 other_findings、report_unknowns 或 candidates 输出 judgment；对方矛盾只放入目标的 conflicts。解释使用 reason，不新增 note 等字段。原系统核对结果不作为正确依据。")
 
 
 class ResolutionCheck(OutputModel):
