@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-当前重点是[代表性项目整体认知与问答验收（M080）](docs/PROJECT_ACCEPTANCE_M080.md)：已导入公开RealWorld样本，按主要模块、核心流程、档案与知识问答的实用性评价，轻微细节不作阻塞项。[M082规划接收修复](docs/COGNITION_PLAN_RECEPTION.md)后，[新冷启动（M083）](docs/PROJECT_ACCEPTANCE_M083.md)的[原结果（M086）](docs/PROJECT_ACCEPTANCE_M086.md)因一批核对格式失败而failed，16条已核对成果也无法进入问答。[M087已完成批次失败隔离](docs/COGNITION_REVIEW_BATCH_ISOLATION.md)，随后[M089单次真实验证](docs/COGNITION_BATCH_ISOLATION_M089.md)通过：新隔离运行复用旧结果，后续4条真实核对成功，原失败项保留待办，以partial交付20条已核对成果；四问上下文均能读取认知。实际问答答案和整体实用性尚待验证，原失败记录保留。Web/接口补齐按用户要求暂缓，后续另行确认。
+当前重点是[代表性项目整体认知与问答验收（M080）](docs/PROJECT_ACCEPTANCE_M080.md)：已导入公开RealWorld样本，按主要模块、核心流程、档案与知识问答的实用性评价，轻微细节不作阻塞项。[M082规划接收修复](docs/COGNITION_PLAN_RECEPTION.md)后，[新冷启动（M083）](docs/PROJECT_ACCEPTANCE_M083.md)的[原结果（M086）](docs/PROJECT_ACCEPTANCE_M086.md)因一批核对格式失败而failed，16条已核对成果也无法进入问答。[M087已完成批次失败隔离](docs/COGNITION_REVIEW_BATCH_ISOLATION.md)，随后[M089单次真实验证](docs/COGNITION_BATCH_ISOLATION_M089.md)通过：新隔离运行复用旧结果，后续4条真实核对成功，原失败项保留待办，以partial交付20条已核对成果；四问上下文均能读取认知。[M090已准备四个真实问答任务](docs/PROJECT_QA_ACCEPTANCE_M090.md)，等待具体冻结包批准；实际答案和整体实用性尚待验证，原失败记录保留。Web/接口补齐按用户要求暂缓，后续另行确认。
 
 已具备项目创建/导入、证据问答、词法 RAG、已审核知识、MCP 协作、模型修复建议、批准候选修改、容器验证和管理源码版本切换/回退。完整开发能力与实际部署继续分模块实现，进度和验证记录见开发日志。
 
