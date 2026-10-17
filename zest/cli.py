@@ -30,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
     doctor.add_argument("--docker", action="store_true", help="读取本地 Docker 服务版本")
     doctor.add_argument("--image", help="核对已安装测试镜像并返回固定 ID，不自动下载")
     doctor.add_argument("--docker-socket", type=Path)
-    web = commands.add_parser("web", help="本地只读 Web API，不包含模型/修改端点")
+    web = commands.add_parser("web", help="本地 Web 工作台 API，无需登录")
     web_actions = web.add_subparsers(dest="action", required=True)
     web_serve = web_actions.add_parser("serve")
     web_serve.add_argument("--port", type=int, default=8000)

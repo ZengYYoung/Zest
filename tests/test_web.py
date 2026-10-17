@@ -18,7 +18,7 @@ from zest.files import FileReadError
 from zest.git import inspect_repository
 from zest.models import ModelSettings
 from zest.storage import ProjectRegistry
-from zest.web import WebSettings, create_app
+from zest.web import create_app
 
 
 TOKEN = "test_web_" + "x" * 40
@@ -37,16 +37,12 @@ class WebTest(unittest.TestCase):
         (self.repo / "app.py").write_text("print('hello')\n")
         self.commit()
         self.project = ProjectRegistry(self.state_dir).register(inspect_repository(self.repo))
-        self.client = TestClient(create_app(self.state_dir, settings=WebSettings(TOKEN)))
-        self.headers = {"Authorization": "Bearer " + TOKEN}
+        self.client = TestClient(create_app(self.state_dir))
+        self.headers = {"Origin": "http://127.0.0.1:5173"}
 
-    def test_health_is_minimal_and_private_routes_require_token(self):
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "mode": "local_read_only"})
-        for headers in ({}, {"Authorization": "Bearer wrong"}, {"Authorization": "Basic " + TOKEN}):
-            response = self.client.get("/api/projects", headers=headers)
-            self.assertEqual(response.status_code, 401)
-            self.assertNotIn(TOKEN, response.text)
-        response = self.client.get("/api/projects", headers=self.headers)
+    def test_health_and_local_reading_need_no_token(self):
+        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "mode": "local_workspace"})
+        response = self.client.get("/api/projects")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["data"][0]["id"], self.project["id"])
         self.assertEqual(response.headers["Cache-Control"], "no-store")
@@ -87,7 +83,7 @@ class WebTest(unittest.TestCase):
         self.assertFalse((self.state_dir / "tasks.sqlite3").exists())
         self.assertFalse((self.state_dir / "repairs.sqlite3").exists())
 
-    def test_cognition_routes_are_private_readonly_and_project_scoped(self):
+    def test_cognition_read_routes_are_project_scoped(self):
         from zest.cognition_store import CognitionStore
         store = CognitionStore(self.state_dir)
         prefix = "/api/projects/" + self.project["id"] + "/cognition"
@@ -97,7 +93,7 @@ class WebTest(unittest.TestCase):
         routes = [prefix, "/api/cognition/" + record["id"], "/api/cognition/" + record["id"] + "/dossier"]
         with patch("zest.models.DeepSeekModel.complete", side_effect=AssertionError("no calls")):
             for route in routes:
-                self.assertEqual(self.client.get(route).status_code, 401)
+                self.assertEqual(self.client.get(route).status_code, 200)
                 response = self.client.get(route, headers=self.headers)
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual(response.headers["Cache-Control"], "no-store")
@@ -107,7 +103,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/cognition/" + str(uuid4()), headers=self.headers).status_code, 404)
         self.assertEqual(store.show(record["id"])["status"], "awaiting_approval")
 
-    def test_no_mutation_or_model_routes(self):
+    def test_no_implicit_mutations_on_read_routes(self):
         before = self.git("show-ref")
         with patch("zest.models.DeepSeekModel.complete", side_effect=AssertionError("no calls")):
             for route in ("/api/projects", "/api/tasks", "/api/repairs", "/api/releases"):
@@ -120,11 +116,11 @@ class WebTest(unittest.TestCase):
     def test_host_and_cors_are_local_only(self):
         self.assertEqual(self.client.get("/api/projects", headers={**self.headers, "Host": "evil.example"}).status_code, 400)
         allowed = self.client.options("/api/projects", headers={"Origin": "http://127.0.0.1:5173",
-            "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "Authorization"})
+            "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "Content-Type"})
         self.assertEqual(allowed.status_code, 200)
         denied = self.client.options("/api/projects", headers={"Origin": "https://evil.example",
             "Access-Control-Request-Method": "GET"})
-        self.assertEqual(denied.status_code, 400)
+        self.assertEqual(denied.status_code, 403)
         self.assertNotIn("Access-Control-Allow-Origin", denied.headers)
 
     def test_task_preview_is_visible_without_key_or_execution(self):
@@ -175,21 +171,16 @@ class WebTest(unittest.TestCase):
         self.assertEqual(engine.calls, [])
         self.assertEqual(self.client.get("/api/projects/" + str(uuid4()) + "/verifications", headers=self.headers).status_code, 404)
 
-    def test_web_token_is_independent_and_repr_private(self):
-        self.assertNotIn(TOKEN, repr(WebSettings(TOKEN)))
-        for token in ("", "short", "sk-" + "x" * 40, TOKEN + "\n"):
-            with self.subTest(token=token), self.assertRaises(FileReadError):
-                WebSettings(token)
-        with patch.dict(os.environ, {"ZEST_WEB_API_TOKEN": TOKEN, "ZEST_MODEL_API_KEY": TOKEN}):
-            with self.assertRaises(FileReadError):
-                WebSettings.from_env()
+    def test_no_token_config_is_required(self):
+        with patch.dict(os.environ, {"ZEST_WEB_API_TOKEN": "", "ZEST_MODEL_API_KEY": ""}):
+            self.assertEqual(create_app(self.state_dir).title, "Zest local workspace API")
 
-    def test_real_loopback_http_has_auth_and_no_model_calls(self):
+    def test_real_loopback_http_without_token_or_model_calls(self):
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]
-        program = ("import os,sys,uvicorn; from zest.web import create_app,WebSettings; "
-                   "uvicorn.run(create_app(sys.argv[1],settings=WebSettings(os.environ['ZEST_TEST_WEB_TOKEN'])),"
+        program = ("import os,sys,uvicorn; from zest.web import create_app; "
+                   "uvicorn.run(create_app(sys.argv[1]),"
                    "host='127.0.0.1',port=int(sys.argv[2]),access_log=False,log_level='error')")
         process = subprocess.Popen([sys.executable, "-c", program, str(self.state_dir), str(port)],
                                    env={**os.environ, "ZEST_TEST_WEB_TOKEN": TOKEN},
@@ -201,16 +192,14 @@ class WebTest(unittest.TestCase):
                     self.fail("Loopback test server stopped before startup")
                 try:
                     with request.urlopen(endpoint + "/health", timeout=1) as response:
-                        self.assertEqual(json.load(response)["mode"], "local_read_only")
+                        self.assertEqual(json.load(response)["mode"], "local_workspace")
                     break
                 except (OSError, error.URLError):
                     time.sleep(0.1)
             else:
                 self.fail("Loopback test server startup timeout")
-            with self.assertRaises(error.HTTPError) as caught:
-                request.urlopen(endpoint + "/api/projects", timeout=2)
-            self.assertEqual(caught.exception.code, 401)
-            caught.exception.close()
+            with request.urlopen(endpoint + "/api/projects", timeout=2) as response:
+                self.assertEqual(response.status, 200)
             with request.urlopen(request.Request(endpoint + "/api/projects", headers=self.headers), timeout=3) as response:
                 self.assertEqual(json.load(response)["data"][0]["id"], self.project["id"])
             self.assertFalse((self.state_dir / "tasks.sqlite3").exists())

@@ -4,7 +4,7 @@ Zest 是面向单一项目、长期服务的项目维护 Agent。它结合项目
 
 ## 项目状态
 
-当前重点是[代表性项目整体认知与问答验收（M080）](docs/PROJECT_ACCEPTANCE_M080.md)：已导入公开RealWorld样本，按主要模块、核心流程、档案与知识问答的实用性评价，轻微细节不作阻塞项。原[M086调查](docs/PROJECT_ACCEPTANCE_M086.md)因一批核对格式失败而failed；[M087批次隔离](docs/COGNITION_REVIEW_BATCH_ISOLATION.md)及[M089真实验证](docs/COGNITION_BATCH_ISOLATION_M089.md)已让新隔离运行交付20条可用已核对成果，原失败记录保留。M092修复上下文后，M094形成四份真实回答，[M105现已完成24项覆盖评分](docs/PROJECT_EVALUATION_M105.md)：19full/5partial，四问主流程与定位均full，主要缺口在档案的核心流程表达，未达到整体冻结门槛。[M106已调整报告生成与独立评分准则](docs/DOCUMENT_QUALITY_M106.md)：优先有据地讲清项目实际主干，不套样本功能清单，111项离线验证通过。[M107真实报告生成](docs/DOCUMENT_QUALITY_M107.md)已完成1次调用，10条候选明确补出主要处理与协作；[M108独立评分](docs/DOCUMENT_QUALITY_M108.md)给真实性/清晰度full、边界partial，但边界理由漏看实际输入中的未知说明，保留评分疑点，不自动改分或补跑。Web/接口补齐按用户要求暂缓，后续另行确认。
+当前重点是[代表性项目整体认知与问答验收（M080）](docs/PROJECT_ACCEPTANCE_M080.md)：已导入公开RealWorld样本，按主要模块、核心流程、档案与知识问答的实用性评价，轻微细节不作阻塞项。原[M086调查](docs/PROJECT_ACCEPTANCE_M086.md)因一批核对格式失败而failed；[M087批次隔离](docs/COGNITION_REVIEW_BATCH_ISOLATION.md)及[M089真实验证](docs/COGNITION_BATCH_ISOLATION_M089.md)已让新隔离运行交付20条可用已核对成果，原失败记录保留。M092修复上下文后，M094形成四份真实回答，[M105现已完成24项覆盖评分](docs/PROJECT_EVALUATION_M105.md)：19full/5partial，四问主流程与定位均full，主要缺口在档案的核心流程表达，未达到整体冻结门槛。[M106已调整报告生成与独立评分准则](docs/DOCUMENT_QUALITY_M106.md)：优先有据地讲清项目实际主干，不套样本功能清单，111项离线验证通过。[M107真实报告生成](docs/DOCUMENT_QUALITY_M107.md)已完成1次调用，10条候选明确补出主要处理与协作；[M108独立评分](docs/DOCUMENT_QUALITY_M108.md)给真实性/清晰度full、边界partial，但边界理由漏看实际输入中的未知说明，保留评分疑点，不自动改分或补跑。[M109已接通本地 Web 试用入口](docs/WEB_WORKSPACE.md)，无需 Web token 或登录；现有项目维护流程可在页面准备、审阅和批准。
 
 [M092已调整问答上下文](docs/QA_CONTEXT.md)：来源预算默认128000字符并可配置，精简重复原文与核对审计，优先定位问题中的函数/类实现并合并原生窗口，142项相关用例通过。随后[M094四问真实复测](docs/PROJECT_QA_ACCEPTANCE_M094.md)完成4次调用、0补试，四问均answered且实际引用认知与源码；新答案补充了应用组装、发文保存和关注测试。模型状态不等于整体验收通过。
 
@@ -85,7 +85,7 @@ uv run zest cognition watch <run-id>
 uv run zest cognition dossier <run-id> --format text
 ```
 
-本地摸底后一次批准固定版本、完整资料包、模型接口和预算。主 Agent 规划，任务 Agent 用 MCP/RAG 自主检索和读取，核对后形成六部分档案；进度、原文依据与未知项在 CLI、终端和只读 Web 展示。同版本自动核对知识进入新问答、修改建议及后续调查的批准预览；失效和跨版本记录不沿用。关闭工作台不取消独立 worker，未知模型请求不自动重发。[使用、架构与边界](docs/COGNITION.md)
+本地摸底后一次批准固定版本、完整资料包、模型接口和预算。主 Agent 规划，任务 Agent 用 MCP/RAG 自主检索和读取，核对后形成六部分档案；进度、原文依据与未知项在 CLI、终端和 Web 展示。同版本自动核对知识进入新问答、修改建议及后续调查的批准预览；失效和跨版本记录不沿用。关闭工作台不取消独立 worker，未知模型请求不自动重发。[使用、架构与边界](docs/COGNITION.md)
 
 版本变化后可用 `zest cognition refresh-preview <project-id> --format text --progress`，或 Ctrl+U →“版本更新”，只读比较选定 commit 与既有认知证据，列出待刷新线索。不调用模型、不改变旧知识，也不把未变证据直接升级为新版本结论。[增量认知预览](docs/COGNITION_REFRESH.md)
 
@@ -470,44 +470,26 @@ suggest 通过持久化 LangGraph 准备完整范围并暂停，不调用模型�
 
 当前修复模型效果使用明确的离线模型和真实 LangChain MockTransport 验证，没有新增真实项目数据发送或准确率结论。生成的方案仍需人工审查与独立容器测试。
 
-## 本地只读 Web API
+## 本地 Web 工作台（主要使用入口）
+
+无需注册、登录或生成 Web token。先构建前端，再启动一个服务：
 
 ```bash
 uv sync --extra ai --extra mcp --extra web
-# 在本地 .env 配置独立的 ZEST_WEB_API_TOKEN（32—256 位 URL-safe 随机 token）
-uv run --extra ai --extra mcp --extra web zest web serve --port 8000
+npm --prefix frontend ci
+npm --prefix frontend run build
+uv run zest web serve --port 8000
 ```
 
-仅绑定 127.0.0.1，不接受远程 bind 参数。除最小 /health 外，所有 /api 端点需要 `Authorization: Bearer <web-token>`；Web token 不等于模型密钥、不进入请求 URL 或访问日志。生产多人认证尚未实现。[FastAPI 安全依赖](https://fastapi.tiangolo.com/tutorial/security/simple-oauth2/)
+打开 [本地工作台](http://127.0.0.1:8000)，页面自动连接。模型仍使用本地 `.env` 中的 `ZEST_MODEL_*` 配置，密钥只留在服务端；不需要 `ZEST_WEB_API_TOKEN`。所有命令继续支持最前面的 `--state-dir`，Web 与 CLI 共用项目资源和原有批准记录。
 
-只读端点覆盖 projects/list/show/overview/file/knowledge，以及 tasks、repairs、verifications、releases 的记录查询。UUID 和范围校验、路径/内容限制复用 CLI；没有上传任意仓库路径、模型调用、命令执行、修改或批准端点。错误不回显输入或原始存储异常，响应 no-store；不开放 Swagger 外部资源或源码生成日志。
+网页支持创建/导入项目、认知调查及增量/定向补查、问答和修改建议、候选修改、验证、管理源码选择/回退、知识确认/失效、独立评分和补查结案。每次执行先审阅完整请求或计划，再单独批准。源码选择表示管理版本指针更新；运行服务部署仍未实现。
 
-Host 限制本地，CORS 只允许 http://127.0.0.1:5173 与 http://localhost:5173 的 GET/Authorization，禁止任意来源和 cookie 凭据。[CORS 规则](https://fastapi.tiangolo.com/tutorial/cors/)
+网页操作具有持久化请求身份与后台进程，刷新/关闭页面不会取消已启动操作。最近网页操作可查看进度、错误和结果；相同请求身份重放不重复执行，未知结果不自动重发。完整使用路径、接口和恢复边界见 [Web 工作台](docs/WEB_WORKSPACE.md)。
 
-Web 是单个可信本地操作者的记录读取入口，不能公开部署或当作多人权限系统。服务器的只读含义是未提供业务变更/调用接口；底层数据库连接可能初始化既有状态的兼容 schema。
+服务仅绑定 `127.0.0.1`，校验本地 Host/Origin，写入要求同源网页或本地开发前端来源。开发时也可 `npm --prefix frontend run dev`，打开 [开发前端](http://127.0.0.1:5173)，默认连接 8000，可手动调整 API 端口。接口 schema 在 `/openapi.json`，读取响应继续 `no-store`。
 
-## 本地 React 管理台
-
-先按上节启动 API，然后在第二个终端启动前端：
-
-```bash
-cd frontend
-npm ci
-npm run dev
-# 本地接口客户端测试与 TypeScript / Vite 构建
-npm test
-npm run build
-```
-
-打开 http://127.0.0.1:5173，填写 API 端口及独立 Web 访问令牌。前端仅连接本机 API，令牌只在当前页面内存保留，刷新页面或断开后需重新填写；不写入浏览器存储，也不进入构建包。
-
-可查看项目概览、已提交源码原文、调查/建议任务、候选修改、项目知识及管理源码版本历史。项目切换清空旧详情并取消未完成读取；刷新重新读取项目登记列表及当前页。调查列表按项目筛选最近全局 100 个任务中的匹配记录，尚未实现完整分页。状态和详情来自现有记录，没有批准、调用模型或执行修改的页面按钮。
-
-记录详情分开显示调查结论、待补充信息与可展开的引用来源，原文携带行号、commit 和原文件哈希；待创建路径明确区分于已有代码。候选修改显示基础/候选版本、具体批准哈希、逐文件 diff 与完整候选正文。草稿知识、历史观察版本以及源码选择/回退的边界直接显示，完整原始 JSON 仍可展开核对；引用存在不代表模型结论已经得到语义验证。
-
-测试验证页通过项目内列表定位记录，分别展示基线/候选的退出码、测试数量、隔离配置核对、容器清理、OOM/日志截断以及保存的日志。离线/未知后端明确提示不能用于正式源码选择，not_applicable 基线明确显示未运行；缺失指标显示未知而不是通过。CLI/API 验证列表通过已有 repair 关联项目，保留旧计划和批准哈希，当前筛选最近全局 100 个验证记录，不加载日志/清单进入列表。
-
-源码读取显示实际 evidence 的路径和 commit，工作区 HEAD 单独报告；项目知识和任务结果按文本显示，不执行正文中的 HTML。这里展示的是本地维护状态，不是运行服务监控。当前使用 React 19.3、TypeScript 7、Vite 8，精确依赖见 package-lock.json；Node 版本须满足 Vite 要求，本机使用 Node 26 验证。[React 应用搭建](https://react.dev/learn/creating-a-react-app)、[Vite 入门](https://vite.dev/guide/)
+前端保留白色简约界面，项目切换清空旧详情，来源与模型文本按纯文本显示；候选 diff、基线/候选验证结果和未知边界保持可审阅。项目历史列表目前仍按既有最近 100 项规则显示，尚未实现完整分页。独立评分参考使用现有 JSON 契约；后续再改善可视化编辑体验。
 
 ## 开发日志
 

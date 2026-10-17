@@ -46,7 +46,7 @@ test('context extension is visibly unsent and keeps Web read only', () => {
     status: 'awaiting_context_approval', context_requests: [{ actor: 'T1', sequence: 2, status: 'awaiting_approval',
       chars: 35000, default_chars: 32000, over_percent: 9.38 }],
   } }))
-  for (const value of ['完整请求待扩展批准', '35000', '32000', '9.38', '尚未外发', '终端或 CLI']) assert.ok(html.includes(value), value)
+  for (const value of ['完整请求待扩展批准', '35000', '32000', '9.38', '尚未外发', '记录操作']) assert.ok(html.includes(value), value)
   assert.ok(!html.includes('<button>批准'))
 })
 

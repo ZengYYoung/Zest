@@ -498,14 +498,13 @@ class ResourceTest(unittest.TestCase):
     @unittest.skipUnless(importlib.util.find_spec("fastapi"), "web extra required")
     def test_readonly_web_reads_project_memory_without_creating_catalog_ledgers(self):
         from fastapi.testclient import TestClient
-        from zest.web import create_app, WebSettings
+        from zest.web import create_app
         project = self.imported()
         note = KnowledgeStore(self.state_dir).add(project, "Web note", "Project local memory")
         database = Path(project["resource_dir"]) / "knowledge.sqlite3"
         before = database.read_bytes()
-        token = "R" * 40
-        with TestClient(create_app(self.state_dir, settings=WebSettings(token))) as client:
-            response = client.get(f"/api/projects/{project['id']}/knowledge", headers={"Authorization": "Bearer " + token})
+        with TestClient(create_app(self.state_dir)) as client:
+            response = client.get(f"/api/projects/{project['id']}/knowledge")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["data"][0]["id"], note["id"])
         self.assertEqual(database.read_bytes(), before)

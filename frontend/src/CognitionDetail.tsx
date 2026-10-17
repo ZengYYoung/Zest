@@ -24,7 +24,7 @@ export function CognitionDetail({ value, onClose }: { value: unknown; onClose():
     {Boolean(record.error) && <div className="error">{text(object(record.error).message)}</div>}
     {record.status === 'pending_execution' && <p className="review-note">存在结果未知的请求，请核对调用记录；不会自动重复发送。</p>}
     {rows(record.context_requests).filter(item => item.status === 'awaiting_approval').map(item => <p className="review-note" key={`${text(item.actor)}-${Number(item.sequence)}`}>
-      {text(item.actor)} / {Number(item.sequence)}：完整请求 {Number(item.chars)} 字符，默认 {Number(item.default_chars)}，超出 {Number(item.over_percent)}%。尚未外发，请在终端或 CLI 审阅并决定本次扩展。
+      {text(item.actor)} / {Number(item.sequence)}：完整请求 {Number(item.chars)} 字符，默认 {Number(item.default_chars)}，超出 {Number(item.over_percent)}%。尚未外发，请在上方记录操作中审阅并决定本次扩展。
     </p>)}
     <h3>初步认知 · 待深入核对</h3><ul>{rows(plan.overview).map((entry, i) => <li key={i}>{text(entry.statement)} · {entry.kind === 'inferred' ? '推测' : '初步观察'}</li>)}</ul>
     <h3>调查任务</h3>{jobs.map(job => { const spec = object(job.spec), report = object(object(job.result).report), audit = object(object(job.result).report_validation), rejected = rows(audit.rejected_findings)

@@ -2,9 +2,9 @@
 
 本页按实际能力使用 Zest：项目接入 → 证据问答 → 修复/开发建议 → 独立批准 → 候选版本 → 容器验证 → 管理源码选择 → 导出 → 历史知识。
 
-当前入口为本地 CLI，可信操作者单人使用。源码选择不代表服务发布、流量切换或数据库回退；这些需要另行设计运行部署适配。
+当前以本地 Web 为主要入口，同时保留 CLI，可信操作者单人使用。源码选择不代表服务发布、流量切换或数据库回退；这些需要另行设计运行部署适配。
 
-已实现的 Web 入口为只读审阅；后续双入口功能与白色视觉方案见 [Web 与 CLI 功能开发文档](INTERFACE_PLAN.md)。本页只给出实际可用操作，不把规划中的 Web 批准/执行列为已实现。
+Web 已接通准备、完整预览和独立批准，启动与试用见 [Web 工作台](WEB_WORKSPACE.md)。下列 CLI 步骤与 Web 共用相同记录和业务服务。
 
 ## 1. 准备运行环境
 
@@ -162,10 +162,12 @@ ZEST_RUN_DOCKER_TESTS=1 ZEST_TEST_IMAGE=<本地完整镜像ID> uv run --extra ai
 
 普通套件跳过 Docker 实测，模型结果来自明确的离线夹具/MockTransport。显式 opt-in 的 Docker 案例是真实临时项目，测试容器清理完成；不能用它们泛化所有项目和生产环境的效果。
 
-## 8. 只读管理台
+## 8. Web 主要使用入口
 
-在本地 .env 设置独立 ZEST_WEB_API_TOKEN 后，以 `uv run --extra ai --extra mcp --extra web zest web serve --port 8000` 启动 API。另开终端进入 frontend，运行 `npm ci` 和 `npm run dev`，打开 http://127.0.0.1:5173，填写端口与 Web token；不能填写模型密钥。
+先运行 `npm --prefix frontend ci`、`npm --prefix frontend run build`，再运行 `uv run zest web serve --port 8000`。打开 http://127.0.0.1:8000 自动连接，无需 Web token 或登录。开发时也可单独启动 5173 前端。
 
-检查概览的管理源码与工作区 HEAD 是否分别显示、README 原文是否携带实际 commit；调查列表仅显示当前项目的最近记录，详情可以审阅完整来源和批准哈希。候选、知识、版本状态与 CLI 记录保持一致；当前所有批准和执行仍通过 CLI。
+按 [Web 试用步骤](WEB_WORKSPACE.md) 验收：导入/创建 → 准备认知 → 完整包预览及批准 → 后台档案 → 问答 → 修改建议 → 独立候选批准 → 验证计划与批准 → 管理源码选择/回退。真实模型请求应在网页确认具体包与预算；只做准备和查看不会发送模型请求。
 
-通过 CLI 新增登记或状态后刷新，切换项目/页签时旧详情清空；断开或刷新页面后重新填写令牌。浏览器没有模型或修改入口。`npm test` 检查本地请求边界，`npm run build` 检查 TypeScript 和打包；依赖安装需要网络，实际使用/API 请求仅本机。
+检查 Web/CLI 的相同记录 ID、来源版本和哈希；重复提交相同请求不能重复创建/执行；页面刷新后能从最近网页操作读取原回执。切换项目时清空旧详情，操作完成后刷新当前详情；未知执行只核对，不自动重发。
+
+`npm --prefix frontend test` 与 `npm --prefix frontend run build` 检查客户端和构建；后端 `python -m unittest tests.test_web tests.test_web_operations tests.test_resources -q` 使用临时项目和明确离线模型/验证引擎。完整套件的 Docker 实测仍需原有显式开关；离线结果不能替代实际模型或 Docker 效果。

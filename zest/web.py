@@ -1,63 +1,44 @@
-"""Loopback read-only API for Zest's local records. No model or write endpoints."""
+"""Loopback workspace API for a single local operator, without login."""
 
-from dataclasses import dataclass, field
-import hmac
-import os
 from pathlib import Path
-import re
+import sqlite3
 from uuid import UUID
 
-from .files import CREDENTIAL_PATTERNS, FileReadError, read_project_file
+from .files import FileReadError, read_project_file
 from .git import RepositoryError
 from .storage import ProjectRegistry, StorageError
 
 
-@dataclass(frozen=True)
-class WebSettings:
-    token: str = field(repr=False)
-
-    def __post_init__(self):
-        if (not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", self.token)
-                or any(re.search(pattern, self.token.encode()) for pattern in CREDENTIAL_PATTERNS)):
-            raise FileReadError("invalid_web_token", "请配置独立的 32—256 位 URL-safe Web token，不复用模型或 GitHub 密钥。")
-
-    @classmethod
-    def from_env(cls):
-        from dotenv import dotenv_values
-        values = dotenv_values(Path.cwd() / ".env", interpolate=False)
-        token = os.environ.get("ZEST_WEB_API_TOKEN", values.get("ZEST_WEB_API_TOKEN") or "")
-        model_key = os.environ.get("ZEST_MODEL_API_KEY", values.get("ZEST_MODEL_API_KEY") or "")
-        if not token or token == model_key:
-            raise FileReadError("web_not_configured", "请在本地 .env 配置独立的 ZEST_WEB_API_TOKEN，不能与模型密钥相同。")
-        return cls(token)
-
-
-def create_app(state_dir, *, settings=None):
+def create_app(state_dir):
     try:
-        from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
+        from fastapi import APIRouter, FastAPI, Query
         from fastapi.exceptions import RequestValidationError
         from fastapi.middleware.cors import CORSMiddleware
         from fastapi.middleware.trustedhost import TrustedHostMiddleware
         from fastapi.responses import JSONResponse
     except ImportError as exc:
         raise FileReadError("web_dependencies_missing", "请执行 uv sync --extra ai --extra mcp --extra web。") from exc
-    config = settings or WebSettings.from_env()
     registry = ProjectRegistry(state_dir)
-    app = FastAPI(title="Zest local read-only API", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Zest local workspace API", docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
-                       allow_credentials=False, allow_methods=["GET"], allow_headers=["Authorization"])
-
-    def authorized(authorization: str | None = Header(default=None)):
-        if (authorization is None or len(authorization) > 512 or not authorization.startswith("Bearer ")
-                or not hmac.compare_digest(authorization[7:].encode(), config.token.encode())):
-            raise HTTPException(status_code=401, detail="需要有效的本地 Bearer token。", headers={"WWW-Authenticate": "Bearer"})
-
-    router = APIRouter(prefix="/api", dependencies=[Depends(authorized)])
+    origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
+    app.add_middleware(CORSMiddleware, allow_origins=origins,
+                       allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+    router = APIRouter(prefix="/api")
 
     @app.middleware("http")
     async def private_response(request, call_next):
-        response = await call_next(request)
+        origin = request.headers.get("origin")
+        allowed = origin in origins or origin == str(request.base_url).rstrip("/")
+        mutation = request.method not in ("GET", "HEAD", "OPTIONS")
+        if request.url.path.startswith("/api/") and ((origin is not None and not allowed) or (mutation and not allowed)):
+            response = JSONResponse(status_code=403, content={"error": {
+                "code": "local_origin_required", "message": "请从本地 Zest 网页提交操作。"}})
+        elif mutation and len(await request.body()) > 1024 * 1024:
+            response = JSONResponse(status_code=413, content={"error": {
+                "code": "request_too_large", "message": "网页操作请求最多 1 MiB。"}})
+        else:
+            response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
@@ -72,9 +53,13 @@ def create_app(state_dir, *, settings=None):
     async def repository_error(request, exc):
         return JSONResponse(status_code=400, content={"error": {"code": "repository_error", "message": str(exc)}})
 
+    @app.exception_handler(sqlite3.Error)
+    async def sqlite_error(request, exc):
+        return JSONResponse(status_code=503, content={"error": {"code": "state_error", "message": "无法读取或保存本地操作记录。"}})
+
     @app.exception_handler(StorageError)
     async def storage_error(request, exc):
-        return JSONResponse(status_code=503, content={"error": {"code": "state_error", "message": "无法读取本地状态。"}})
+        return JSONResponse(status_code=503, content={"error": {"code": "state_error", "message": "无法读取或保存本地状态。"}})
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request, exc):
@@ -89,7 +74,7 @@ def create_app(state_dir, *, settings=None):
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "mode": "local_read_only"}
+        return {"status": "ok", "mode": "local_workspace"}
 
     @router.get("/projects")
     def projects():
@@ -183,7 +168,135 @@ def create_app(state_dir, *, settings=None):
         from .releases import ReleaseStore
         return {"data": ReleaseStore(state_dir).show(str(operation_id))}
 
+    from .web_commands import Command
+    from .web_operations import WebOperations
+    operations = WebOperations(state_dir)
+
+    @router.post("/operations", status_code=202)
+    def submit(command: Command):
+        record, created = operations.submit(command.request_id, command.action, command.parameters)
+        if created:
+            operations.launch(record["id"])
+        return {"data": record}
+
+    @router.get("/operations")
+    def operation_list():
+        return {"data": operations.list()}
+
+    @router.get("/operations/{operation_id}")
+    def operation(operation_id: UUID):
+        return {"data": operations.show(str(operation_id))}
+
+    @router.post("/operations/{operation_id}/start", status_code=202)
+    def operation_start(operation_id: UUID):
+        operations.launch(str(operation_id))
+        return {"data": operations.show(str(operation_id))}
+
+    @router.get("/projects/{project_id}/context")
+    def management_context(project_id: UUID):
+        from .management_context import build_management_context
+        project(project_id)
+        return {"data": build_management_context(state_dir, str(project_id))}
+
+    @router.get("/projects/{project_id}/refresh-preview")
+    def refresh_preview(project_id: UUID):
+        from .cognition_refresh import build_refresh_preview
+        project(project_id)
+        return {"data": build_refresh_preview(state_dir, str(project_id))}
+
+    @router.get("/cognition/{run_id}/preview")
+    def cognition_preview(run_id: UUID):
+        from .cognition_store import CognitionStore
+        return {"data": CognitionStore(state_dir).show(str(run_id), include_envelope=True)}
+
+    @router.get("/cognition/{run_id}/context-requests")
+    def cognition_context(run_id: UUID):
+        from .cognition_store import CognitionStore
+        return {"data": CognitionStore(state_dir).context_requests(str(run_id))}
+
+    @router.get("/cognition/{run_id}/calls")
+    def cognition_calls(run_id: UUID):
+        from .cognition_store import CognitionStore
+        return {"data": CognitionStore(state_dir).show(str(run_id), include_calls=True)}
+
+    @router.get("/tasks/{task_id}/preview")
+    def task_preview(task_id: UUID):
+        from .tasks import TaskRunner
+        from .qa import model_payload
+        record = TaskRunner(state_dir).show(str(task_id))
+        return {"data": {"task_id": str(task_id), "status": record["status"],
+                         "payload_sha256": record["payload_sha256"], "target": record["target"],
+                         "payload": model_payload(record["context"]) if record["context"] else None}}
+
+    @router.get("/knowledge/{note_id}")
+    def knowledge_note(note_id: UUID):
+        from .knowledge import KnowledgeStore
+        return {"data": KnowledgeStore(state_dir).get(str(note_id))}
+
+    @router.get("/projects/{project_id}/surveys")
+    def survey_list(project_id: UUID):
+        from .survey import SurveyStore
+        project(project_id)
+        return {"data": SurveyStore(state_dir).list_surveys(str(project_id))}
+
+    @router.get("/surveys/{survey_id}")
+    def survey(survey_id: UUID):
+        from .survey import SurveyStore
+        return {"data": SurveyStore(state_dir).show(str(survey_id))}
+
+    def analysis_store(kind):
+        from .evaluation import EvaluationStore
+        from .cognition_resolution import ResolutionStore
+        return (EvaluationStore if kind == "evaluations" else ResolutionStore)(state_dir)
+
+    @router.get("/projects/{project_id}/{kind}")
+    def analysis_list(project_id: UUID, kind: str):
+        from contextlib import closing
+        import sqlite3
+        from .resources import project_states
+        if kind not in ("evaluations", "resolutions"):
+            raise FileReadError("route_not_found", "未找到该接口。")
+        project(project_id)
+        ids = set()
+        for directory in project_states(state_dir, str(project_id)):
+            path = directory / (kind + ".sqlite3")
+            if path.is_symlink():
+                raise FileReadError("analysis_storage_error", "分析数据库不能是符号链接。")
+            if not path.exists():
+                continue
+            with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (kind,)).fetchone():
+                    ids.update(row[0] for row in conn.execute(f"SELECT id FROM {kind} WHERE project_id=?", (str(project_id),)))
+        store = analysis_store(kind)
+        records = [store.show(identity) for identity in ids]
+        return {"data": sorted(records, key=lambda r: r["created_at"], reverse=True)[:100]}
+
+    # Static analysis route names keep OpenAPI and validation explicit.
+    @router.get("/evaluations/{record_id}")
+    def evaluation(record_id: UUID):
+        return {"data": analysis_store("evaluations").show(str(record_id))}
+
+    @router.get("/evaluations/{record_id}/preview")
+    def evaluation_preview(record_id: UUID):
+        return {"data": analysis_store("evaluations").show(str(record_id), preview=True)}
+
+    @router.get("/evaluations/{record_id}/report")
+    def evaluation_report(record_id: UUID):
+        return {"data": analysis_store("evaluations").report(str(record_id))}
+
+    @router.get("/resolutions/{record_id}")
+    def resolution(record_id: UUID):
+        return {"data": analysis_store("resolutions").show(str(record_id))}
+
+    @router.get("/resolutions/{record_id}/preview")
+    def resolution_preview(record_id: UUID):
+        return {"data": analysis_store("resolutions").show(str(record_id), preview=True)}
+
     app.include_router(router)
+    frontend = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    if frontend.is_dir():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=frontend, html=True), name="console")
     return app
 
 

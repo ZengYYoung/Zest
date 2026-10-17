@@ -51,7 +51,7 @@ function Task({ record }: { record: Row }) {
     {Array.isArray(result.unknowns) && result.unknowns.length > 0 && <><h3>待补充信息</h3><ul className="unknowns">{result.unknowns.map((value, i) => <li key={i}>{text(value)}</li>)}</ul></>}
     {record.error && <div role="alert" className="error">{text(object(record.error).message, '任务异常。')}<br /><code>{text(object(record.error).code)}</code></div>}
     <h3>本次来源 · {records(context.sources).length} 项</h3><Sources sources={records(context.sources)} citations={result.citations} />
-    <p className="review-note">调用上限：{Number(policy.max_model_calls || 0)} 次。所有批准和执行仍通过 CLI。</p>
+    <p className="review-note">调用上限：{Number(policy.max_model_calls || 0)} 次。可在记录操作中审阅并单独批准。</p>
     {Array.isArray(result.specialists) && <details className="json-details"><summary>查看协作 Agent 分析（不是新增事实证据）</summary><pre>{JSON.stringify(result.specialists, null, 2)}</pre></details>}
   </>
 }
@@ -72,7 +72,7 @@ function Repair({ record }: { record: Row }) {
 function Knowledge({ record }: { record: Row }) {
   return <><p className="review-question">{text(record.title)}</p><div className="review-fields"><Field label="知识状态" value={statusLabels[text(record.status)] || record.status} />
     <Field label="适用范围" value={record.scope === 'project' ? '跨版本项目知识 · 历史信息仍须核对' : '限定观察版本'} /><Field label="观察版本" value={record.observed_commit} /><Field label="确认时间" value={record.confirmed_at} /></div>
-    <div className="review-answer">{text(record.body)}</div><p className="review-note">草稿不进入 Agent 上下文；确认与失效通过 CLI 完成。确认记录也不保证它对未来版本始终适用。</p></>
+    <div className="review-answer">{text(record.body)}</div><p className="review-note">草稿不进入 Agent 上下文；可在记录操作中确认或标记失效。确认记录也不保证它对未来版本始终适用。</p></>
 }
 
 function Release({ record }: { record: Row }) {
