@@ -316,17 +316,10 @@ class CoverageJudgment(OutputModel):
 
     id: str = Field(description="本批 requirements 的精确属性身份，每个身份恰好一次。")
     finding_ids: list[str] = Field(description="自主从本批全部 candidates 中选择实际表达本属性的 finding_id，无需预先指派或同时出现在 findings。full/partial 至少一项；candidates 为空或确无表达才可空，不以源码有答案代替候选表达。")
-    candidate_observation: str = Field(description="先简述所选候选原句实际表达的相关主干及缺口，保留必要身份对应；无候选则明确没有找到表达。可语义概括，不要求逐字摘抄或字符位置；不得把 evidence 中才有的流程补成候选已表达。非空且最多1600字符，仍是模型观察而非程序认证。")
+    candidate_observation: str = Field(description="简述候选实际表达的主干及缺口，不把源码内容补成候选已表达。不要求逐字摘抄或字符位置；可留空，说明缺省不改变评分身份或判定。")
     evidence_ids: list[str] = Field(description="该 requirement.evidence_ids 内支持判断的固定原文 P 身份；full/partial 至少一项，禁止包外引用。")
     verdict: Literal["full", "partial", "missing", "reference_unsupported"] = Field(description="根据候选表达观察与固定原文对比后判定：full 须全部必要主干已表达且有支持；partial 为候选只表达部分或缺必要边界；missing 为没有表达；reference_unsupported 为参考本身没有原文依据。源码完整不自动使候选full；不得与观察或理由中的主干缺口矛盾。")
     reason: str = Field(description="说明原文支持什么，再与 candidate_observation 中候选实际表达比较，解释本项判定及必要主干缺口；不以源码复述代替候选覆盖，不在理由承认必要主干缺失后标full。轻微措辞和非关键细节遵循冻结准则，不自报总分或更改分母。")
-
-    @field_validator('candidate_observation')
-    @classmethod
-    def nonempty_candidate_observation(cls, value):
-        if not value.strip():
-            raise ValueError('candidate observation must be nonempty')
-        return value
 
 
 class EvaluationFindingJudgment(FindingJudgment):
@@ -343,12 +336,11 @@ class CognitionEvaluationResponse(OutputModel):
 
     @model_validator(mode="before")
     @classmethod
-    def discard_unused_evaluation_fields(cls, value):
-        """Project scoring objects onto their fields, retaining the raw receipt.
+    def normalize_evaluation_fields(cls, value):
+        """Normalize inert presentation while preserving raw model receipts.
 
-        Only object keys are ignored. Known values, list membership and missing
-        fields remain subject to strict type and evidence validation. Keep the
-        shared review types and the provider's closed schema unchanged.
+        Never invent a target or verdict. Required identities and references
+        remain checked per target; omitted targets stay ungraded.
         """
         def project(row, model):
             if not isinstance(row, dict):
@@ -358,9 +350,23 @@ class CognitionEvaluationResponse(OutputModel):
         result = project(value, cls)
         if not isinstance(result, dict):
             return result
+        result = {'coverage': [], 'judgments': [], **result}
         for field, model in (("coverage", CoverageJudgment), ("judgments", EvaluationFindingJudgment)):
+            if result[field] is None: result[field] = []
+            if isinstance(result[field], dict): result[field] = [result[field]]
             if isinstance(result.get(field), list):
                 result[field] = [project(row, model) for row in result[field]]
+        if isinstance(result['coverage'], list):
+            result['coverage'] = [
+                {'finding_ids': [], 'evidence_ids': [], 'candidate_observation': '', 'reason': '', **row}
+                if isinstance(row, dict) else row for row in result['coverage']]
+            for row in result['coverage']:
+                if isinstance(row, dict):
+                    for field in ('candidate_observation', 'reason'):
+                        if not isinstance(row[field], str): row[field] = ''
+                    for field in ('finding_ids', 'evidence_ids'):
+                        if isinstance(row[field], str): row[field] = [row[field]]
+                    if isinstance(row.get('verdict'), str): row['verdict'] = row['verdict'].strip().lower()
         if isinstance(result.get("judgments"), list):
             for row in result["judgments"]:
                 if isinstance(row, dict):

@@ -71,7 +71,7 @@ def output_contract(purpose):
     if purpose == "project_plan":
         contract["local_reception"] = "discard_unused_plan_fields_v1"
     elif purpose == "cognition_evaluation":
-        contract["local_reception"] = "discard_unused_evaluation_fields_v1"
+        contract["local_reception"] = "partial_evaluation_reception_v2"
     return contract
 
 

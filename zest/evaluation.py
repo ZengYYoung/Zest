@@ -7,10 +7,11 @@ import sqlite3
 from typing import TypedDict
 from uuid import uuid4
 
-from .cognition_contracts import canonical, parse_response, text
+from .cognition_contracts import canonical, text
 from .cognition_store import CognitionStore, digest, now, valid_id
-from .evaluation_contracts import aggregate, evaluation_units, merge_payloads, validate_evaluation
+from .evaluation_contracts import aggregate, evaluation_units, merge_payloads
 from .evaluation_skill import skill_text
+from .evaluation_reception import receive_evaluation
 from .files import FileReadError
 from .models import DeepSeekModel, ModelSettings, PROMPTS, model_target, output_contract, prepare_model_request, safe_model_receipt
 from .resources import project_states, record_state, route_store
@@ -176,7 +177,7 @@ class EvaluationStore:
 
     def _results(self, identity):
         with self.open() as conn:
-            return [json.loads(r[0]) for r in conn.execute("SELECT response FROM evaluation_calls WHERE evaluation_id=? AND status='completed' ORDER BY batch", (identity,))]
+            return [json.loads(r[0]) for r in conn.execute("SELECT response FROM evaluation_calls WHERE evaluation_id=? AND status IN ('completed','partial') ORDER BY batch", (identity,))]
 
     def _call(self, identity, index, envelope):
         provider = self.model or DeepSeekModel(ModelSettings.from_env())
@@ -198,7 +199,7 @@ class EvaluationStore:
             if old:
                 if old['request_sha256'] != request['body_sha256']:
                     raise FileReadError('evaluation_request_changed', '保存的评分请求身份不匹配。')
-                if old['status'] == 'completed': return json.loads(old['response'])
+                if old['status'] in ('completed', 'partial'): return json.loads(old['response'])
                 raise FileReadError('evaluation_execution_unknown' if old['status'] == 'pending' else 'evaluation_response_invalid', '既有评分请求不可重发，请核对已保存收据。')
             count = conn.execute('SELECT count(*) FROM evaluation_calls WHERE evaluation_id=?', (identity,)).fetchone()[0]
             if count >= envelope['policy']['max_calls']:
@@ -209,17 +210,12 @@ class EvaluationStore:
         except Exception as exc:
             raise FileReadError('evaluation_execution_unknown', '评分请求未取得可确认结果，不自动重发。') from exc
         receipt = safe_model_receipt(response)
-        error, value = None, None
-        try:
-            from .model_outputs import CognitionEvaluationResponse
-            raw = CognitionEvaluationResponse.model_validate(parse_response(receipt)).model_dump(mode='json')
-            value = validate_evaluation(raw, batch['payload'])
-        except Exception:
-            error = {'code': 'evaluation_response_invalid', 'message': '已保存评分响应，但结构、原文身份或逐项覆盖校验未通过；不修补或重发。'}
+        value = receive_evaluation(receipt, batch['payload'])
+        error = None if value['reception']['complete'] else {'code': 'evaluation_response_partial',
+            'message': '已保留有效评分项；缺项或无效项未计分，继续其余已批准批次。'}
         with self.open(write=True) as conn, conn:
             conn.execute('UPDATE evaluation_calls SET status=?,response=?,receipt=?,error=? WHERE evaluation_id=? AND batch=?',
-                         ('invalid' if error else 'completed', canonical(value) if value else None, canonical(receipt), canonical(error) if error else None, identity, index))
-        if error: raise FileReadError(error['code'], error['message'])
+                         ('partial' if error else 'completed', canonical(value), canonical(receipt), canonical(error) if error else None, identity, index))
         return value
 
     def run(self, evaluation_id):
@@ -252,7 +248,9 @@ class EvaluationStore:
                     snapshot = graph.get_state(config)
                     if not snapshot.values or snapshot.next:
                         graph.invoke(None if snapshot.values else {'next_batch': 0}, config, durability='sync')
-                self._status(evaluation_id, 'completed')
+                incomplete = any(c['status'] == 'partial' for c in self.show(evaluation_id)['calls'])
+                self._status(evaluation_id, 'partial' if incomplete else 'completed',
+                    {'code': 'evaluation_incomplete', 'message': '评分请求已结束，部分目标未评或无效；有效结果已保留。'} if incomplete else None)
             except FileReadError as exc:
                 self._status(evaluation_id, 'pending_execution' if exc.code == 'evaluation_execution_unknown' else 'partial', {'code': exc.code, 'message': str(exc)})
             except Exception:
@@ -265,7 +263,7 @@ class EvaluationStore:
             record = self.show(evaluation_id)
             if record['status'] not in ('running', 'partial', 'pending_execution'):
                 raise FileReadError('evaluation_not_recoverable', '评分状态不需要恢复。')
-            if any(c['status'] != 'completed' for c in record['calls']):
+            if any(c['status'] not in ('completed', 'partial') for c in record['calls']):
                 raise FileReadError('evaluation_execution_unknown', '存在未知或无效评分请求，不重发；已完成响应可单独查看。')
             self._status(evaluation_id, 'queued')
         return self.show(evaluation_id)
@@ -284,7 +282,9 @@ class EvaluationStore:
                 'reference_phase': record['envelope']['criteria']['reference_phase'],
                 'workflow_status': record['status'], 'approval_sha256': record['approval_sha256'],
                 'criteria_sha256': record['criteria_sha256'], 'skill_sha256': record['skill_sha256'],
-                'target': record['target'], 'result': result, 'error': record['error']}
+                'target': record['target'], 'result': result, 'error': record['error'],
+                'reception': [{'batch': c['batch'], 'status': c['status'], **c['response']['reception']}
+                              for c in record['calls'] if c['response'] and 'reception' in c['response']]}
 
 
 def format_evaluation(report):
@@ -298,5 +298,7 @@ def format_evaluation(report):
     lines.append(f"已审查 observed：{result['reviewed_observed_findings']}/{result['total_observed_findings']}")
     lines.append('自动接收中有问题的发现：' + ', '.join(result['flagged_auto_reviewed_findings']))
     lines.append('模型评分不是人工金标准；原子项按出现次数统计，未做语义去重。')
+    missing = [*result.get('ungraded_coverage_ids', []), *result.get('ungraded_judgment_ids', [])]
+    if missing: lines.append('尚未评分：' + ', '.join(missing))
     if report['error']: lines.append(display_text(report['error']))
     return '\n'.join(lines)

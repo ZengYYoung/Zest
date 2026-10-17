@@ -2,7 +2,7 @@
 import hashlib
 import re
 
-from .cognition_contracts import canonical, items, keys, strings, text
+from .cognition_contracts import POLICY, canonical, items, keys, strings, text
 from .cognition_context import compact_proof, review_payload, review_unknowns
 from .cognition_review import validate_judgments
 from .files import FileReadError
@@ -110,8 +110,10 @@ def validate_evaluation(response, payload):
         matched = judgment['verdict'] in ('full', 'partial')
         strings(judgment['finding_ids'], None, allowed={f['finding_id'] for f in payload['candidates']}, minimum=1 if matched else 0)
         strings(judgment['evidence_ids'], None, allowed=set(requirement['evidence_ids']), minimum=1 if matched else 0)
-        text(judgment['candidate_observation'], 1600)
-        text(judgment['reason'], 1600)
+        for field in ('candidate_observation', 'reason'):
+            if not isinstance(judgment[field], str):
+                raise FileReadError('invalid_evaluation_output', '评分说明必须是字符串。')
+            if judgment[field].strip(): text(judgment[field], POLICY['max_response_chars'])
     return {'coverage': response['coverage'], 'judgments': validate_judgments(
         response['judgments'], payload, require_evidence_observation=True)}
 
@@ -147,13 +149,19 @@ def aggregate(envelope, results):
             target = conflict['reference_id']
             if any(f['id'] == target and f['status'] == 'auto_reviewed' for f in observed) and target not in flagged:
                 flagged.append(target)
-    complete = len(results) == len(envelope['batches'])
+    expected_coverage = {r['id'] for b in envelope['batches'] for r in b['payload']['requirements']}
+    expected_judgments = {f['finding_id'] for b in envelope['batches'] for f in b['payload']['findings']}
+    complete = (len(results) == len(envelope['batches']) and set(coverage) == expected_coverage
+                and set(judgments) == expected_judgments
+                and all(r.get('reception', {}).get('complete', True) for r in results))
     thresholds = envelope['criteria']['thresholds']
     gates = {c: counts[c]['full'] >= thresholds[c] for c in CATEGORIES}
     gates.update(core=not thresholds['all_core'] or core_passed,
                  automatic_review=len(flagged) <= thresholds['max_flagged_auto_reviewed_findings'])
     invalid_reference = any(r['reference_unsupported'] for r in references)
     return {'status': 'completed' if complete else 'partial', 'coverage': counts, 'references': references,
+            'ungraded_coverage_ids': sorted(expected_coverage - set(coverage)),
+            'ungraded_judgment_ids': sorted(expected_judgments - set(judgments)),
             'judgments': list(judgments.values()), 'flagged_auto_reviewed_findings': sorted(flagged),
             'atomic_occurrences': occurrences, 'auto_reviewed_atomic_occurrences': auto_occurrences,
             'untrusted_auto_reviewed_atomic_occurrences': untrusted_auto,

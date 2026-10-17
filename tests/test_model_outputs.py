@@ -86,8 +86,12 @@ class ModelOutputContractTest(unittest.TestCase):
     def test_required_fields_and_extra_fields_outside_reception_exceptions_are_rejected(self):
         for purpose, wire in self.wire_examples().items():
             for key in wire:
-                with self.subTest(purpose=purpose, missing=key), self.assertRaises(ValidationError):
-                    model_for(purpose).model_validate({name: value for name, value in wire.items() if name != key})
+                missing = {name: value for name, value in wire.items() if name != key}
+                if purpose == 'cognition_evaluation':
+                    self.assertEqual(output_to_protocol(model_for(purpose).model_validate(missing))[key], [])
+                else:
+                    with self.subTest(purpose=purpose, missing=key), self.assertRaises(ValidationError):
+                        model_for(purpose).model_validate(missing)
             with self.subTest(purpose=purpose, extra="type"):
                 if purpose in ("project_plan", "cognition_evaluation"):
                     parsed = model_for(purpose).model_validate({**wire, "type": "json_object"})
@@ -161,11 +165,17 @@ class ModelOutputContractTest(unittest.TestCase):
                 bad = deepcopy(good); row = bad
                 for part in path: row = row[part]
                 row['unused'] = row.pop(key)
+                if not path or (path == ('coverage', 0) and key in ('finding_ids', 'evidence_ids', 'candidate_observation', 'reason')):
+                    model_for('cognition_evaluation').model_validate(bad)
+                    continue
                 with self.subTest(path=path, missing=key), self.assertRaises(ValidationError):
                     model_for('cognition_evaluation').model_validate(bad)
         for field, value in (('verdict', 'supported'), ('id', 1), ('finding_ids', 'T1:F1'),
                              ('evidence_ids', [1]), ('reason', {'text': 'reason'})):
             bad = deepcopy(good); bad['coverage'][0].update({field: value, 'note': 'ignored'})
+            if field in ('finding_ids', 'reason'):
+                model_for('cognition_evaluation').model_validate(bad)
+                continue
             with self.subTest(field=field), self.assertRaises(ValidationError):
                 model_for('cognition_evaluation').model_validate(bad)
 

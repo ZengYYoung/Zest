@@ -40,15 +40,14 @@ class EvaluationCoverageTest(unittest.TestCase):
             self.assertEqual(result['coverage'][0],row)
             self.assertEqual(result['judgments'],[])
 
-    def test_candidate_observation_is_required_nonempty_and_strict(self):
+    def test_observation_is_optional_and_malformed_explanation_can_be_ignored(self):
         for value in (None,'','  \n',1,True,[],'x'*1601):
             wire=self.wire();row=wire['coverage'][0]
             if value is None:del row['candidate_observation']
             else:row['candidate_observation']=value
             with self.subTest(value=value):
-                if value!='x'*1601:
-                    with self.assertRaises(ValidationError):CognitionEvaluationResponse.model_validate(wire)
-                with self.assertRaises(FileReadError):validate_evaluation(wire,self.payload())
+                parsed=CognitionEvaluationResponse.model_validate(wire).model_dump(mode='json')
+                self.assertEqual(validate_evaluation(parsed,self.payload())['coverage'][0]['candidate_observation'], value if isinstance(value,str) else '')
 
     def test_observation_never_substitutes_for_valid_candidate_identity(self):
         for verdict in ('full','partial'):

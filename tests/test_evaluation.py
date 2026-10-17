@@ -143,9 +143,10 @@ class EvaluationTest(unittest.TestCase):
         result = self.evaluator.run(record['id'])
         self.assertEqual(result['workflow_status'], 'partial')
         call = self.evaluator.show(record['id'])['calls'][0]
-        self.assertEqual(call['status'], 'invalid'); self.assertIsNotNone(call['receipt'])
-        with self.assertRaises(FileReadError): self.evaluator.recover(record['id'])
-        self.assertEqual(len(self.scorer.calls), 1)
+        self.assertEqual(call['status'], 'partial'); self.assertIsNotNone(call['receipt'])
+        self.assertEqual(len(self.scorer.calls), 4)
+        self.evaluator.recover(record['id']); self.evaluator.run(record['id'])
+        self.assertEqual(len(self.scorer.calls), 4)
 
     def test_saved_response_reused_after_receipt_before_checkpoint_crash(self):
         record = self.queued(); original = self.evaluator._call
@@ -159,6 +160,48 @@ class EvaluationTest(unittest.TestCase):
         result = self.evaluator.run(record['id'])
         self.assertTrue(result['result']['overall_passed'], result)
         self.assertEqual(len(self.scorer.calls), 4)
+
+    def test_partial_first_response_is_reused_after_crash_and_later_batches_continue(self):
+        extra=deepcopy(self.criteria['items'][0]['attributes'][0]);extra['id']='second'
+        self.criteria['items'][0]['attributes'].append(extra)
+        complete=self.scorer.complete
+        def partial(payload, *, purpose):
+            result=complete(payload,purpose=purpose)
+            if len(self.scorer.calls)==1:
+                raw=json.loads(result['text']);raw['coverage']=raw['coverage'][:1]
+                raw.pop('judgments')
+                for field in ('candidate_observation','reason'):raw['coverage'][0].pop(field)
+                result['text']=json.dumps(raw)
+            return result
+        with patch.object(self.scorer,'complete',side_effect=partial):
+            record=self.queued();call=self.evaluator._call
+            def crash(*args):
+                call(*args);raise KeyboardInterrupt()
+            with patch.object(self.evaluator,'_call',side_effect=crash),self.assertRaises(KeyboardInterrupt):
+                self.evaluator.run(record['id'])
+            self.assertEqual(len(self.scorer.calls),1)
+            self.evaluator.recover(record['id']);report=self.evaluator.run(record['id'])
+        self.assertEqual(len(self.scorer.calls),4)
+        self.assertEqual(report['workflow_status'],'partial')
+        self.assertEqual(report['result']['reviewed_observed_findings'],6)
+        self.assertEqual(report['reception'][0]['missing_coverage_ids'],['G01/second'])
+        self.assertEqual(report['result']['ungraded_coverage_ids'],['G01/second'])
+        self.assertFalse(report['result']['overall_passed'])
+
+    def test_unknown_after_partial_response_stops_without_losing_accepted_score(self):
+        complete=self.scorer.complete
+        def partial_then_unknown(payload, *, purpose):
+            if self.scorer.calls:raise TimeoutError('offline unknown after known partial')
+            result=complete(payload,purpose=purpose)
+            raw=json.loads(result['text']);raw['coverage'].append({'id':'forged'})
+            result['text']=json.dumps(raw);return result
+        record=self.queued()
+        with patch.object(self.scorer,'complete',side_effect=partial_then_unknown):
+            report=self.evaluator.run(record['id'])
+        self.assertEqual(report['workflow_status'],'pending_execution')
+        self.assertEqual(report['result']['coverage']['facts'],{'full':1,'total':1})
+        self.assertEqual([c['status'] for c in self.evaluator.show(record['id'])['calls']],['partial','pending'])
+        with self.assertRaises(FileReadError):self.evaluator.recover(record['id'])
 
     def test_changed_target_or_skill_cannot_consume_approval(self):
         record = self.queued()
@@ -334,7 +377,7 @@ class EvaluationTest(unittest.TestCase):
     def test_previous_reception_contract_cannot_execute_under_new_policy(self):
         record = self.queued()
         old = self.evaluator.show(record['id'], preview=True)['envelope']
-        self.assertEqual(old['contract'].pop('local_reception'), 'discard_unused_evaluation_fields_v1')
+        self.assertEqual(old['contract'].pop('local_reception'), 'partial_evaluation_reception_v2')
         before = self.evaluator.db_path.read_bytes()
         with self.assertRaises(FileReadError) as caught:
             self.evaluator._call(record['id'], 0, old)
@@ -428,20 +471,19 @@ class EvaluationTest(unittest.TestCase):
                     report = store.run(record['id'])
                     self.assertEqual(report['workflow_status'], 'partial')
                     self.assertFalse(report['result']['overall_passed'])
-                    self.assertEqual(report['result']['reviewed_observed_findings'], 0)
+                    self.assertGreater(report['result']['reviewed_observed_findings'], 0)
                     calls = store.show(record['id'])['calls']
-                    self.assertEqual(len(seen), 2)  # One coverage batch, then invalid semantic batch.
-                    self.assertEqual([c['status'] for c in calls], ['completed', 'invalid'])
-                    self.assertIsNone(calls[1]['response'])  # Never salvage even the valid target portion.
+                    self.assertEqual(len(seen), 4)
+                    self.assertEqual(calls[1]['status'], 'partial')
+                    self.assertTrue(calls[1]['response']['judgments'])
                     receipt = calls[1]['receipt']
                     native = receipt['raw_response']['provider_tool_calls'][0]['function']['arguments']
                     self.assertEqual(json.loads(native), raw_outputs[1])
                     self.assertEqual(receipt['structured_status'], 'invalid' if fault in ('missing_observation', 'empty_observation') else 'valid')
-                    with self.assertRaises(FileReadError):
-                        store.recover(record['id'])
+                    store.recover(record['id']); store.run(record['id'])
                     with self.assertRaises(FileReadError):
                         store.run(record['id'])
-                    self.assertEqual(len(seen), 2)
+                    self.assertEqual(len(seen), 4)
                     self.assertEqual(before, self.store.db_path.read_bytes())
 
     def test_archived_results_remain_readable_without_observation_backfill_or_calls(self):
