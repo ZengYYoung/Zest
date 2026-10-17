@@ -113,3 +113,5 @@ uv run zest web serve --port 8000
 后端使用 `model.prepare`（参数 `{}`）和 `model.decide`（`id/approved/sha256`），读取 `GET /api/model`、`GET /api/model/checks/{id}`。测试与冻结请求保存于启动状态目录的 `model-connections.sqlite3`，不登记假项目、不进入共享项目知识。来源/实现文件哈希、Zest commit、模型目标、完整 schema/HTTP 正文和一次调用预算都保留；参数和实现变化阻断旧批准。`connected` 仅表示该目标最近一次测试成功，不能保证之后的余额、网络或项目问答质量。
 
 开始使用自己的项目：**项目概览 → 接入项目 → 项目认知 → 准备并批准调查 → 项目对话 → 输入问题、审阅来源并批准**。修复、验证和源码选择继续分别批准。独立评分与结案工具收在更多工具中；真实模型连接测试不额外授予项目资料外发或修改权限。
+
+M111已完成[一次真实Web模型连接实测](MODEL_CONNECTION_M111.md)：deepseek-flash、1次/0重试、1.489秒、938 tokens，网页与原始收据一致。
