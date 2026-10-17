@@ -224,6 +224,7 @@ class TaskRunner:
         return {"task_id": task_id, "created_at": row[0], "status": status,
                 "project_id": state.get("project", {}).get("id"),
                 "purpose": state.get("purpose", "question"),
+                "question": state.get("context", {}).get("question"),
                 "target": state.get("target"), "payload_sha256": state.get("payload_sha256"),
                 "context": state.get("context"), "result": state.get("result"),
                 "model_response": state.get("model_response"),

@@ -100,6 +100,7 @@ class ExportInput(ProjectInput):
 
 
 COMMANDS = {
+    "model.prepare": Input, "model.decide": DecisionInput,
     "project.import": ImportInput, "project.init": InitInput,
     "task.create": TaskInput, "task.decide": DecisionInput,
     "cognition.create": ProjectInput, "cognition.decide": DecisionInput,
@@ -140,6 +141,12 @@ def validate_command(action, parameters):
 
 def execute(state_dir, action, p):
     """Called only once by a claimed durable operation; never from a GET."""
+    if action.startswith("model."):
+        from .model_connection import ModelConnectionStore
+        store = ModelConnectionStore(state_dir)
+        if action == "model.prepare":
+            return store.prepare()
+        return store.decide(p["id"], approved=p["approved"], sha256=p["sha256"])
     registry = ProjectRegistry(state_dir)
 
     def project():

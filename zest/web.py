@@ -76,6 +76,22 @@ def create_app(state_dir):
     def health():
         return {"status": "ok", "mode": "local_workspace"}
 
+    @router.get("/model")
+    def model_status():
+        from .doctor import readiness
+        from .model_connection import ModelConnectionStore
+        config = readiness()["checks"]["model"]
+        latest = ModelConnectionStore(state_dir).latest()
+        current = bool(latest and config.get("configured") and
+                       latest["envelope"]["target"] == {"provider": config["provider"], "model": config["name"], "base_url": config["base_url"]})
+        return {"data": {"configuration": config, "latest_check": latest,
+                         "connected": bool(current and latest["status"] == "passed"), "check_matches_target": current}}
+
+    @router.get("/model/checks/{check_id}")
+    def model_check(check_id: UUID):
+        from .model_connection import ModelConnectionStore
+        return {"data": ModelConnectionStore(state_dir).show(str(check_id))}
+
     @router.get("/projects")
     def projects():
         return {"data": registry.list_projects()}

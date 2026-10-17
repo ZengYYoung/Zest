@@ -3,10 +3,11 @@ import { defaultPort, projectName, readApi, shortCommit, statusLabels, validateC
 import { RecordDetail } from './RecordDetail.tsx'
 import { ProjectStructure } from './ProjectStructure.tsx'
 import { CognitionDetail } from './CognitionDetail.tsx'
+import { Icon } from './Icons.tsx'
 import { WorkspaceActions } from './WorkspaceActions.tsx'
 
-type Tab = 'overview' | 'structure' | 'cognition' | 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases' | 'evaluations' | 'resolutions'
-const tabs: [Tab, string, string][] = [['overview', '项目概览', '◈'], ['structure', '源码地图', '⌁'], ['cognition', '项目认知', '◉'], ['tasks', '调查与建议', '◎'], ['repairs', '候选修改', '⌘'], ['verifications', '测试验证', '✓'], ['knowledge', '项目知识', '◇'], ['releases', '版本历史', '↺'], ['evaluations', '独立评分', '◷'], ['resolutions', '补查结案', '◇']]
+type Tab = 'overview' | 'structure' | 'cognition' | 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases' | 'evaluations' | 'resolutions' | 'model'
+const tabs: [Tab, string, string][] = [['overview', '项目概览', '◈'], ['structure', '源码地图', '⌁'], ['cognition', '项目认知', '◉'], ['tasks', '项目对话', '◎'], ['repairs', '候选修改', '⌘'], ['verifications', '测试验证', '✓'], ['knowledge', '项目知识', '◇'], ['releases', '版本历史', '↺'], ['evaluations', '独立评分', '◷'], ['resolutions', '补查结案', '◇'], ['model', '模型连接', '◎']]
 
 function Status({ value }: { value: unknown }) {
   const key = String(value || 'unknown')
@@ -22,7 +23,8 @@ export function App() {
   const [port, setPort] = useState(String(defaultPort()))
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState('')
-  const [tab, setTab] = useState<Tab>('overview')
+  const [conversationVersion, setConversationVersion] = useState(0)
+  const [tab, setTab] = useState<Tab>('tasks')
   const [data, setData] = useState<unknown>(null)
   const [detail, setDetail] = useState<unknown>(null)
   const [resultSelection, setResultSelection] = useState<{ tab: Tab; id: string } | null>(null)
@@ -65,7 +67,7 @@ export function App() {
       const view = viewRef.current
       const current = view.detail as Row | null
       const id = current?.task_id || current?.id
-      if (id && view.tab !== 'overview' && view.tab !== 'structure') {
+      if (id && view.tab !== 'overview' && view.tab !== 'structure' && view.tab !== 'model') {
         const updated = await readApi(connection, `/api/${view.tab}/${id}`)
         const latest = viewRef.current
         const latestRecord = latest.detail as Row | null
@@ -75,7 +77,9 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!connection || (!projectId && tab !== 'tasks')) return
+    if (!connection) return
+    if (tab === 'model') { setData(null); setLoading(false); return }
+    if (!projectId) return
     const controller = new AbortController()
     recordRequest.current?.abort(); fileRequest.current?.abort()
     setLoading(true); setError(''); setFile(null); setData(null)
@@ -105,6 +109,7 @@ export function App() {
     await refreshRecords()
     setError('')
     const project = result.project as Project | undefined
+    if (action.startsWith('model.')) { setTab('model'); return }
     if (action.startsWith('project.')) { setProjectId(project?.id || String(result.id)); setTab('overview'); return }
     if (action === 'release.capture') result = result.note as Row
     if (typeof (result.plan as Row | undefined)?.project_id === 'string') setProjectId(String((result.plan as Row).project_id))
@@ -176,19 +181,24 @@ export function App() {
   const git = overview?.git as Row | undefined
   const rows = Array.isArray(data) ? data as Row[] : []
   return <div className="workspace">
-    <aside><div className="brand"><span className="brand-mark">Z</span>Zest</div><div className="sidebar-note">长期项目维护</div>
-      <nav>{tabs.map(([key, label, icon]) => <button className={tab === key ? 'active' : ''} key={key} onClick={() => { setResultSelection(null); setTab(key) }}><span>{icon}</span>{label}</button>)}</nav>
-      <div className="sidebar-bottom"><span className="dot" /> 本地 API 已连接<small>127.0.0.1:{connection.port}</small><button onClick={disconnect}>断开连接</button></div>
+    <aside className="app-sidebar"><div className="sidebar-brand"><div className="brand"><span className="brand-mark">z</span>Zest<span className="brand-beta">preview</span></div></div>
+      <div className="sidebar-project"><span className="project-icon"><Icon name="folder" /></span><div><span className="section-kicker">WORKSPACE</span><select aria-label="选择项目" value={projectId} onChange={event => { setResultSelection(null); setProjectId(event.target.value) }}>
+        {!projects.length && <option value="">选择或接入项目</option>}{projects.map(project => <option value={project.id} key={project.id}>{projectName(project)}</option>)}</select></div></div>
+      <button className="new-conversation" onClick={() => { setDetail(null); setResultSelection(null); setTab('tasks'); setConversationVersion(v => v + 1) }}><Icon name="plus" /> 新的问题<span>↗</span></button>
+      <nav aria-label="工作区导航">{[
+        ['工作空间', ['tasks', 'overview', 'cognition', 'structure']],
+        ['维护与交付', ['repairs', 'verifications', 'releases', 'knowledge']],
+        ['更多工具', ['evaluations', 'resolutions', 'model']],
+      ].map(([group, keys]) => <div className="nav-group" key={String(group)}><div className="nav-group-label">{group}</div>{(keys as string[]).map(key => tabs.find(tab => tab[0] === key)!).map(([key, label]) => <button aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''} key={key} onClick={() => { setDetail(null); setResultSelection(null); setTab(key) }}><Icon name={key} /><span>{label}</span>{key === tab && <i />}</button>)}</div>)}</nav>
+      <div className="sidebar-bottom"><div className="local-identity"><span className="avatar">Z</span><div><strong>个人工作区</strong><small><span className="dot" /> 本地服务已连接</small></div></div><button className="quiet-button" onClick={disconnect}>连接设置</button></div>
     </aside>
-    <main><header><div><div className="eyebrow">YOUR PROJECT, IN CONTEXT</div><h1>{tabs.find(([key]) => key === tab)?.[1]}</h1></div>
-      <div className="toolbar"><span className="readonly">本地试用</span><button onClick={refreshRecords}>↻ 刷新</button></div></header>
-      <div className="project-bar"><span className="project-icon">⌁</span><select aria-label="选择项目" value={projectId} onChange={event => { setResultSelection(null); setProjectId(event.target.value) }}>
-        {!projects.length && <option value="">尚未登记项目</option>}{projects.map(project => <option value={project.id} key={project.id}>{projectName(project)}</option>)}</select>
-        {selected && <><span className="muted">{selected.mode === 'development' ? '开发模式' : '导入模式'}</span><code>{selected.root_path}</code></>}
-      </div>
+    <main className={`main-content view-${tab}`}><header className="workspace-header"><div className="breadcrumbs"><span>{selected ? projectName(selected) : '工作空间'}</span><span className="breadcrumb-divider">/</span><h1>{tabs.find(([key]) => key === tab)?.[1]}</h1></div>
+      <div className="toolbar"><button className="icon-button" aria-label="刷新记录" onClick={refreshRecords}><Icon name="refresh" size={16} /></button><button className="quiet-button" onClick={() => { setDetail(null); setTab('model') }}><Icon name="model" size={15} /> 模型连接</button></div></header>
+      <div className="page-content">
+      {tab !== 'tasks' && tab !== 'model' && <div className="page-heading"><div className="section-kicker">PROJECT WORKSPACE</div><h2>{tabs.find(([key]) => key === tab)?.[1]}</h2><p>{selected ? selected.root_path : '接入一个项目，开始积累连续的上下文。'}</p></div>}
       {error && <div className="error" role="alert">{error}</div>}
-      <WorkspaceActions connection={connection} projectId={projectId} tab={tab} detail={detail} onRefresh={refreshRecords} onResult={openOperationResult} />
-      {loading ? <div className="empty">正在读取项目记录…</div> : !projects.length ? <div className="empty"><h3>从第一个项目开始</h3><p>在上方“接入项目”中导入本机仓库或创建新项目。</p></div> : <>
+      <WorkspaceActions connection={connection} projectId={projectId} tab={tab} detail={detail} onRefresh={refreshRecords} onResult={openOperationResult} conversationVersion={conversationVersion} />
+      {loading ? <div className="empty">正在读取项目记录…</div> : !projects.length && tab !== 'model' ? <div className="empty"><h3>从第一个项目开始</h3><p>接入本机 Git 仓库，就能开始和项目对话。</p><button className="solid-button" onClick={() => setTab('overview')}>接入项目</button></div> : <>
         {tab === 'overview' && overview && <>
           <div className="cards"><div><span>当前选定源码</span><strong>{shortCommit(source?.commit)}</strong><small>每一条证据都保留版本来源</small></div>
             <div><span>工作区 HEAD</span><strong>{shortCommit(git?.head_commit)}</strong><small>{git?.dirty ? '包含未提交工作 · 未纳入读取' : '工作区干净'}</small></div>
@@ -200,17 +210,17 @@ export function App() {
           <div className="notice">当前选定源码与工作区分别报告。这里的版本选择不代表运行服务已经发布。</div>
         </>}
         {tab === 'structure' && data !== null && <ProjectStructure key={projectId} value={data} />}
-        {tab !== 'overview' && tab !== 'structure' && <section className="panel"><div className="panel-heading"><h2>{tabs.find(([key]) => key === tab)?.[1]}</h2><span className="muted">{rows.length} 条记录</span></div>
+        {tab !== 'overview' && tab !== 'structure' && tab !== 'model' && <section className="panel"><div className="panel-heading"><h2>{tab === 'tasks' ? '最近的对话' : tabs.find(([key]) => key === tab)?.[1]}</h2><span className="muted">{rows.length} 条记录</span></div>
           {!rows.length ? <div className="empty compact"><h3>还没有相关记录</h3><p>使用上方操作入口创建记录；准备与执行进度会保存在网页操作中。</p></div> : <div className="table-wrap"><table><thead><tr><th>记录</th><th>状态</th><th>类型 / 来源</th><th>创建时间</th><th /></tr></thead><tbody>
-            {rows.map((row, index) => <tr key={String(row.id || row.task_id || index)}><td><strong title={String(row.title || row.task_id || row.id)}>{String(row.title || row.task_id || row.id).slice(0, row.title ? 36 : 12)}</strong></td><td><Status value={row.status} /></td>
+            {rows.map((row, index) => <tr key={String(row.id || row.task_id || index)}><td><strong title={String(row.title || row.question || row.task_id || row.id)}>{String(row.title || row.question || row.task_id || row.id).slice(0, row.title || row.question ? 48 : 12)}</strong></td><td><Status value={row.status} /></td>
               <td>{String(tab === 'cognition' ? `项目理解 · ${shortCommit(row.commit)} · ${Number(row.call_count || 0)} 次调用` : row.purpose === 'repair_proposal' ? '修复 / 开发建议' : row.purpose === 'question' ? '调查问答' : row.kind || row.operation || '候选修改')}</td><td>{row.created_at ? new Date(String(row.created_at)).toLocaleString('zh-CN', { hour12: false }) : '—'}</td><td><button onClick={() => openRecord(row)}>查看 →</button></td></tr>)}
           </tbody></table></div>}
           <div className="notice">打开记录即可审阅和继续操作；模型请求、候选修改、测试和源码选择分别批准。</div></section>}
         {detail && tab === 'cognition' && <CognitionDetail value={detail} onClose={() => { recordRequest.current?.abort(); setDetail(null) }} />}
-        {detail && tab !== 'overview' && tab !== 'structure' && tab !== 'cognition' && tab !== 'evaluations' && tab !== 'resolutions' && <RecordDetail kind={tab} value={detail} onClose={() => { recordRequest.current?.abort(); setDetail(null) }} />}
+        {detail && tab !== 'overview' && tab !== 'structure' && tab !== 'cognition' && tab !== 'evaluations' && tab !== 'resolutions' && tab !== 'model' && <RecordDetail kind={tab} value={detail} onClose={() => { recordRequest.current?.abort(); setDetail(null) }} />}
         {detail && (tab === 'evaluations' || tab === 'resolutions') && <section className="panel"><div className="panel-heading"><h2>{tab === 'evaluations' ? '评分结果与未评项' : '逐项结案建议'}</h2><button onClick={() => setDetail(null)}>关闭</button></div><pre className="approval-preview">{JSON.stringify(detail, null, 2)}</pre></section>}
       </>}
-      <footer>Zest · 为一个项目保留连续的上下文<span>有来源 · 可审阅 · 有记录</span></footer>
+      <footer><span>每一步都有上下文。</span><span>Zest · 有来源，可审阅</span></footer></div>
     </main>
   </div>
 }

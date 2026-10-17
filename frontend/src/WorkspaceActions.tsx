@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Icon } from './Icons.tsx'
+import { ModelConnection } from './ModelConnection.tsx'
 import { ApiError, prepareCommand, readApi, writeApi, statusLabels, type Connection, type Row, type WebCommand } from './api.ts'
 
-export type View = 'overview' | 'structure' | 'cognition' | 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases' | 'evaluations' | 'resolutions'
+export type View = 'overview' | 'structure' | 'cognition' | 'tasks' | 'repairs' | 'verifications' | 'knowledge' | 'releases' | 'evaluations' | 'resolutions' | 'model'
 const obj = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {}
 const list = (value: unknown): Row[] => Array.isArray(value) ? value.map(obj) : []
+const operationLabels: Record<string, string> = { 'task.create': '准备问题与来源', 'task.decide': '执行已审阅的问答', 'model.prepare': '准备模型连接测试', 'model.decide': '真实模型连接测试', 'project.import': '导入项目', 'project.init': '创建项目', 'cognition.create': '准备项目认知', 'cognition.decide': '后台项目调查', 'knowledge.add': '保存知识草稿' }
 const lines = (value: string) => value.split('\n').map(v => v.trim()).filter(Boolean)
 
-export function WorkspaceActions({ connection, projectId, tab, detail, onResult, onRefresh }: {
+export function WorkspaceActions({ connection, projectId, tab, detail, onResult, onRefresh, conversationVersion = 0 }: {
   connection: Connection; projectId: string; tab: View; detail: unknown
-  onResult(action: string, result: Row): void; onRefresh(): void
+  onResult(action: string, result: Row): void; onRefresh(): void; conversationVersion?: number
 }) {
+  const [question, setQuestion] = useState('')
+  const [taskPurpose, setTaskPurpose] = useState('question')
+  useEffect(() => { setQuestion(''); setTaskPurpose('question') }, [projectId, conversationVersion])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [operation, setOperation] = useState<Row | null>(null)
@@ -92,7 +98,11 @@ export function WorkspaceActions({ connection, projectId, tab, detail, onResult,
   const id = String(record.task_id || record.id || '')
   const fields = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); return new FormData(event.currentTarget) }
   return <>
-    <section className="panel action-panel"><div className="panel-heading"><h2>开始操作</h2><span className="muted">本地试用 · 无需登录</span></div>
+    <section className={`panel action-panel ${tab === 'tasks' ? 'conversation-actions' : ''} ${tab === 'model' ? 'model-actions' : ''}`}>
+      {tab !== 'tasks' && tab !== 'model' && <div className="panel-heading"><h2>{tab === 'overview' ? '项目工作区' : '工作流操作'}</h2><span className="muted">准备 · 审阅 · 批准</span></div>}
+      {tab === 'model' && <ModelConnection connection={connection} disabled={disabled} refresh={history.length}
+        check={String(operation?.action || '').startsWith('model.') && operation?.result ? obj(operation.result) : null} onCommand={(a, p) => submit(a, p)} />}
+      {tab === 'tasks' && <div className="conversation-welcome"><div className="welcome-symbol"><Icon name="tasks" size={27} /></div><div className="section-kicker">YOUR PROJECT, UNDERSTOOD</div><h2>接下来，想了解什么？</h2><p>理解代码，梳理思路，或者一起完成下一次修改。</p></div>}
       {tab === 'overview' && <details><summary>接入项目</summary><form className="action-form" onSubmit={event => {
         const f = fields(event), mode = String(f.get('mode'))
         void submit(`project.${mode}`, { path: f.get('path'), ...(mode === 'init' ? { name: f.get('name'), goal: f.get('goal'), ...(f.get('author_name') || f.get('author_email') ? { author_name: f.get('author_name'), author_email: f.get('author_email') } : {}) } : {}) })
@@ -104,15 +114,20 @@ export function WorkspaceActions({ connection, projectId, tab, detail, onResult,
         <label>Git 作者邮箱（可选）<input name="author_email" maxLength={200} /></label>
         <p className="review-note">接入会建立项目 .zest 资源目录；创建新项目会写入 Git 基线。准备完成后可在网页审阅调查资料。</p>
         <button disabled={disabled}>接入项目</button></form></details>}
-      {projectId && tab === 'tasks' && <form key={projectId} className="action-form" onSubmit={event => {
-        const f = fields(event)
-        void submit('task.create', { project_id: projectId, question: f.get('question'), purpose: f.get('purpose'),
-          files: lines(String(f.get('files'))), new_files: lines(String(f.get('new_files'))) })
-      }}><label>任务类型<select name="purpose"><option value="question">项目问答</option><option value="repair_proposal">修复 / 开发建议</option></select></label>
-        <label>问题或需求<textarea name="question" required maxLength={4000} placeholder="例如：这个项目的主要请求是怎样处理的？" /></label>
-        <label>源码路径（可选，每行一个；修改建议需明确范围）<textarea name="files" placeholder="src/app.py" /></label>
-        <label>拟新建路径（仅用于开发建议，每行一个）<textarea name="new_files" /></label>
-        <button disabled={disabled}>准备请求并审阅</button></form>}
+      {projectId && tab === 'tasks' && <>
+        <form key={`${projectId}-${conversationVersion}`} className="composer" onSubmit={event => {
+          const f = fields(event)
+          void submit('task.create', { project_id: projectId, question: f.get('question'), purpose: taskPurpose,
+            files: lines(String(f.get('files') || '')), new_files: taskPurpose === 'repair_proposal' ? lines(String(f.get('new_files') || '')) : [] })
+        }}><label className="sr-only" htmlFor="question">问题或需求</label><textarea id="question" name="question" required maxLength={4000} value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !disabled && question.trim()) { e.preventDefault(); e.currentTarget.form?.requestSubmit() } }} placeholder="问问这个项目，或者描述你想做的修改…" />
+          <details className="composer-sources"><summary><Icon name="plus" size={15} /> 添加上下文与文件范围</summary><div className="action-form">
+            <label>源码路径（可选，每行一个；修改建议需明确范围）<textarea name="files" placeholder="src/app.py" /></label>
+            {taskPurpose === 'repair_proposal' && <label>拟新建路径（每行一个）<textarea name="new_files" /></label>}
+          </div></details>
+          <div className="composer-footer"><label className="composer-mode"><Icon name="tasks" size={15} /><span className="sr-only">任务类型</span><select name="purpose" value={taskPurpose} onChange={e => setTaskPurpose(e.target.value)}><option value="question">项目问答</option><option value="repair_proposal">修复 / 开发建议</option></select></label>
+            <span className="composer-hint">发送前可审阅来源</span><button className="send-button" disabled={disabled || !question.trim()} aria-label="准备请求并审阅" title="准备请求并审阅"><Icon name="arrow" size={19} /></button></div>
+        </form><div className="prompt-suggestions">{['梳理项目的核心流程', '这个项目如何启动和测试？', '帮我定位一个问题'].map(text => <button key={text} onClick={() => setQuestion(text)}>{text}</button>)}</div>
+      </>}
       {projectId && tab === 'cognition' && <div className="action-form"><p>先生成完整本地资料包，审阅模型、来源和预算后再批准后台调查。</p>
         <div className="action-buttons"><button disabled={disabled} onClick={() => submit('cognition.create', { project_id: projectId })}>准备项目认知</button>
           <button disabled={disabled} onClick={() => submit('cognition.refresh', { project_id: projectId })}>准备版本增量调查</button></div>
@@ -145,8 +160,8 @@ export function WorkspaceActions({ connection, projectId, tab, detail, onResult,
       {recoveryId && <div className="notice">有一条请求尚待核对：<code>{recoveryId}</code><button disabled={busy} onClick={recoverReceipt}>核对原请求回执</button></div>}
       {pending && <div className="notice">请求身份：<code>{pending.request_id}</code><p>可用同一身份核对回执；服务端不会重复执行相同请求。</p>
         <button disabled={busy} onClick={() => submit(pending.action, pending.parameters, pending)}>按原身份提交 / 核对回执</button></div>}
-      {operation && <div className="operation" aria-live="polite"><p>{String(operation.action)} · {statusLabels[String(operation.status)] || String(operation.status)}</p>
-        <code>{operationId}</code>
+      {operation && <div className="operation" aria-live="polite"><p><span className="operation-indicator" />{statusLabels[String(operation.status)] || String(operation.status)}<span className="operation-name">{operationLabels[String(operation.action)] || String(operation.action)}</span></p>
+        <details className="request-identity"><summary>请求身份</summary><code>{operationId}</code></details>
         {Boolean(operation.error) && <p className="error">{String(obj(operation.error).message)}</p>}
         {operation.status === 'queued' && <button disabled={busy} onClick={async () => {
           setBusy(true)
@@ -165,7 +180,7 @@ export function WorkspaceActions({ connection, projectId, tab, detail, onResult,
           }}>查看回执</button></div>)}
       </details>
     </section>
-    {id && <RecordActions key={`${tab}-${id}-${String(record.status)}`} connection={connection} tab={tab} record={record} disabled={disabled}
+    {id && tab !== 'model' && <RecordActions key={`${tab}-${id}-${String(record.status)}`} connection={connection} tab={tab} record={record} disabled={disabled}
       submit={(action, p) => submit(action, p)} />}
   </>
 }

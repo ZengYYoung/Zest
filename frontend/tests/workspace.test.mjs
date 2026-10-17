@@ -21,7 +21,7 @@ test('empty console offers project import and creation', () => {
 })
 test('question creation and candidate testing have concrete forms', () => {
   const html = render('tasks')
-  for (const label of ['项目问答', '修复 / 开发建议', '拟新建路径', '准备请求并审阅']) assert.ok(html.includes(label))
+  for (const label of ['项目问答', '修复 / 开发建议', '添加上下文与文件范围', '准备请求并审阅']) assert.ok(html.includes(label))
   const candidate = render('repairs', { id: 'fixture', status: 'candidate_ready' })
   assert.ok(candidate.includes('已安装的 Docker 镜像'))
   assert.ok(candidate.includes('准备独立验证计划'))
@@ -40,4 +40,28 @@ test('unknown cognition offers reconciliation and keeps source text escaped', ()
   assert.ok(html.includes('准备定向补查'))
   assert.ok(html.includes('&lt;script&gt;'))
   assert.ok(!html.includes('<script>'))
+})
+
+test('model connection has an explicit consent gate and fixed synthetic scope', async () => {
+  const { ModelConnection } = await import('../src/ModelConnection.tsx')
+  const html = renderToStaticMarkup(createElement(ModelConnection, {
+    connection: { port: 8000 }, disabled: false, refresh: 0, onCommand() {},
+    check: { id: 'fixture', status: 'awaiting_approval', approval_sha256: 'a'.repeat(64), envelope: { payload: { sources: [{ id: 'E1', content: 'synthetic example' }] } } },
+  }))
+  assert.ok(html.includes('不包含项目源码'))
+  assert.ok(html.includes('最多调用 1 次'))
+  assert.ok(html.includes('type="checkbox"'))
+  assert.match(html, /disabled=""[^>]*>执行真实连接测试/)
+})
+
+test('real model answers are escaped and usage is labelled as received', async () => {
+  const { ModelConnection } = await import('../src/ModelConnection.tsx')
+  const html = renderToStaticMarkup(createElement(ModelConnection, {
+    connection: { port: 8000 }, disabled: false, refresh: 0, onCommand() {},
+    check: { id: 'fixture', status: 'passed', envelope: {}, result: { answer: { answer: '<script>bad()</script>' }, elapsed_seconds: 1.2, usage: { total_tokens: 42 }, receipt: {} } },
+  }))
+  assert.ok(html.includes('&lt;script&gt;'))
+  assert.ok(!html.includes('<script>'))
+  assert.ok(html.includes('42'))
+  assert.ok(html.includes('实际模型响应与用量收据'))
 })
