@@ -129,6 +129,8 @@ def create_round(state_dir, project, source_run_id, run_id, source_sha256):
             for key in ('plan_payload', 'update_payload'):
                 child.value.pop(key, None)
         for page in child.value['pages']:
+            if page['status'] == 'completed':
+                page.setdefault('publication_document_only', bool(source['envelope'].get('document_continuation')))
             if page['status'] == 'failed':
                 if page.get('error', {}).get('code') in ('invalid_document_output', 'document_review_rejected', 'cognition_response_invalid'):
                     page.pop('content', None); page.pop('review', None)

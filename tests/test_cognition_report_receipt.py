@@ -293,5 +293,14 @@ class ReportReceiptEngineTest(unittest.TestCase):
             self.assertEqual(audit["rejected_findings"][0]["index"], 8)
             self.assertEqual(len(audit["original_report"]["findings"]), 9)
             self.assertNotIn(f"{job['id']}:F9", {f["id"] for f in result["findings"]})
-        self.assertEqual(len(self.model.calls), 9)
+        # The actual SDK budget can split four-item review batches further.
+        # Local receipt rejection must not cause extra source investigation or
+        # repeat review of an already supported candidate.
+        reviews = [payload for purpose, payload in self.model.calls if purpose == 'project_review']
+        self.assertEqual(sum(purpose in ('project_plan', 'project_research', 'project_report') for purpose, _ in self.model.calls), 5)
+        reviewed = [item['finding_id'] for payload in reviews for item in payload['findings']]
+        self.assertEqual(len(reviewed), 16)
+        self.assertEqual(len(set(reviewed)), 16)
+        self.assertTrue(all(1 <= len(payload['findings']) <= 4 for payload in reviews))
+        self.assertEqual(len(self.model.calls), 5 + len(reviews))
         self.assertLessEqual(result["call_count"], result["policy"]["max_model_calls"])

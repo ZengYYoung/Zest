@@ -148,13 +148,23 @@ class DocumentRoundsTest(unittest.TestCase):
         path = self.repo / '.zest/docs/initialization' / (slug + '.md')
         original = path.read_bytes(), path.stat().st_mtime_ns
         before = len(self.model.calls)
-        self.start(source)
+        queued, _ = self.start(source)
         result = self.store.run(self.project['id'], model=self.model)
         self.assertEqual(result['status'], 'completed', result.get('error'))
         self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), original)
         calls = self.model.calls[before:]
         self.assertTrue(calls)
         self.assertTrue(all(purpose in ('document_write', 'document_review') and payload['page']['slug'] != slug for purpose, payload in calls))
+        # A missing completed artifact is restored byte-for-byte from its frozen
+        # published body, not rendered with the new round's provenance template.
+        from zest.document_pages import publish_pages
+        dossier = CognitionStore(self.state_dir).dossier(queued['active_run_id'])
+        ledger = DocumentPages(self.state_dir, queued['active_run_id'])
+        before_restore = len(self.model.calls)
+        path.unlink()
+        publish_pages(self.project, dossier, result, ledger)
+        self.assertEqual(path.read_bytes(), original[0])
+        self.assertEqual(len(self.model.calls), before_restore)
 
     def test_legacy_failed_plan_recomputes_page_capacity_from_the_new_budget(self):
         with patch('zest.knowledge_snapshots.freeze_context', return_value=None):

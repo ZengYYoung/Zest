@@ -368,7 +368,22 @@ def publish_pages(project, dossier, value, ledger):
             path = prefix + page['spec']['slug'] + '.md'
             try:
                 validate_review(page['review'], page['content'])
-                body = render_page(page['spec'], page['content'], facts, dossier, ledger.value['plan'])
+                _parents(root, path)
+                target = root / path
+                if (page['status'] == 'completed' and target.exists()
+                        and hashlib.sha256(target.read_bytes()).hexdigest() == page.get('published_sha256')):
+                    # A new round must not re-render a completed artifact using
+                    # its new provenance notice or reset its publication mtime.
+                    hashes[path] = page['published_sha256']
+                    created.append(path)
+                    continue
+                if page['status'] == 'completed' and page.get('published_body'):
+                    body = page['published_body']
+                    if hashlib.sha256(safe_text(body)).hexdigest() != page.get('published_sha256'):
+                        raise FileReadError('document_artifact_changed', '原页面正文与发布哈希不一致，未重写。')
+                else:
+                    context = {**dossier, 'document_only': page.get('publication_document_only', bool(dossier.get('document_only')))}
+                    body = render_page(page['spec'], page['content'], facts, context, ledger.value['plan'])
                 result = write(path, body, previous=page.get('published_sha256'))
                 if result is None:
                     conflicts.append(path)
@@ -382,7 +397,8 @@ def publish_pages(project, dossier, value, ledger):
                         conflicts.append(candidate)
                     page.update(status='skipped', candidate=candidate)
                 else:
-                    page.update(status='completed', published_sha256=result,
+                    page.update(status='completed', published_sha256=result, published_body=body,
+                                publication_document_only=page.get('publication_document_only', bool(dossier.get('document_only'))),
                                 last_verified_commit=dossier['commit'], evidence_checked_commit=dossier['commit'])
                     page.pop('candidate', None)
                 page.pop('error', None)
@@ -412,6 +428,11 @@ def publish_pages(project, dossier, value, ledger):
                 _parents(root, prefix + spec['slug'] + '.md')
                 entries.append(f'- [{spec["title"]}]({spec["slug"]}.md)：保留已有版本；本轮页面尚未更新。')
         body = '# 项目工程文档\n\n按项目主题组织的阅读入口。\n\n' + '\n'.join(entries)
+        if dossier.get('backlog'):
+            backlog = dossier['backlog']
+            body += (f"\n\n待补充知识记录 {backlog['total']} 项（含计划缺口，跨栏目及历史轮次去重）。"
+                     f"可自动处理 {backlog['actionable']} 项；已尝试而仍缺依据 {backlog['attempted']} 项；"
+                     f"需外部资料 {backlog['external']} 项；分析或待明确问题 {backlog['deferred']} 项。")
         if ledger.value['status'] != 'completed':
             body += '\n\n部分页面尚未完成，已发布页面可继续阅读；详情见项目状态中的页面记录。'
         gaps = list(dict.fromkeys([*ledger.value.get('plan', {}).get('coverage_gaps', []),

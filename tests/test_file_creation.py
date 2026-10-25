@@ -109,6 +109,7 @@ class FileCreationTest(unittest.TestCase):
         project = self.project()
         (self.repo / "tests").mkdir()
         (self.repo / "tests/test_old.py").write_text("# existing baseline tests\n")
+        (self.repo / "existing.py").write_text("# existing source\n")
         self.commit("existing tests")
         store = RepairStore(self.state_dir)
         repair = store.create(project, self.proposal("app.py"))
@@ -117,8 +118,8 @@ class FileCreationTest(unittest.TestCase):
         self.assertEqual(verification.create(repair["id"], "fixture")["plan"]["baseline_strategy"], "run")
         self.git("rm", "tests/test_old.py")
         self.commit("remove tests fixture")
-        old = read_project_file(project, "README.md")
-        repair = store.create(project, {"summary": "modify", "changes": [{"path": "README.md",
+        old = read_project_file(project, "existing.py")
+        repair = store.create(project, {"summary": "modify", "changes": [{"path": "existing.py",
                               "expected_sha256": old["content_sha256"], "content": "changed\n"}]})
         repair = store.decide(repair["id"], approved=True, plan_sha256=repair["plan_sha256"])
         self.assertEqual(verification.create(repair["id"], "fixture")["plan"]["baseline_strategy"], "run")
