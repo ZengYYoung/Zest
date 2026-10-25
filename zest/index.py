@@ -12,7 +12,7 @@ import re
 import sqlite3
 import time
 
-from .files import BLOCKED_DIRECTORIES, CREDENTIAL_PATTERNS, FileReadError, _validate_path, load_text_blob
+from .files import CREDENTIAL_PATTERNS, FileReadError, _validate_path, load_text_blob, validate_directory
 from .git import inspect_repository, list_tree, verify_commit, selected_commit
 from .resources import route_store
 
@@ -94,10 +94,15 @@ class RetrievalIndex:
                     raise FileReadError("index_budget_exceeded", "构建达到时长预算，未替换已有索引。")
                 path = prefix + entry.path
                 if entry.object_type == "tree":
-                    if entry.path.casefold() in BLOCKED_DIRECTORIES or len(path.split("/")) >= 32:
+                    try:
+                        validate_directory(path)
+                    except FileReadError:
                         skips["blocked_directory"] += 1
-                    else:
-                        queue.append((entry.object_id, path + "/"))
+                        continue
+                    if len(path.split("/")) >= 32:
+                        skips["blocked_directory"] += 1
+                        continue
+                    queue.append((entry.object_id, path + "/"))
                     continue
                 try:
                     _validate_path(path)

@@ -31,7 +31,9 @@ async function requestApi<T>(connection: Connection, path: string, options: Requ
     })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
-    throw new ApiError(options.method === 'POST'
+    throw new ApiError(path === '/api/model/settings' && options.method === 'POST'
+      ? '未收到保存结果，请重新打开设置核对；本次没有调用模型。'
+      : options.method === 'POST'
       ? '未收到操作回执。请按原请求身份核对网页操作记录，避免重复创建。'
       : '无法连接本地 API。请确认服务已启动且端口正确。', 0)
   }

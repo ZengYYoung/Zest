@@ -29,12 +29,12 @@ class DevelopmentTest(unittest.TestCase):
         return create_project(self.target, "测试项目", "提供故障协作功能", self.state,
                               author_name="Zest Test", author_email="test@example.invalid", **kwargs)
 
-    def test_clean_baseline_and_shared_evidence_reader(self):
+    def test_baseline_and_shared_metadata_waiting_for_review(self):
         result = self.create()
         project = result["project"]
         self.assertEqual(project["mode"], "development")
         self.assertEqual(project["git"]["branch"], "main")
-        self.assertFalse(project["git"]["dirty"])
+        self.assertTrue(project["git"]["dirty"])
         self.assertIsNotNone(project["git"]["head_commit"])
         read = read_project_file(project, "README.md")
         self.assertIn("提供故障协作功能", read["content"])

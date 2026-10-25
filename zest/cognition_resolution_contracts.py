@@ -28,8 +28,10 @@ def snapshot(store, run_id):
     context = record['envelope']['followup_context']
     check_followup_context(store, record['envelope'])
     # Native identities are rechecked even for rejected/unreviewed candidates.
+    from .project_sources import source_root
+    root = source_root(store.state_dir, record) if record['envelope'].get('source_scope') else None
     for finding in record['findings']:
-        _lead(record, finding)
+        _lead(record, finding, root=root)
     return {'project_id': record['project_id'], 'commit': record['commit'], 'run_id': record['id'],
             'approval_sha256': record['approval_sha256'], 'status': record['status'], 'error': record['error'],
             'source': context['source'], 'findings': record['findings'], 'jobs': record['jobs'], 'plan': record['plan']}

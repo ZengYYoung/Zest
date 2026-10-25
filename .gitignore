@@ -30,7 +30,9 @@ build/
 .gradle/
 
 # Local runtime data
-.zest/
+.zest/*
+!.zest/.gitignore
+!.zest/docs/
 *.log
 *.sqlite
 *.sqlite3
@@ -42,3 +44,6 @@ build/
 .idea/
 .DS_Store
 *.swp
+
+# Personal assistant notes
+.workbuddy/

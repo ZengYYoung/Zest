@@ -57,9 +57,9 @@ def _proofs(finding, catalog, commit):
         source = proof["evidence"]
         _validate_path(source["path"])
         approved = catalog.get(proof.get("source_id"), {})
+        from .project_sources import evidence_matches
         if (not proof.get("text") or source.get("commit") != commit
-                or any(not source.get(key) or source[key] != approved.get(key)
-                       for key in ("path", "commit", "blob_id", "content_sha256"))
+                or not evidence_matches(source, approved)
                 or type(source.get("start_line")) is not int or type(source.get("end_line")) is not int
                 or not 0 < source["start_line"] <= source["end_line"]):
             return [], False
@@ -171,6 +171,8 @@ def build_management_context(state_dir, project_id, *, progress=None):
                               "automatic_review_not_human_confirmation", "per_store_read_snapshots_not_global_transaction",
                               "investigation_todos_only_not_all_maintenance_tasks", "management_skills_not_automatically_loaded"]}
     emit("memory")
+    from .documents import document_catalog
+    result["documents"] = document_catalog(project, commit=target)
     applicable, other = [], []
     for note in KnowledgeStore(state_dir).management_records(project_id):
         if note["status"] == "confirmed" and (note["scope"] == "project" or
@@ -221,6 +223,9 @@ def format_management_context(record):
     lines = ["Zest · 项目管理上下文（只读）", f"项目：{record['project_id']}",
              f"选定版本：{record['target_commit'] or '尚无提交'}", f"HEAD：{record['head_commit'] or '尚无提交'}",
              "未提交内容不纳入事实；总览不启动任务或授予执行权限。", "", "适用的人工确认记忆："]
+    documents = record.get("documents", {}).get("documents", [])
+    lines[5:5] = [f"共享项目文档：{len(documents)} 份（选定 Git 版本）",
+                  *(f"- {display_text(d['path'])}" for d in documents), ""]
     lines.extend(f"- {display_text(n['title'])} [{n['id']}]\n  {display_text(n['body'])}" for n in record["memory"]["applicable"])
     if not record["memory"]["applicable"]:
         lines.append("尚无适用记录。")

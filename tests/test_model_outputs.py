@@ -18,6 +18,11 @@ from zest.model_outputs import (
 class ModelOutputContractTest(unittest.TestCase):
     def wire_examples(self):
         return {
+            'document_update': {'claim_changes':[], 'pages':[], 'blocked_pages':[], 'retired_pages':[], 'coverage_gaps':[]},
+            'document_plan': {'pages': [{'slug':'architecture', 'title':'模块协作', 'description':'理解模块边界。',
+                                        'goal':'解释协作方式。', 'finding_ids':['F1'], 'related_pages':[]}], 'coverage_gaps':[]},
+            'document_write': {'blocks':[{'markdown':'模块负责协调内部处理，并返回已定义结果。', 'finding_ids':['F1']}], 'limits':[]},
+            'document_review': {'checks':[{'block_id':'B1', 'verdict':'supported', 'reason':'原文逐项支持。'}], 'issues':[]},
             "cognition_resolution": {"judgments": [{"reference_id":"T1:F1", "checks":[{"subject":"对象","attribute":"属性","condition":"无附加条件","assertion":"旧断言","outcome":"corrected","finding_ids":["T1:F1"],"evidence_ids":["P1"],"reason":"原文与新结论完整回答。"}],"coverage_complete":True,"reason":"逐项处理。"}], "conflicts":[]},
             "cognition_evaluation": {"coverage": [{"id": "G01/A1", "verdict": "full", "finding_ids": ["T1:F1"], "candidate_observation": "候选明确描述入口调用。", "evidence_ids": ["P1"], "reason": "原文与候选均明确表达。"}], "judgments": []},
             "qa": {"status": "answered", "answer": "使用 Python。[E1]", "citations": ["E1"], "unknowns": []},

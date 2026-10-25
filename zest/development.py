@@ -11,7 +11,9 @@ from .storage import ProjectRegistry, StorageError
 
 
 IGNORE = """# Local Zest state and credentials
-.zest/
+.zest/*
+!.zest/.gitignore
+!.zest/docs/
 .env
 .env.*
 !.env.example

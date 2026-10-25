@@ -60,6 +60,18 @@ def prepare_repair_context(project, question, *, files, state_dir, new_files=Non
                         "lines": record["lines"], "content": record["content"],
                         "content_sha256": record["content_sha256"], "edit_mode": "anchor"})
     editable_ids = [source["id"] for source in sources]
+    from .documents import document_ranges
+    document_chars = 0
+    for path, start, end in document_ranges(project, question, commit):
+        if any(source["evidence"].get("path") == path for source in sources):
+            continue
+        record = read_project_file(project, path, commit=commit, start_line=start, end_line=min(end, 60))
+        if document_chars + len(record["content"]) > 6000:
+            continue
+        document_chars += len(record["content"])
+        sources.append({"id": f"E{len(sources) + 1}", "evidence": record["evidence"],
+                        "title": "共享项目文档 · 只读上下文", "lines": record["lines"],
+                        "content_sha256": record["content_sha256"]})
     for note in KnowledgeStore(state_dir).for_context(project["id"], commit):
         sources.append({"id": f"E{len(sources) + 1}", "evidence": {"kind": "confirmed_knowledge",
                         "knowledge_id": note["id"], "scope": note["scope"], "observed_commit": note["observed_commit"],

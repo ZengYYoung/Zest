@@ -65,3 +65,17 @@ test('real model answers are escaped and usage is labelled as received', async (
   assert.ok(html.includes('42'))
   assert.ok(html.includes('实际模型响应与用量收据'))
 })
+
+test('DeepSeek setup only asks for a private key and keeps testing optional', async () => {
+  const { ModelConnection } = await import('../src/ModelConnection.tsx')
+  const html = renderToStaticMarkup(createElement(ModelConnection, {
+    connection: { port: 8000 }, disabled: false, refresh: 0, onCommand() {}, check: null,
+  }))
+  assert.ok(html.includes('DeepSeek API Key'))
+  assert.equal((html.match(/<input/g) || []).length, 1)
+  assert.ok(html.includes('type="password"'))
+  assert.ok(html.includes('保存密钥'))
+  assert.ok(html.includes('连接测试（可选）'))
+  assert.ok(!html.includes('.env'))
+  assert.ok(!html.includes('<select'))
+})

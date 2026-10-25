@@ -1,8 +1,11 @@
 """MCP tools and lexical RAG over an immutable, approved in-memory source package."""
 
 from collections import Counter
+from collections import OrderedDict
+import heapq
 import math
 from pathlib import PurePosixPath
+from threading import RLock
 
 from .cognition_contracts import canonical, text
 from .files import FileReadError
@@ -15,10 +18,21 @@ class PackageTools:
         # Old immutable packages retain their historical tool windows.
         return self.envelope.get("policy", {}).get(name, legacy)
 
-    def __init__(self, envelope):
+    def __init__(self, envelope, *, root=None):
         self.envelope = envelope
         self.files = {source["id"]: source for source in envelope["files"]}
+        self.root = root
+        self.project_scope = bool(envelope.get('source_scope'))
+        if self.project_scope:
+            from .project_sources import SOURCE_SCOPE
+            if envelope['source_scope'] != SOURCE_SCOPE:
+                raise FileReadError('cognition_contract_changed', '项目资料访问规则不兼容，未读取原文。')
+        self.cache = OrderedDict()
+        self.cache_lock = RLock()
         self.chunks = []
+        if self.project_scope:
+            self.idf = {}
+            return
         for source in self.files.values():
             lines = self.lines(source)
             for start in range(0, len(lines), 30):
@@ -44,7 +58,20 @@ class PackageTools:
     def source(self, source_id):
         if not isinstance(source_id, str) or source_id not in self.files:
             raise FileReadError("cognition_scope_expansion_required", "来源不在批准包内，需要新资料授权。")
-        return self.files[source_id]
+        source = self.files[source_id]
+        if 'body' in source:
+            return source
+        if not self.project_scope or self.root is None:
+            raise FileReadError('cognition_source_unavailable', '固定项目资料暂不可读取，请检查本地仓库。')
+        from .project_sources import load_source
+        with self.cache_lock:
+            if source_id not in self.cache:
+                self.cache[source_id] = load_source(self.root, source)
+            self.cache.move_to_end(source_id)
+            value = self.cache[source_id]
+            while len(self.cache) > 32:
+                self.cache.popitem(last=False)
+            return value
 
     def read(self, source_id, start_line=1, end_line=None):
         source = self.source(source_id)
@@ -90,6 +117,8 @@ class PackageTools:
 
     def search(self, query):
         text(query, 200)
+        if self.project_scope:
+            return self.search_project(query)
         query_vector = vector(terms(query), self.idf)
         ranked = []
         for chunk in self.chunks:
@@ -103,6 +132,36 @@ class PackageTools:
                 "chunk_count": len(self.chunks), "chunk_budget": self.limit("search_chunks", 2000),
                 "limitation": "search_locations_require_read_for_citations"}
 
+    def search_project(self, query):
+        """Stream all fixed sources; bound results/cache, not the readable scope."""
+        wanted, ranked, skipped, chunks = set(terms(query)), [], 0, 0
+        maximum = self.limit('search_results', 12)
+        for identity, metadata in self.files.items():
+            try:
+                source = self.source(identity)
+            except FileReadError:
+                skipped += 1
+                continue
+            lines = self.lines(source)
+            for start in range(0, len(lines), 30):
+                end = min(start + 40, len(lines))
+                counts = terms('\n'.join(lines[start:end]) + ' ' + metadata['evidence']['path'])
+                score = sum(counts.get(term, 0) for term in wanted)
+                chunks += 1
+                if score:
+                    item = (score, identity, start + 1, end)
+                    if len(ranked) < maximum:
+                        heapq.heappush(ranked, item)
+                    elif item > ranked[0]:
+                        heapq.heapreplace(ranked, item)
+        ranked.sort(key=lambda item: (-item[0], item[1], item[2]))
+        return {'backend': 'project_lexical_stream', 'matches': [
+            {'source_id': identity, 'path': self.files[identity]['evidence']['path'],
+             'start_line': start, 'end_line': end, 'score': score}
+            for score, identity, start, end in ranked],
+            'chunk_count': chunks, 'skipped_files': skipped,
+            'limitation': 'search_locations_require_read_for_citations'}
+
     def symbols(self, query):
         text(query, 200)
         found, skipped = [], 0
@@ -111,6 +170,7 @@ class PackageTools:
             if PurePosixPath(source["evidence"]["path"]).suffix != ".py":
                 continue
             try:
+                source = self.source(source['id'])
                 symbols, _ = _declarations(source["body"].encode(), source["evidence"])
                 for symbol in symbols:
                     if query.casefold() in symbol["lexical_name"].casefold():

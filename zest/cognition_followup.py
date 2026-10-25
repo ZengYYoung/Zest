@@ -11,7 +11,7 @@ from .storage import ProjectRegistry
 from .survey import SurveyStore
 
 
-def _lead(record, item):
+def _lead(record, item, *, root=None):
     finding = item['finding']
     if finding['section'] not in SECTION_IDS or finding['kind'] not in ('observed', 'inferred'):
         raise FileReadError('cognition_followup_source_invalid', '原发现的类别或档案部分无效。')
@@ -23,6 +23,11 @@ def _lead(record, item):
         ev = proof['evidence']; start, end = ev['start_line'], ev['end_line']
         if source is None or type(start) is not int or type(end) is not int:
             raise FileReadError('cognition_followup_source_invalid', '原发现的来源身份或行段无效，请先检查保存记录。')
+        if 'body' not in source:
+            from .project_sources import load_source
+            if root is None:
+                raise FileReadError('cognition_followup_source_invalid', '原资料所属仓库暂不可读取。')
+            source = load_source(root, source)
         approved = source['evidence']
         lines = source['body'].split('\n')
         if lines[-1] == '': lines.pop()
@@ -49,7 +54,9 @@ def source_snapshot(store, run_id, finding_id):
         selected = next((f for f in record['findings'] if f['id'] == finding_id), None)
         if selected is None or selected['finding']['kind'] != 'observed' or selected['status'] not in ('pending_review', 'needs_investigation'):
             raise FileReadError('cognition_followup_not_pending', '只能选择尚未核对或仍需调查的 observed 发现。')
-        lead = _lead(record, selected)
+        from .project_sources import source_root
+        root = source_root(store.state_dir, record) if record['envelope'].get('source_scope') else None
+        lead = _lead(record, selected, root=root)
         unknowns = {u['reference_id']: u for u in review_unknowns(record['jobs'])}
         findings = {f['id']: f for f in record['findings']}
         leads, questions, queue = {finding_id: lead}, {}, [lead]
@@ -63,7 +70,7 @@ def source_snapshot(store, run_id, finding_id):
                 if ref == current['finding_id']: raise ValueError
                 if ref in leads: continue
                 if ref in findings:
-                    leads[ref] = _lead(record, findings[ref]); queue.append(leads[ref])
+                    leads[ref] = _lead(record, findings[ref], root=root); queue.append(leads[ref])
                 elif ref in unknowns:
                     questions[ref] = unknowns[ref]
                 else:
@@ -72,6 +79,8 @@ def source_snapshot(store, run_id, finding_id):
                  'approval_sha256': record['approval_sha256'], 'status': record['status'], 'error': record['error'],
                  'selected': lead, 'related_findings': [leads[ref] for ref in sorted(leads) if ref != finding_id],
                  'related_unknowns': [questions[ref] for ref in sorted(questions)]}
+        if record['envelope'].get('source_scope'):
+            value['source_scope'] = record['envelope']['source_scope']
         text(canonical(value), 256000)
         return value
     except (KeyError, TypeError, AttributeError, ValueError) as exc:
@@ -121,7 +130,11 @@ def prepare_followup(state_dir, run_id, finding_id, *, target=None, progress=Non
         raise FileReadError('cognition_followup_version_changed', '原发现不是当前选定版本，请先核对版本变化。')
     emit('materials')
     survey = SurveyStore(state_dir).build(project, commit=source['commit'], progress=lambda e: emit('survey_'+e['phase']))
-    context = followup_context(source, survey['sources'])
+    sources = survey['sources']
+    if source.get('source_scope'):
+        from .project_sources import inventory
+        sources = inventory(project['root_path'], source['commit'], sources)
+    context = followup_context(source, sources)
     emit('preparing')
     result = store.create(source['project_id'], survey_id=survey['id'], target=target, followup_context=context)
     emit('prepared')

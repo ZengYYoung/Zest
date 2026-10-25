@@ -36,6 +36,7 @@ class TaskState(TypedDict, total=False):
     events: list
     model_response: dict
     model_responses: list
+    conversation_context: dict
 
 
 def approval_digest(context: dict, target: dict) -> str:
@@ -131,6 +132,8 @@ class TaskRunner:
                         context = prepare_context(state["project"], state["question"],
                                               keywords=state["keywords"], files=state["files"], state_dir=self.state_dir,
                                               retrieval=state.get("retrieval", "keyword"))
+                    if state.get("conversation_context") is not None:
+                        context["conversation_context"] = state["conversation_context"]
                     strategy = state.get("strategy", "single")
                     if strategy not in ("single", "multi"):
                         raise FileReadError("invalid_strategy", "不支持的 Agent 策略。")
@@ -224,7 +227,7 @@ class TaskRunner:
         return {"task_id": task_id, "created_at": row[0], "status": status,
                 "project_id": state.get("project", {}).get("id"),
                 "purpose": state.get("purpose", "question"),
-                "question": state.get("context", {}).get("question"),
+                "question": state.get("context", {}).get("question", state.get("question")),
                 "target": state.get("target"), "payload_sha256": state.get("payload_sha256"),
                 "context": state.get("context"), "result": state.get("result"),
                 "model_response": state.get("model_response"),
@@ -232,20 +235,26 @@ class TaskRunner:
                 "error": state.get("error"), "events": state.get("events", []),
                 "next_steps": list(snapshot.next)}
 
-    def create(self, project, question, *, keywords=None, files=None, retrieval="keyword", strategy="single", purpose="question", new_files=None, ranges=None):
+    def create(self, project, question, *, keywords=None, files=None, retrieval="keyword", strategy="single", purpose="question", new_files=None, ranges=None, conversation_context=None, task_id=None):
         if purpose not in ("question", "repair_proposal"):
             raise FileReadError("invalid_task_purpose", "不支持的任务类型。")
         if (new_files or ranges) and purpose != "repair_proposal":
             raise FileReadError("invalid_task_purpose", "新文件路径只可用于明确的开发/修复建议任务。")
         from langsmith import tracing_context
-        task_id = str(uuid4())
+        task_id = self._id(task_id) if task_id is not None else str(uuid4())
+        if conversation_context is not None:
+            if (not isinstance(conversation_context, dict)
+                    or len(json.dumps(conversation_context, ensure_ascii=False)) > 24000):
+                raise FileReadError("conversation_context_limit", "对话上下文超过本轮容量。")
         target = self._target()
         with self._lock(task_id), self._open() as (conn, graph), tracing_context(enabled=False):
+            if conn.execute("SELECT 1 FROM task_records WHERE id=?", (task_id,)).fetchone():
+                raise FileReadError("task_identity_used", "该任务身份已保存；请读取原任务，不重复准备或执行。")
             conn.execute("INSERT INTO task_records VALUES (?, ?)", (task_id, datetime.now(timezone.utc).isoformat()))
             conn.commit()
             graph.invoke({"task_id": task_id, "purpose": purpose, "project": project, "question": question, "keywords": keywords or [],
                           "files": files or [], "new_files": new_files or [], "ranges": ranges or [], "retrieval": retrieval, "strategy": strategy,
-                          "target": target, "status": "created"},
+                          "target": target, "status": "created", "conversation_context": conversation_context},
                          self._config(task_id), durability="sync")
             return self._view(conn, graph, task_id)
 
@@ -279,4 +288,7 @@ class TaskRunner:
                 raise FileReadError("approval_mismatch", "批准的上下文哈希不匹配，未调用模型。")
             graph.invoke(Command(resume={"approved": approved, "payload_sha256": payload_sha256}),
                          self._config(task_id), durability="sync")
-            return self._view(conn, graph, task_id)
+            result = self._view(conn, graph, task_id)
+        from .maintenance import after_task
+        after_task(self.state_dir, result)
+        return result

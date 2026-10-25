@@ -8,6 +8,15 @@ from .files import CREDENTIAL_PATTERNS, FileReadError
 from .survey import SECTIONS
 
 SECTION_IDS = {item[0] for item in SECTIONS}
+INITIALIZATION_GOALS = {
+    "version": 1, "goal": "帮助新人直接接手项目，并为后续自然语言问答建立可追溯的初步理解。",
+    "purpose": "梳理产品目标、用户、已实现功能与业务规则；区分文档目标和实现现状。",
+    "architecture": "说明模块职责、入口、协作关系及可查到的责任归属；未知负责人保留未知。",
+    "flows": "优先调查真实接口及调用方式：方法/路径或函数、参数、返回值、鉴权、错误码、调用入口和跨模块流程。缺少源码依据不编造示例。",
+    "dependencies": "说明主要数据模型、存储、外部服务和配置变量名称，不读取或复述凭据。",
+    "development": "收集配置、安装、启动、验证命令及其前提；静态声明不等于实际运行通过。",
+    "constraints": "收集需求约束、设计决策和已写入资料的理由。仓库缺失的团队约定、设计背景、合并和部署状态标未知，并建议联系相关开发者。",
+}
 POLICY = {"max_model_calls": 32, "max_tasks": 6, "max_initial_tasks": 4,
           "max_format_retries": 1,
           "review_batch_failure": "isolate_known_format_v1",

@@ -78,6 +78,41 @@ class OfflineCognitionModel:
                     for section in payload["task"]["sections"]], "unknowns": [], "material_requests": []}}
         elif purpose == "project_review":
             value = {"judgments": [review_judgment(finding, supported=not self.reject) for finding in payload["findings"]]}
+        elif purpose == 'document_plan':
+            names = {'purpose': 'purpose', 'architecture': 'architecture', 'flows': 'api',
+                     'dependencies': 'dependencies', 'development': 'development', 'constraints': 'decisions'}
+            value = {'pages': [{'slug': names[s['id']], 'title': s['title'], 'description': '解释已核对的示例行为。',
+                               'goal': '了解示例实现与边界。',
+                               'finding_ids': [f['id'] for f in payload['findings'] if f['section'] == s['id']],
+                               'related_pages': []} for s in payload['coverage_sections'] if s['facts']], 'coverage_gaps': []}
+        elif purpose == 'document_update':
+            current = payload['current_findings']
+            inherited = payload['inherited_findings']
+            specs = payload['existing_pages']
+            value = {'claim_changes': [{'claim_id': p['claim_id'], 'decision':'unresolved', 'finding_ids':[],
+                                        'evidence_statement':'', 'reason':'离线夹具不自动推断语义替代。'} for p in payload['problems']],
+                     'pages':[], 'blocked_pages':[], 'retired_pages':[], 'coverage_gaps':[]}
+            unresolved = {p['claim_id'] for p in payload['problems']}
+            for page in specs:
+                if page['slug'] not in payload['required_updates']: continue
+                if set(page['finding_ids']) & unresolved:
+                    value['blocked_pages'].append(page['slug'])
+                else:
+                    value['pages'].append(page)
+            assigned = {x for page in specs for x in page['finding_ids']}
+            extras = [f['id'] for f in current if f['id'] not in assigned]
+            if extras:
+                if value['pages']:
+                    value['pages'][0] = {**value['pages'][0], 'finding_ids':value['pages'][0]['finding_ids'] + extras}
+                else:
+                    value['pages'].append({'slug':'new-module','title':'新增模块','description':'新增实现说明。','goal':'理解新增功能。',
+                                           'finding_ids':extras,'related_pages':[]})
+        elif purpose == 'document_write':
+            value = {'blocks': [{'markdown': '## 实现说明\n\n' + '\n\n'.join(f['statement'] for f in payload['findings']),
+                                 'finding_ids': [f['id'] for f in payload['findings']]}], 'limits': []}
+        elif purpose == 'document_review':
+            value = {'checks': [{'block_id': b['block_id'], 'verdict': 'supported',
+                                 'reason': '离线流程夹具，不代表真实模型语义质量。'} for b in payload['blocks']], 'issues': []}
         else:
             value = {"status": "answered", "answer": "示例加法。[E1]", "citations": ["E1"], "unknowns": []}
         return {"text": json.dumps(value, ensure_ascii=False), "reported_model": "offline-fixture"}

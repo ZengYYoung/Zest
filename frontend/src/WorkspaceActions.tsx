@@ -196,7 +196,7 @@ function ReadButton({ connection, path, label }: { connection: Connection; path:
   }}>{loading ? '读取中…' : label}</button>{error && <p className="error">{error}</p>}{value !== null && <pre className="source-code">{JSON.stringify(value, null, 2)}</pre>}</div>
 }
 
-function RecordActions({ connection, tab, record, disabled, submit }: {
+export function RecordActions({ connection, tab, record, disabled, submit }: {
   connection: Connection; tab: View; record: Row; disabled: boolean; submit(action: string, parameters: Row): void
 }) {
   const [preview, setPreview] = useState<Row | null>(null), [consent, setConsent] = useState(false)

@@ -126,7 +126,7 @@ class RefreshPrepareTest(unittest.TestCase):
         self.assertEqual(focus["availability"], "outside_package")
         self.assertIsNone(focus["source_id"])
         self.assertEqual(record["refresh"]["outside_package"], 1)
-        self.assertIn("changed_material_outside_package", record["scope_review"]["reasons"])
+        self.assertFalse(record["scope_review"]["requires_discussion"])
         with self.assertRaises(FileReadError):
             PackageTools(envelope).read("binary.dat")
 

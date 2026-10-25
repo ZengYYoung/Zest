@@ -16,6 +16,7 @@ def create_app(state_dir):
         from fastapi.middleware.cors import CORSMiddleware
         from fastapi.middleware.trustedhost import TrustedHostMiddleware
         from fastapi.responses import JSONResponse
+        from starlette.requests import Request
     except ImportError as exc:
         raise FileReadError("web_dependencies_missing", "请执行 uv sync --extra ai --extra mcp --extra web。") from exc
     registry = ProjectRegistry(state_dir)
@@ -38,7 +39,9 @@ def create_app(state_dir):
             response = JSONResponse(status_code=413, content={"error": {
                 "code": "request_too_large", "message": "网页操作请求最多 1 MiB。"}})
         else:
-            response = await call_next(request)
+            from .model_settings import model_settings_scope
+            with model_settings_scope(state_dir):
+                response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
@@ -83,9 +86,22 @@ def create_app(state_dir):
         config = readiness()["checks"]["model"]
         latest = ModelConnectionStore(state_dir).latest()
         current = bool(latest and config.get("configured") and
+                       latest["envelope"].get("configuration_revision") == config.get("revision") and
                        latest["envelope"]["target"] == {"provider": config["provider"], "model": config["name"], "base_url": config["base_url"]})
         return {"data": {"configuration": config, "latest_check": latest,
                          "connected": bool(current and latest["status"] == "passed"), "check_matches_target": current}}
+
+    @router.post("/model/settings")
+    async def model_settings(request: Request):
+        # Secrets bypass the durable operation queue and its request receipts.
+        from .model_settings import ModelSettingsStore
+        try:
+            body = await request.json()
+        except (ValueError, UnicodeError):
+            raise FileReadError("invalid_model_key", "请填写有效的 DeepSeek API Key。") from None
+        if not isinstance(body, dict) or set(body) != {"api_key"}:
+            raise FileReadError("invalid_model_key", "这里只需填写 DeepSeek API Key。")
+        return {"data": ModelSettingsStore(state_dir).save(body["api_key"])}
 
     @router.get("/model/checks/{check_id}")
     def model_check(check_id: UUID):
@@ -129,6 +145,51 @@ def create_app(state_dir):
             project(project_id)
         records = TaskRunner(state_dir).list_tasks()
         return {"data": [record for record in records if project_id is None or record["project_id"] == str(project_id)]}
+
+    @router.get("/projects/{project_id}/conversations")
+    def conversations(project_id: UUID):
+        from .conversations import ConversationStore
+        project(project_id)
+        return {"data": sorted(ConversationStore(state_dir).list_for_project(str(project_id)),
+                               key=lambda row: row["updated_at"], reverse=True)}
+
+    @router.get("/projects/{project_id}/initialization")
+    def initialization(project_id: UUID):
+        from .initialization import InitializationStore
+        return {"data": InitializationStore(state_dir).show(str(project_id), observe_git=False)}
+
+    @router.get("/projects/{project_id}/maintenance")
+    def maintenance_status(project_id: UUID):
+        from .maintenance import MaintenanceStore
+        return {"data": MaintenanceStore(state_dir).show(str(project_id))}
+
+    @router.get("/projects/{project_id}/understanding-approval")
+    def understanding_approval(project_id: UUID):
+        from .understanding_approval import UnderstandingApproval
+        return {"data": UnderstandingApproval(state_dir).show(str(project_id))}
+
+    @router.post("/projects/{project_id}/check")
+    async def check_project(project_id: UUID, request: Request):
+        from .maintenance import MaintenanceStore
+        try:
+            body = await request.json()
+        except ValueError:
+            raise FileReadError("invalid_check_reason", "请提供更新检查的触发来源。") from None
+        if not isinstance(body, dict) or set(body) != {"reason"} or not isinstance(body["reason"], str) or body["reason"] not in {"open", "switch", "task", "manual"}:
+            raise FileReadError("invalid_check_reason", "更新检查的触发来源无效。")
+        from starlette.concurrency import run_in_threadpool
+        result = await run_in_threadpool(MaintenanceStore(state_dir).check, str(project_id), reason=body["reason"])
+        return {"data": result}
+
+    @router.post("/projects/{project_id}/maintenance/enable")
+    def enable_maintenance(project_id: UUID):
+        from .maintenance import MaintenanceStore
+        return {"data": MaintenanceStore(state_dir).enable(str(project_id))}
+
+    @router.get("/conversations/{conversation_id}")
+    def conversation(conversation_id: UUID, before: int | None = Query(default=None, ge=1)):
+        from .conversations import ConversationStore
+        return {"data": ConversationStore(state_dir).show(str(conversation_id), before=before)}
 
     @router.get("/projects/{project_id}/cognition")
     def cognition_runs(project_id: UUID):
@@ -219,6 +280,22 @@ def create_app(state_dir):
         from .cognition_refresh import build_refresh_preview
         project(project_id)
         return {"data": build_refresh_preview(state_dir, str(project_id))}
+
+    @router.get("/projects/{project_id}/documents")
+    def shared_documents(project_id: UUID):
+        from .documents import document_catalog
+        return {"data": document_catalog(project(project_id))}
+
+    @router.get("/projects/{project_id}/documents/workspace")
+    def workspace_documents(project_id: UUID):
+        from .documents import workspace_documents
+        return {"data": workspace_documents(project(project_id))}
+
+    @router.get("/projects/{project_id}/documents/read")
+    def workspace_document(project_id: UUID, path: str = Query(min_length=1, max_length=1024),
+                           start_line: int = Query(default=1, ge=1), end_line: int = Query(default=200, ge=1)):
+        from .documents import read_workspace_document
+        return {"data": read_workspace_document(project(project_id), path, start_line=start_line, end_line=end_line)}
 
     @router.get("/cognition/{run_id}/preview")
     def cognition_preview(run_id: UUID):

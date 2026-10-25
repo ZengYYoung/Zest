@@ -36,7 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     web_serve.add_argument("--port", type=int, default=8000)
     projects = commands.add_parser("project", help="登记和查询本地 Git 项目")
     actions = projects.add_subparsers(dest="action", required=True)
-    imported = actions.add_parser("import", help="登记项目并准备忽略的 .zest 资源目录，不执行项目")
+    imported = actions.add_parser("import", help="接入项目；.zest/docs 可共享，其他资源留在本地")
     imported.add_argument("path", type=Path, help="本地 Git 仓库根目录")
     mapped = actions.add_parser("map", help="只读提取固定版本的 Python 模块、符号和 import 声明")
     mapped.add_argument("project_id")
@@ -52,6 +52,9 @@ def _parser() -> argparse.ArgumentParser:
     shown.add_argument("project_id", help="登记生成的项目 ID")
     guide = actions.add_parser("guide", help="显式补齐缺少的 .zest/AGENTS.md；不覆盖现有管理指引")
     guide.add_argument("project_id")
+    documents = actions.add_parser("documents", help="查看共享文档；--init 建立文档并迁入原资料，不提交或删除原文档")
+    documents.add_argument("project_id")
+    documents.add_argument("--init", action="store_true")
     context = actions.add_parser("context", help="只读汇总当前版本的记忆、认知、索引和调查待办")
     context.add_argument("project_id")
     context.add_argument("--format", choices=("json", "text"), default="json")
@@ -268,6 +271,13 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    from .model_settings import model_settings_scope
+    import os
+    with model_settings_scope(os.environ.get("ZEST_MODEL_SETTINGS_DIRECTORY") or args.state_dir):
+        return _main(args)
+
+
+def _main(args) -> int:
     try:
         registry = ProjectRegistry(args.state_dir)
         if args.command == "ui":
@@ -566,7 +576,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"error": {"code": "project_not_found", "message": "未找到该项目登记记录。"}},
                                  ensure_ascii=True), file=sys.stderr)
                 return 1
-            if args.action == "guide":
+            if args.action == "documents":
+                from .documents import document_catalog, initialize_documents
+                result = initialize_documents(result) if args.init else document_catalog(result)
+            elif args.action == "guide":
                 from .resources import preflight_workspace, write_management_guide
                 identity = preflight_workspace(Path(result["root_path"]))
                 if identity is None or identity["project_id"] != result["id"]:

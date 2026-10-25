@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 import time
 
-from .files import BLOCKED_DIRECTORIES, FileReadError, _validate_path, load_text_blob
+from .files import FileReadError, _validate_path, load_text_blob, validate_directory
 from .git import inspect_repository, list_tree, verify_commit, selected_commit
 
 
@@ -62,9 +62,12 @@ def search_project(project: dict, query: str, *, commit: str | None = None,
                 break
             path = prefix + entry.path
             if entry.object_type == "tree":
-                if entry.path.casefold() in BLOCKED_DIRECTORIES:
+                try:
+                    validate_directory(path)
+                except FileReadError:
                     skips["blocked_directory"] += 1
-                elif len(path.split("/")) >= 32:
+                    continue
+                if len(path.split("/")) >= 32:
                     skips["path_too_deep"] += 1
                 else:
                     queue.append((entry.object_id, path + "/"))

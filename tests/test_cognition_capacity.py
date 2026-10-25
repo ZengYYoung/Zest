@@ -143,7 +143,9 @@ class CapacityEngineTest(unittest.TestCase):
     approved = fixtures.CognitionTest.approved
 
     def test_review_repartitions_unsent_overlarge_batches_without_losing_proofs(self):
-        (self.repo / "app.py").write_text("\n".join("#" + str(i) + "x" * 2650 for i in range(24)) + "\n")
+        # Escaped characters make the complete HTTP body exceed the limit even
+        # with the current two-finding review batch. Plain text only made 29k.
+        (self.repo / "app.py").write_text("\n".join("#" + str(i) + '"' * 900 + "x" * 1750 for i in range(24)) + "\n")
         self.commit()
         self.project = ProjectRegistry(self.state_dir).register(inspect_repository(self.repo))
         record = self.approved()

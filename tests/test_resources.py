@@ -148,7 +148,7 @@ class ResourceTest(unittest.TestCase):
         self.imported()
         folder = self.repo / ".zest"
         guide = folder / "AGENTS.md"
-        self.assertIn("原生 README/docs 无需拷贝", guide.read_text())
+        self.assertIn("团队项目文档统一维护在 .zest/docs/", guide.read_text())
         self.assertFalse((folder / "README.md").exists())
         self.assertFalse((folder / "docs").exists())
         project = ProjectRegistry(self.state_dir).list_projects_readonly()[0]
@@ -239,10 +239,10 @@ class ResourceTest(unittest.TestCase):
         self.assertEqual(head, self.git("rev-parse", "HEAD"))
         self.assertEqual(index, self.git("ls-files", "--stage"))
         self.git("check-ignore", "--", ".zest/state/state.sqlite3")
-        self.assertNotIn(b".zest/", self.git("status", "--porcelain", "--untracked-files=all"))
-        self.assertFalse(project["git"]["dirty"])
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), b"?? .zest/.gitignore\n")
+        self.assertTrue(project["git"]["dirty"])
         self.assertFalse((self.repo / ".gitignore").exists())
-        self.assertEqual(self.git("status", "--porcelain"), b"")
+        self.assertEqual(self.git("status", "--porcelain"), b"?? .zest/\n")
         self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
 
     def test_reimport_preserves_ignore_bytes_identity_and_saved_notes(self):
@@ -472,6 +472,7 @@ class ResourceTest(unittest.TestCase):
         from zest.verification import VerificationStore
         from zest.releases import ReleaseStore
         project = self.imported()
+        self.commit("review shared workspace metadata")
         directory = Path(project["resource_dir"])
         source = read_project_file(project, "app.py")
         repairs = RepairStore(self.state_dir)

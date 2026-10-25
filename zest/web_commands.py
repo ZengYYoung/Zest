@@ -16,8 +16,17 @@ class ProjectInput(Input):
     project_id: UUID
 
 
+class DocumentRoundInput(ProjectInput):
+    source_run_id: UUID
+    source_sha256: str = Field(min_length=64, max_length=64, pattern='^[0-9a-f]{64}$')
+
+
 class ImportInput(Input):
     path: str = Field(min_length=1, max_length=4096)
+
+
+class AutomaticImportInput(ImportInput):
+    automatic_understanding: bool = Field(default=False, strict=True)
 
 
 class InitInput(ImportInput):
@@ -42,6 +51,56 @@ class TaskInput(ProjectInput):
     purpose: Literal["question", "repair_proposal"] = "question"
     new_files: list[str] = Field(default_factory=list, max_length=5)
     ranges: list[SourceRange] = Field(default_factory=list, max_length=10)
+
+
+class ConversationMessage(Input):
+    id: UUID
+    message_id: UUID
+    question: str = Field(min_length=1, max_length=2000)
+    automatic_answer: bool = Field(default=True, strict=True)
+
+
+class ConversationAnswer(Input):
+    id: UUID
+    message_id: UUID
+
+
+class InitializationPrepare(ProjectInput):
+    replace_pending: bool = False
+
+
+class InitializationStart(ProjectInput):
+    resume_setup: bool = Field(default=False, strict=True)
+
+
+class AutomaticRepairInput(InitializationPrepare):
+    automatic_understanding: bool = Field(default=False, strict=True)
+
+
+class UnderstandingConfiguration(ProjectInput):
+    enabled: bool = Field(strict=True)
+
+
+class InitializationDecision(ProjectInput):
+    approved: bool
+    sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    automatic_maintenance: bool = False
+
+
+class InitializationContext(InitializationDecision):
+    actor: str = Field(pattern=r"^(coordinator|T[1-6]|review_(?:fix_)?[0-9a-f]{12})$")
+    sequence: int = Field(ge=0)
+
+
+class ContextIdentity(Input):
+    actor: str = Field(pattern=r"^(coordinator|T[1-6]|review_(?:fix_)?[0-9a-f]{12})$")
+    sequence: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ContextDecisions(ProjectInput):
+    approved: bool = Field(strict=True)
+    requests: list[ContextIdentity] = Field(min_length=1, max_length=32)
 
 
 class RecordInput(Input):
@@ -101,7 +160,22 @@ class ExportInput(ProjectInput):
 
 COMMANDS = {
     "model.prepare": Input, "model.decide": DecisionInput,
-    "project.import": ImportInput, "project.init": InitInput,
+    "project.import": AutomaticImportInput, "project.init": InitInput,
+    "project.remove": ProjectInput,
+    "project.choose-directory": Input,
+    "project.documents.init": ProjectInput,
+    "conversation.create": ProjectInput, "conversation.send": ConversationMessage, "conversation.answer": ConversationAnswer,
+    "initialization.prepare": InitializationPrepare, "initialization.decide": InitializationDecision,
+    "initialization.start": ProjectInput, "initialization.recover": ProjectInput,
+    "initialization.initialize": InitializationStart,
+    "initialization.repair": AutomaticRepairInput, "initialization.republish": ProjectInput,
+    "understanding.configure": UnderstandingConfiguration,
+    "initialization.context-decide": InitializationContext,
+    "initialization.context-decide-many": ContextDecisions,
+    "maintenance.decide": InitializationDecision, "maintenance.context-decide": InitializationContext,
+    "maintenance.resume": ProjectInput, "maintenance.reprepare": ProjectInput,
+    "maintenance.documents-new-round": DocumentRoundInput,
+    "maintenance.context-decide-many": ContextDecisions,
     "task.create": TaskInput, "task.decide": DecisionInput,
     "cognition.create": ProjectInput, "cognition.decide": DecisionInput,
     "cognition.start": RecordInput, "cognition.recover": RecordInput,
@@ -141,6 +215,15 @@ def validate_command(action, parameters):
 
 def execute(state_dir, action, p):
     """Called only once by a claimed durable operation; never from a GET."""
+    from .model_settings import model_settings_scope
+    with model_settings_scope(state_dir):
+        return _execute(state_dir, action, p)
+
+
+def _execute(state_dir, action, p):
+    if action == "project.choose-directory":
+        from .directory_picker import choose_project_directory
+        return choose_project_directory(state_dir)
     if action.startswith("model."):
         from .model_connection import ModelConnectionStore
         store = ModelConnectionStore(state_dir)
@@ -148,6 +231,23 @@ def execute(state_dir, action, p):
             return store.prepare()
         return store.decide(p["id"], approved=p["approved"], sha256=p["sha256"])
     registry = ProjectRegistry(state_dir)
+
+    if action == "project.remove":
+        return registry.remove_project(p["project_id"])
+
+    if action.startswith("maintenance."):
+        from .maintenance import MaintenanceStore
+        store = MaintenanceStore(state_dir)
+        if action == 'maintenance.documents-new-round':
+            return store.continue_documents(p['project_id'], source_run_id=p['source_run_id'], source_sha256=p['source_sha256'])
+        if action == 'maintenance.reprepare':
+            return store.reprepare(p['project_id'])
+        if action == "maintenance.resume":
+            return store.resume(p["project_id"])
+        if action == "maintenance.context-decide-many":
+            return store.decide_contexts(p["project_id"], p['requests'], approved=p['approved'])
+        return store.decide(p["project_id"], approved=p["approved"], sha256=p["sha256"],
+                            actor=p.get("actor"), sequence=p.get("sequence"))
 
     def project():
         record = registry.get_project(p["project_id"])
@@ -157,10 +257,53 @@ def execute(state_dir, action, p):
 
     if action == "project.import":
         from .git import inspect_repository
-        return registry.register(inspect_repository(p["path"]), workspace=True)
+        from .initialization import InitializationStore
+        from .web_operations import report_progress
+        report_progress('repository', '正在检查项目目录和 Git 版本')
+        registered = registry.register(inspect_repository(p["path"]), workspace=True)
+        initializer = InitializationStore(state_dir)
+        registered["initialization"] = (initializer.begin if p.get('automatic_understanding') else initializer.prepare)(registered["id"])
+        return registered
+    if action == 'understanding.configure':
+        from .understanding_approval import UnderstandingApproval
+        return UnderstandingApproval(state_dir).configure(p['project_id'], enabled=p['enabled'])
+    if action.startswith("initialization."):
+        from .initialization import InitializationStore
+        store = InitializationStore(state_dir)
+        if action == 'initialization.initialize':
+            return store.begin(p['project_id'], resume_setup=p.get('resume_setup', False))
+        if action == "initialization.prepare":
+            return store.prepare(p["project_id"], replace_pending=p["replace_pending"])
+        if action == "initialization.repair":
+            result = store.repair(p["project_id"], replace_pending=p["replace_pending"])
+            return store.begin(p['project_id']) if p.get('automatic_understanding') and result.get('status') in ('awaiting_approval', 'awaiting_context_approval') else result
+        if action == "initialization.republish":
+            return store.republish(p["project_id"])
+        if action == "initialization.decide":
+            return store.decide(p["project_id"], approved=p["approved"], sha256=p["sha256"], automatic_maintenance=p.get("automatic_maintenance", False))
+        if action == "initialization.recover":
+            return store.recover(p["project_id"])
+        if action == "initialization.context-decide":
+            return store.decide_context(p["project_id"], p["actor"], p["sequence"],
+                                        approved=p["approved"], sha256=p["sha256"])
+        if action == "initialization.context-decide-many":
+            return store.decide_contexts(p['project_id'], p['requests'], approved=p['approved'])
+        store.launch(p["project_id"])
+        return store.show(p["project_id"])
     if action == "project.init":
         from .development import create_project
         return create_project(state_dir=state_dir, **p)
+    if action == "project.documents.init":
+        from .documents import initialize_documents
+        return initialize_documents(project())
+    if action.startswith("conversation."):
+        from .conversations import ConversationStore
+        store = ConversationStore(state_dir)
+        if action == "conversation.create":
+            return store.create(project())
+        if action == 'conversation.answer':
+            return store.answer(p['id'], message_id=p['message_id'])
+        return store.send(p["id"], p["question"], message_id=p["message_id"], automatic_answer=p.get('automatic_answer', True))
     if action.startswith("task."):
         from .tasks import TaskRunner
         runner = TaskRunner(state_dir)

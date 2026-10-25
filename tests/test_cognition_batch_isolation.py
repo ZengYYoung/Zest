@@ -28,8 +28,18 @@ class BatchIsolationTest(unittest.TestCase):
     setUpBase = fixtures.CognitionTest.setUpBase
     git = fixtures.CognitionTest.git
     commit = fixtures.CognitionTest.commit
-    prepare = fixtures.CognitionTest.prepare
     approved = fixtures.CognitionTest.approved
+
+    def prepare(self):
+        # This suite protects already approved legacy envelopes and four-item
+        # batch identities. New quality contracts have their own regression suite.
+        record = fixtures.CognitionTest.prepare(self)
+        envelope = self.store.show(record['id'], include_envelope=True)['envelope']
+        envelope.pop('quality_contract')
+        with self.store.open(write=True) as conn, conn:
+            conn.execute('UPDATE cognition_runs SET envelope=?,envelope_sha256=? WHERE id=?',
+                         (canonical(envelope), digest(envelope), record['id']))
+        return self.store.show(record['id'])
 
     def install_reviews(self, handler):
         client = self.enterContext(httpx.Client(transport=httpx.MockTransport(handler)))

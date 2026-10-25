@@ -26,7 +26,7 @@ def digest(value):
 def implementation():
     root = Path(__file__).parent
     return {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
-            for name in ('model_connection.py', 'models.py', 'model_outputs.py', 'qa.py')}
+            for name in ('model_connection.py', 'models.py', 'model_settings.py', 'model_outputs.py', 'qa.py')}
 
 
 def source_commit():
@@ -78,6 +78,8 @@ class ModelConnectionStore:
                     'policy': {'max_calls': 1, 'automatic_retries': 0, 'timeout_seconds': settings.timeout,
                                'max_output_tokens': 2048, 'project_data_sent': False},
                     'request': prepare_model_request(settings, payload(), purpose='qa')}
+        if settings.revision is not None:
+            envelope['configuration_revision'] = settings.revision
         identity = str(uuid4())
         with self.open(write=True) as conn, conn:
             conn.execute('INSERT INTO checks VALUES (?,?,?,?,?,?,?,?)',
@@ -125,7 +127,8 @@ class ModelConnectionStore:
             if record['approval_sha256'] != sha256:
                 raise FileReadError('approval_mismatch', '批准须匹配完整合成示例、模型目标及一次调用预算。')
             settings = ModelSettings.from_env()
-            if (model_target(settings) != envelope['target'] or settings.timeout != envelope['policy']['timeout_seconds']
+            if (settings.revision != envelope.get('configuration_revision')
+                    or model_target(settings) != envelope['target'] or settings.timeout != envelope['policy']['timeout_seconds']
                     or implementation() != envelope['implementation'] or output_contract('qa') != envelope['contract']
                     or prepare_model_request(settings, payload(), purpose='qa') != envelope['request']):
                 raise FileReadError('model_check_changed', '配置、代码或完整请求已变化，请重新准备连接测试。')

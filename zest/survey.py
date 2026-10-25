@@ -12,7 +12,7 @@ import sqlite3
 import time
 from uuid import UUID, uuid4
 
-from .files import BLOCKED_DIRECTORIES, CREDENTIAL_PATTERNS, FileReadError, _validate_path, load_text_blob
+from .files import CREDENTIAL_PATTERNS, FileReadError, _validate_path, load_text_blob, validate_directory
 from .git import inspect_repository, list_tree, selected_commit, verify_commit
 from .overview import ENTRYPOINTS, MANIFESTS, _node_manifest, _python_manifest
 from .structure import build_structure
@@ -63,20 +63,24 @@ def _path(path, *, directory=False):
     if any(re.search(pattern, encoded) for pattern in CREDENTIAL_PATTERNS):
         raise FileReadError("sensitive_path", "路径包含已识别凭据，未保存。")
     directories = path.split("/") if directory else path.split("/")[:-1]
-    if any(part.casefold() in BLOCKED_DIRECTORIES or part.casefold().startswith((".env", "credentials", "secrets", "id_rsa", "id_ed25519"))
-           for part in directories):
+    if any(part.casefold().startswith((".env", "credentials", "secrets", "id_rsa", "id_ed25519")) for part in directories):
         raise FileReadError("excluded_directory", "该目录不在摸底范围内。")
     if directory:
-        _validate_path(path + "/probe.py")
+        validate_directory(path)
     else:
         _validate_path(path)
 
 
 def _roles(path):
+    from .document_layout import shared_document, legacy_document
     value = PurePosixPath(path)
     name = value.name.casefold()
     parts = [part.casefold() for part in value.parts]
     roles = []
+    if shared_document(path):
+        roles.append("shared_project_document")
+    elif legacy_document(path):
+        roles.append("legacy_document_reference")
     if value.suffix.casefold() in CODE_SUFFIXES:
         roles.append("code_candidate")
     if name in MANIFEST_ECOSYSTEMS:

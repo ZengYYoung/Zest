@@ -6,6 +6,7 @@ import re
 
 from .git import inspect_repository, list_tree, read_blob, verify_commit, selected_commit as resolve_commit
 from .overview import EXCLUDED_DIRECTORIES
+from .document_layout import DOCUMENT_SUFFIXES, shared_document
 
 
 MAX_FILE_BYTES = 256 * 1024
@@ -42,14 +43,26 @@ def _validate_path(path: str) -> list[str]:
     if len(parts) > 32:
         raise FileReadError("path_too_deep", "路径超过当前支持的 32 层。")
     lowered = [part.casefold() for part in parts]
-    if any(part in BLOCKED_DIRECTORIES for part in lowered[:-1]):
+    directories = lowered[2:-1] if shared_document(path) else lowered[:-1]
+    if any(part in BLOCKED_DIRECTORIES or part.startswith((".env", "credentials", "secrets", "id_rsa", "id_ed25519"))
+           for part in directories):
         raise FileReadError("blocked_path", "该目录不在当前文件读取范围内。")
+    if path.startswith(".zest/") and (not shared_document(path)
+            or PurePosixPath(path).suffix.casefold() not in DOCUMENT_SUFFIXES):
+        raise FileReadError("blocked_path", "只允许读取 .zest/docs/ 内的共享项目文档。")
     name = lowered[-1]
     if name.startswith((".env", "credentials", "secrets", "id_rsa", "id_ed25519")):
         raise FileReadError("blocked_path", "该文件可能包含凭据，不在当前文件读取范围内。")
     if PurePosixPath(name).suffix not in TEXT_SUFFIXES and name not in TEXT_NAMES:
         raise FileReadError("unsupported_extension", "当前只支持允许的源码、文档和文本配置文件。")
     return parts
+
+
+def validate_directory(path):
+    """Permit traversal to shared docs, without opening the rest of .zest."""
+    if path in (".zest", ".zest/docs"):
+        return
+    _validate_path(path + "/probe.md")
 
 
 def _find_file(root: Path, commit: str, parts: list[str]):

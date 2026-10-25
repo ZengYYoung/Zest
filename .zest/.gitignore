@@ -1,0 +1,12 @@
+# Shared project documents; all other Zest resources stay local
+/*
+!/.gitignore
+!/docs/
+/docs/**
+!/docs/**/
+!/docs/**/*.[jJ][sS][oO][nN]
+!/docs/**/*.[mM][dD]
+!/docs/**/*.[rR][sS][tT]
+!/docs/**/*.[tT][xX][tT]
+!/docs/**/*.[yY][aA][mM][lL]
+!/docs/**/*.[yY][mM][lL]

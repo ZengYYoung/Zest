@@ -43,3 +43,10 @@ test('abort remains cancellation rather than a stale UI error', async () => {
   globalThis.fetch = async () => { throw new DOMException('cancelled', 'AbortError') }
   await assert.rejects(readApi({ port: 8000 }, '/api/projects'), error => error.name === 'AbortError')
 })
+
+test('lost key-save responses lead to configuration readback instead of operation replay', async () => {
+  let calls = 0
+  globalThis.fetch = async () => { calls++; throw new TypeError('disconnected') }
+  await assert.rejects(writeApi({ port: 8000 }, '/api/model/settings', { api_key: 'offline-fixture-key' }), /重新打开设置核对/)
+  assert.equal(calls, 1)
+})

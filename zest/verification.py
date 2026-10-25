@@ -70,6 +70,9 @@ def collect_snapshot(root, commit):
                 # File validation at leaves also checks each parent directory.
                 queue.append((path + "/", entry.object_id))
                 continue
+            if path == ".zest/.gitignore":
+                # Portable layout metadata is not part of the runtime snapshot.
+                continue
             _validate_path(path)
             raw = load_text_blob(root, entry)
             total += len(raw)

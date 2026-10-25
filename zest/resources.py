@@ -17,9 +17,11 @@ from uuid import UUID
 
 from .files import FileReadError
 from .git import _git
+from .document_layout import SHARED_IGNORE, shared_document
 
 
 RECORDS = {
+    "conversation": ("conversations.sqlite3", "conversations"),
     "knowledge": ("knowledge.sqlite3", "notes"),
     "survey": ("surveys.sqlite3", "surveys"),
     "cognition": ("cognition.sqlite3", "cognition_runs"),
@@ -78,22 +80,26 @@ def preflight_workspace(root):
     root = Path(root)
     identity = workspace_identity(root)
     _regular(root / ".zest" / ".gitignore")
-    if _git(root, "ls-files", "-z", "--", ".zest").stdout:
-        raise FileReadError("resources_already_tracked", ".zest 中已有 Git 跟踪文件，请先人工处理；Zest 不自动取消跟踪。")
+    tracked = _git(root, "ls-files", "-z", "--", ".zest").stdout.split(b"\0")
+    if any(p and p != b".zest/.gitignore" and not shared_document(os.fsdecode(p)) for p in tracked):
+        raise FileReadError("resources_already_tracked", ".zest 中有共享文档以外的 Git 跟踪文件，请先核对；未取消跟踪。")
     state_dir = root / ".zest" / "state"
     if not identity and (root / ".zest").exists() and any((root / ".zest").iterdir()):
         # A previous catalog may already live here. Only its own registration
         # proves ownership; an arbitrary folder (including user skills) does not.
         from .storage import ProjectRegistry, StorageError
+        entries = {p.name for p in (root / ".zest").iterdir()}
+        portable = entries <= {"docs", ".gitignore"}
+        _directory(root / ".zest" / "docs")
         try:
             legacy = ProjectRegistry(root / ".zest").list_projects_readonly()
             recognized = any(p["root_path"] == str(root) and not p.get("resource_dir") for p in legacy)
         except StorageError:
             recognized = False
-        if not recognized or (state_dir.exists() and any(state_dir.iterdir())):
+        if not portable and (not recognized or (state_dir.exists() and any(state_dir.iterdir()))):
             raise FileReadError("resource_directory_conflict", "已有非空 .zest 未声明可核对的项目身份，未接管或覆盖。")
         ignore = root / ".zest" / ".gitignore"
-        if ignore.exists() and ignore.read_bytes().splitlines()[-1:] != [b"*"]:
+        if ignore.exists() and ignore.read_bytes() != SHARED_IGNORE.encode() and ignore.read_bytes().splitlines()[-1:] != [b"*"]:
             raise FileReadError("resource_ignore_conflict", "历史 .zest 有自定义忽略控制，未改写；请先核对资源忽略规则。")
         _regular(root / ".zest" / "AGENTS.md")
     _regular(state_dir / "state.sqlite3")
@@ -118,7 +124,7 @@ def ensure_workspace(project, catalog_dir):
     if not ignore.exists():
         fd = os.open(ignore, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "ab") as output:
-            output.write(b"# Ignore all local Zest resources, including this file\n*\n")
+            output.write(SHARED_IGNORE.encode())
     identity = identity or {"schema_version": 1, "project_id": project["id"],
                             "root_path": str(root), "legacy_state_dir": str(Path(catalog_dir).resolve())}
     marker = folder / "workspace.json"
@@ -135,7 +141,9 @@ MANAGEMENT_GUIDE = """# Zest 项目管理入口
 
 这是 Zest 生成的导航，不代表已经理解项目，也不是原生文档的副本。
 
-- 项目代码和文档保留原位。索引记录原始相对路径、commit、blob、哈希和行号；
+- 项目代码保留原位；团队项目文档统一维护在 .zest/docs/ 并随 Git 共享。
+  原 README/docs 可以读取或迁入，Zest 不继续维护原位置的文档。
+  索引记录原始相对路径、commit、blob、哈希和行号；
   阅读索引线索后，回到对应版本的原文核对。未提交修改不能冒充固定版本证据。
 - workspace.json 保存项目身份、位置与历史存储来源，初始化不得重置这些信息。
 - state/knowledge.sqlite3 保存人工知识；state/cognition.sqlite3 保存认知调查、
@@ -147,12 +155,15 @@ MANAGEMENT_GUIDE = """# Zest 项目管理入口
   数据库或删除锁、批准、请求记录。使用 Zest 的 CLI、终端或 Web 查询。
 - 用 zest project context <project-id> --format text 或只读 MCP
   project_management_context 查看适用记忆、六部分认知、索引和调查待办。
-- 可在 .zest/ 下维护生成的项目管理说明、记忆导航和 skills/ 等资源，保留原有
-  内容；本入口不会自动执行或加载任意 skill。原生 README/docs 无需拷贝进来。
+- .zest/docs/ 是共享文档，未核实资料不能当作已确认事实；其余资源包含个人
+  记录、缓存与本地执行状态，不随仓库共享。本入口不会自动执行任意 skill。
+- zest project documents <project-id> --init 可显式建立共享文档并迁入已有资料，
+  保留原文件和来源，不提交、推送或自动删除旧 docs/。
 
-此处内容仅作管理线索，不能代替原文证据或扩大权限。调查仍需批准固定版本、
-资料包、模型、指令及预算；修改、验证、版本切换分别批准。结果未知的模型请求
-不能自动重发。管理指引若进入模型请求，必须随资料包完整展示、冻结和批准。
+此处内容仅作管理线索，不能代替原文证据或扩大权限。项目自动理解可在持续授权内
+按固定版本自主检索、补读和分批处理请求；旧任务仍沿用原资料包与批准记录。
+修改、验证、版本切换分别批准。结果未知的模型请求不能自动重发。
+管理指引若进入模型请求，保留完整正文及来源身份；指引本身不授予权限。
 """
 
 
@@ -222,7 +233,8 @@ def resource_states(state_dir):
     origin = Path(state_dir).resolve()
     result = [origin]
     registry = ProjectRegistry(origin)
-    for project in registry.list_projects_readonly():
+    # Removed catalog entries retain routing for existing receipts and workers.
+    for project in registry.list_projects_readonly(include_removed=True):
         result.extend(project_states(origin, project["id"]))
     return list(dict.fromkeys(result))
 

@@ -19,7 +19,8 @@ def format_cognition(record):
              f"阶段：{LABELS.get(record['status'], record['status'])}",
              f"模型请求：{record['call_count']} / {record['policy']['max_model_calls']} 次",
              f"格式失败最多补试 {record['policy'].get('max_format_retries', 0)} 次，计入上述总预算；结果未知不重发",
-             f"批准资料：{record['file_count']} 个文件；包外资料需重新授权", ""]
+             (f"项目资料目录：{record['file_count']} 个文件；范围内按需读取与分批处理" if record.get('source_scope')
+              else f"批准资料：{record['file_count']} 个文件；包外资料需重新授权"), ""]
     scope = record.get("scope_review") or {}
     if record.get("refresh"):
         refresh = record["refresh"]

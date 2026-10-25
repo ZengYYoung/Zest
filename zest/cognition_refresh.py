@@ -92,11 +92,11 @@ def _finding(item, base, changes, available, version_changed):
         source = source if isinstance(source, dict) else {}
         path = source.get("path") if isinstance(source.get("path"), str) else None
         original = item["catalog"].get(path)
+        from .project_sources import evidence_matches
         matched = bool(original and isinstance(proof, dict) and proof.get("text") and source.get("commit") == base
                        and type(source.get("start_line")) is int and type(source.get("end_line")) is int
                        and 0 < source["start_line"] <= source["end_line"]
-                       and all(source.get(key) == original.get(key) and source.get(key)
-                               for key in ("blob_id", "content_sha256")))
+                       and evidence_matches(source, original))
         change = changes.get(path)
         if change and change["before_object"] != source.get("blob_id"):
             matched = False
@@ -195,9 +195,17 @@ def check_refresh_context(store, envelope, context=None):
         raise FileReadError("cognition_refresh_baseline_changed", "增量调查基线或线索已变化/失效，请重新准备资料包。")
 
 
-def prepare_refresh(state_dir, project_id, *, base_run_id=None, target=None, progress=None):
+def prepare_refresh(state_dir, project_id, *, base_run_id=None, target=None, progress=None, run_id=None, focus_paths=None):
     """Freeze current safe materials plus untrusted historical leads; never call a model."""
     from .survey import SurveyStore
+    if run_id is not None:
+        from .resources import record_state
+        existing = record_state(state_dir, "cognition", run_id, missing_ok=True)
+        if existing is not None:
+            saved = CognitionStore(existing).show(run_id)
+            if saved["project_id"] != project_id:
+                raise FileReadError("cognition_scope_mismatch", "增量调查身份不属于该项目。")
+            return saved
     started = time.monotonic()
 
     def emit(phase, **details):
@@ -216,7 +224,7 @@ def prepare_refresh(state_dir, project_id, *, base_run_id=None, target=None, pro
     survey = SurveyStore(state_dir).build(project, commit=preview["target_commit"],
         progress=lambda event: emit("survey_" + event["phase"]))
     paths = {s["evidence"]["path"]: s["id"] for s in survey["sources"]}
-    context = {"schema_version": 1, "project_id": project_id, "target_commit": preview["target_commit"],
+    context = {"schema_version": 1, "model_view_version": 1, "project_id": project_id, "target_commit": preview["target_commit"],
                "baseline": preview["baseline"], "baseline_runs": preview["baseline_runs"],
                "historical_leads": preview["findings"], "changes": preview["changes"],
                "uncovered_changes": preview["uncovered_changes"], "warnings": preview["warnings"],
@@ -225,13 +233,13 @@ def prepare_refresh(state_dir, project_id, *, base_run_id=None, target=None, pro
                "focus": [{"path": c["path"], "change": c["change"], "source_id": paths.get(c["path"]),
                           "availability": "deleted" if c["change"] == "deleted" else
                                           "in_package" if c["path"] in paths else "outside_package"}
-                         for c in preview["changes"]]}
+                         for c in preview["changes"] if focus_paths is None or c["path"] in focus_paths]}
     # A moving project selection requires another local preview, not a package
     # silently prepared for a version the user has already left behind.
     if selected_commit(project, inspect_repository(project["root_path"])) != preview["target_commit"]:
         raise FileReadError("cognition_refresh_target_changed", "准备期间选定版本发生变化，请重新准备增量调查。")
     emit("preparing")
-    result = CognitionStore(state_dir).create(project_id, survey_id=survey["id"], target=target, refresh_context=context)
+    result = CognitionStore(state_dir).create(project_id, survey_id=survey["id"], target=target, refresh_context=context, run_id=run_id)
     emit("prepared", run_id=result["id"])
     return result
 

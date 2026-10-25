@@ -39,6 +39,8 @@ def readiness(*, check_docker=False, image=None, socket_path=None):
                            "name": _redact(settings.name.encode()), "base_url": _redact(model_target(settings)["base_url"].encode()),
                            "configured_base_url": _redact(settings.base_url.encode()),
                            "connectivity_tested": False}
+        if settings.revision is not None:
+            checks["model"]["revision"] = settings.revision
     except FileReadError as exc:
         checks["model"] = {"configured": False, "error": exc.code, "connectivity_tested": False}
     checks["docker"] = {"checked": False, "available": None}

@@ -49,6 +49,44 @@ class WebOperationsTest(unittest.TestCase):
         self.assertEqual(record['status'], 'completed', record)
         return record['result']
 
+    def test_shared_document_import_runs_as_a_durable_operation_without_a_model(self):
+        from zest.models import DeepSeekModel
+        with patch.object(DeepSeekModel, 'complete', side_effect=AssertionError('no model calls')):
+            project = self.finish(self.submit('project.import', {'path': str(self.repo)}))
+            operation = self.submit('project.documents.init', {'project_id': project['id']})
+            result = self.finish(operation)
+            self.assertIn('.zest/docs/index.md', project['initialization']['migration']['created'])
+            self.assertEqual(result['created'], [])
+            self.assertFalse(result['committed'])
+            index = self.repo / '.zest/docs/index.md'
+            before = index.stat().st_mtime_ns
+            self.assertEqual(self.finish(operation), result)
+            self.assertEqual(before, index.stat().st_mtime_ns)
+            url = '/api/projects/' + project['id'] + '/documents'
+            self.assertEqual(self.client.get(url).json()['data']['documents'], [])
+            self.commit('review portable docs')
+            self.assertTrue(self.client.get(url).json()['data']['documents'])
+
+    def test_conversation_rounds_use_original_operation_and_task_approval_receipts(self):
+        from tests.test_tasks import FixtureModel
+        model = FixtureModel()
+        with patch('zest.tasks.ModelSettings.from_env', return_value=model.settings), patch('zest.tasks.DeepSeekModel', return_value=model):
+            conversation = self.finish(self.submit('conversation.create', {'project_id': self.project['id']}))
+            pending = self.submit('conversation.send', {'id': conversation['id'], 'question': '项目语言？', 'message_id': str(uuid4())})
+            turn = self.finish(pending)
+            self.assertEqual(turn['status'], 'completed')
+            task = turn['task']
+            self.assertTrue(any(e['step'] == 'approved' for e in task['events']))
+            self.assertEqual(len(model.calls), 1)
+            again = self.finish(pending)
+            self.assertEqual(again['task_id'], turn['task_id'])
+            self.assertEqual(len(model.calls), 1)
+            next_turn = self.finish(self.submit('conversation.send', {'id': conversation['id'], 'question': '它怎么用？', 'message_id': str(uuid4())}))
+            self.assertEqual(next_turn['task']['context']['conversation_context']['history'][0]['user'], '项目语言？')
+            response = self.client.get('/api/conversations/' + conversation['id'])
+            self.assertEqual(len(response.json()['data']['turns']), 2)
+            self.assertEqual(len(model.calls), 2)
+
     def test_origin_host_validation_and_schema_precede_dispatch(self):
         body = {'request_id': str(uuid4()), 'action': 'project.import', 'parameters': {'path': str(self.repo)}}
         for origin in (None, 'null', 'https://evil.example', 'http://127.0.0.1:9999'):

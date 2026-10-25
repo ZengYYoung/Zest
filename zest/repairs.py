@@ -39,11 +39,14 @@ def _diff(old, new, path):
 
 
 def validate_change_paths(paths):
+    from .document_layout import legacy_document
     if not all(isinstance(path, str) for path in paths):
         raise FileReadError("invalid_repair_change", "路径必须是字符串。")
     prefixes, folded = {}, set()
     for path in paths:
         parts = _validate_path(path)
+        if legacy_document(path):
+            raise FileReadError("document_outside_zest", "项目文档统一维护在 .zest/docs/；原文档仅供读取与迁入。")
         if path.casefold() in folded:
             raise FileReadError("duplicate_repair_path", "方案存在重复或大小写冲突的文件。")
         folded.add(path.casefold())

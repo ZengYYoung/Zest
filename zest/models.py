@@ -100,9 +100,15 @@ class ModelSettings:
     base_url: str
     api_key: str = field(repr=False)
     timeout: float = 60
+    revision: str | None = None
 
     @classmethod
     def from_env(cls, env_file: Path | None = None):
+        from .model_settings import ModelSettingsStore, settings_directory, DEFAULT_MODEL, DEFAULT_BASE_URL
+        if env_file is None:
+            saved = ModelSettingsStore(settings_directory()).read()
+            if saved is not None:
+                return cls("deepseek", DEFAULT_MODEL, DEFAULT_BASE_URL, saved["api_key"], revision=saved["revision"])
         try:
             from dotenv import dotenv_values
         except ImportError as exc:
@@ -116,7 +122,7 @@ class ModelSettings:
         name, key = get("ZEST_MODEL_NAME"), get("ZEST_MODEL_API_KEY")
         url = get("ZEST_MODEL_BASE_URL", "https://api.deepseek.com")
         if provider != "deepseek" or not name or not key:
-            raise FileReadError("model_not_configured", "请在本地 .env 配置 DeepSeek provider、模型名和密钥。")
+            raise FileReadError("model_not_configured", "请在设置中填写 DeepSeek API Key。")
         try:
             parsed = urlsplit(url)
         except ValueError as exc:
@@ -154,6 +160,10 @@ planned_new_file 来源只说明批准的新路径，不是已有代码；可以
 
 PROMPTS = {"qa": SYSTEM_PROMPT, "repair_proposal": REPAIR_PROMPT}
 PROMPTS.update(COGNITION_PROMPTS)
+from .document_contracts import DOCUMENT_PROMPTS
+PROMPTS.update(DOCUMENT_PROMPTS)
+from .incremental_contracts import INCREMENTAL_PROMPTS
+PROMPTS.update(INCREMENTAL_PROMPTS)
 from .evaluation_skill import skill_text
 PROMPTS["cognition_evaluation"] = skill_text()
 from .cognition_resolution_contracts import RESOLUTION_PROMPT
@@ -186,7 +196,7 @@ class DeepSeekModel:
         options = dict(model=self.settings.name, api_key=self.settings.api_key,
                        base_url=structured_base_url(self.settings.base_url), timeout=self.settings.timeout,
                        max_retries=0, max_tokens=8192 if purpose in ("cognition_evaluation", "cognition_resolution") else POLICY["max_report_tokens"] if purpose == "project_report" else
-                       POLICY["max_response_tokens"] if purpose in COGNITION_PROMPTS else
+                       POLICY["max_response_tokens"] if purpose in COGNITION_PROMPTS or purpose in DOCUMENT_PROMPTS or purpose in INCREMENTAL_PROMPTS else
                        4096 if purpose == "repair_proposal" else 2048, cache=False, verbose=False,
                        use_responses_api=False, extra_body={"thinking": {"type": "disabled"}})
         if self.http_client is not None:

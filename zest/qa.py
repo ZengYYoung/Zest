@@ -167,6 +167,11 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
             return
         source = {"id": f"E{len(result['sources']) + 1}", "evidence": record["evidence"],
                   "lines": record["lines"], "content_sha256": record["content_sha256"]}
+        from .document_layout import shared_document, legacy_document
+        if shared_document(path):
+            source["document_role"] = "shared_project_document_not_independent_runtime_proof"
+        elif legacy_document(path):
+            source["document_role"] = "legacy_reference_not_maintained_by_zest_check_shared_documents_and_code"
         added = len(json.dumps(source, ensure_ascii=False))
         if size + added > budget:
             result["warnings"].append({"code": "context_budget", "path": path})
@@ -189,6 +194,9 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
         if ranked["metadata"]["skipped_counts"]:
             result["warnings"].append({"code": "index_skipped_sources"})
     for path, start, end in _merge_ranges(ranges):
+        add(path, start, end)
+    from .documents import document_ranges
+    for path, start, end in document_ranges(project, question, commit):
         add(path, start, end)
     for path in ["README.md", "pyproject.toml", "package.json"]:
         add(path)
@@ -257,4 +265,6 @@ def model_payload(context: dict) -> dict:
         payload["execution_policy"] = context["execution_policy"]
     if "purpose" in context:
         payload["purpose"] = context["purpose"]
+    if "conversation_context" in context:
+        payload["conversation_context"] = context["conversation_context"]
     return payload

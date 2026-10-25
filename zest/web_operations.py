@@ -4,6 +4,7 @@ A receipt committed before dispatch prevents HTTP retries from repeating side ef
 Interrupted running receipts are unknown, never automatically replayed.
 """
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -25,6 +26,15 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+_progress_reporter = ContextVar('web_operation_progress', default=None)
+
+
+def report_progress(stage, message, **counts):
+    reporter = _progress_reporter.get()
+    if reporter:
+        reporter(stage, message, counts)
+
+
 class WebOperations:
     def __init__(self, state_dir):
         self.state_dir = Path(state_dir).resolve()
@@ -41,6 +51,7 @@ class WebOperations:
                 id TEXT PRIMARY KEY, digest TEXT NOT NULL, action TEXT NOT NULL,
                 parameters TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL, result TEXT, error TEXT)""")
+            conn.execute("CREATE TABLE IF NOT EXISTS operation_progress (id TEXT PRIMARY KEY, value TEXT NOT NULL)")
             conn.commit()
             yield conn
 
@@ -63,6 +74,9 @@ class WebOperations:
 
     def view(self, row):
         result = dict(row)
+        with self.open() as conn:
+            progress = conn.execute("SELECT value FROM operation_progress WHERE id=?", (result['id'],)).fetchone()
+        result['progress'] = json.loads(progress[0]) if progress else None
         for key in ("parameters", "result", "error"):
             result[key] = json.loads(result[key]) if result[key] else None
         if result["status"] == "running":
@@ -130,6 +144,11 @@ class WebOperations:
                 if row is None or row["status"] != "queued":
                     return
                 conn.execute("UPDATE operations SET status='running',updated_at=? WHERE id=?", (now(), operation_id))
+            def progress(stage, message, counts):
+                with self.open() as conn, conn:
+                    conn.execute("INSERT OR REPLACE INTO operation_progress VALUES (?,?)", (operation_id,
+                                 json.dumps({'stage': stage, 'message': message, 'counts': counts, 'updated_at': now()}, ensure_ascii=False)))
+            token = _progress_reporter.set(progress)
             try:
                 result = execute(self.state_dir, row["action"], json.loads(row["parameters"]))
             except (FileReadError, RepositoryError, StorageError) as exc:
@@ -139,6 +158,8 @@ class WebOperations:
                 self.finish(operation_id, "unknown", error={"code": "web_execution_unknown", "message": "执行异常，结果待核对；未自动重试，请查看对应业务记录。"})
             else:
                 self.finish(operation_id, "completed", result=result)
+            finally:
+                _progress_reporter.reset(token)
 
     def finish(self, operation_id, status, *, result=None, error=None):
         with self.open() as conn, conn:

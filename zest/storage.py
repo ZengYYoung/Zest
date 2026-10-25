@@ -55,7 +55,7 @@ class ProjectRegistry:
                 columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}
                 if "mode" not in columns:
                     conn.execute("ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'import'")
-                for column in ("resource_dir", "legacy_state_dir"):
+                for column in ("resource_dir", "legacy_state_dir", "removed_at"):
                     if column not in columns:
                         conn.execute(f"ALTER TABLE projects ADD COLUMN {column} TEXT")
                 if version == 0:
@@ -83,6 +83,8 @@ class ProjectRegistry:
         }
         if "resource_dir" in row.keys() and row["resource_dir"]:
             result.update(resource_dir=row["resource_dir"], legacy_state_dir=row["legacy_state_dir"])
+        if "removed_at" in row.keys() and row["removed_at"]:
+            result["removed_at"] = row["removed_at"]
         return result
 
     def register(self, state: GitState, *, mode: str = "import", workspace: bool = False) -> dict:
@@ -108,7 +110,8 @@ class ProjectRegistry:
                     VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(root_path) DO UPDATE SET
                         updated_at = excluded.updated_at,
-                        git_state = excluded.git_state
+                        git_state = excluded.git_state,
+                        removed_at = NULL
                 """, (registration_id, state.root_path, now, now,
                       json.dumps(asdict(state), ensure_ascii=True), mode))
                 row = conn.execute("SELECT * FROM projects WHERE root_path = ?", (state.root_path,)).fetchone()
@@ -126,7 +129,7 @@ class ProjectRegistry:
                 or previous.get("resource_dir") != str(destination)
                 or previous.get("legacy_state_dir") != identity["legacy_state_dir"]):
             raise FileReadError("resource_identity_mismatch", "已有 .zest 登记不完整或身份冲突，未重新初始化；请核对原管理状态。")
-        registrations = self.list_projects_readonly()
+        registrations = self.list_projects_readonly(include_removed=True)
         for registered in registrations:
             if registered["id"] == previous["id"] or registered["root_path"] == str(root):
                 if (registered["id"] != previous["id"] or registered["root_path"] != str(root)
@@ -134,7 +137,10 @@ class ProjectRegistry:
                         not in ((None, None), (str(destination), identity["legacy_state_dir"]))):
                     raise StorageError("登记入口与已有项目身份冲突，未覆盖任何管理状态。")
                 if registered.get("resource_dir"):
-                    return previous
+                    if registered.get("removed_at"):
+                        with closing(self._connect()) as conn, conn:
+                            conn.execute("UPDATE projects SET removed_at=NULL WHERE id=?", (previous["id"],))
+                    return {k: v for k, v in previous.items() if k != "removed_at"}
                 break
         # A newly selected catalog gets a pointer/mirror of the original identity;
         # the authoritative project-local registration is never opened writable.
@@ -142,7 +148,7 @@ class ProjectRegistry:
             with closing(self._connect()) as conn, conn:
                 saved = conn.execute("""INSERT INTO projects(id,root_path,created_at,updated_at,git_state,mode,resource_dir,legacy_state_dir)
                     VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(root_path) DO UPDATE SET
-                    resource_dir=excluded.resource_dir,legacy_state_dir=excluded.legacy_state_dir
+                    resource_dir=excluded.resource_dir,legacy_state_dir=excluded.legacy_state_dir,removed_at=NULL
                     WHERE projects.id=excluded.id
                     AND (projects.resource_dir IS NULL OR projects.resource_dir=excluded.resource_dir)
                     AND (projects.legacy_state_dir IS NULL OR projects.legacy_state_dir=excluded.legacy_state_dir)""",
@@ -152,7 +158,7 @@ class ProjectRegistry:
                     raise StorageError("登记入口在连接期间发生身份冲突，未覆盖记录。")
         except sqlite3.Error as exc:
             raise StorageError("连接已有项目登记失败，原项目资源未修改。") from exc
-        return previous
+        return {k: v for k, v in previous.items() if k != "removed_at"}
 
     def attach_workspace(self, project):
         from .resources import ensure_workspace, preflight_workspace
@@ -181,7 +187,20 @@ class ProjectRegistry:
                          (str(destination), str(legacy), json.dumps(project["git"]), project["id"]))
         return project
 
-    def list_projects_readonly(self) -> list[dict]:
+    def remove_project(self, project_id: str) -> dict:
+        """Hide only this catalog entry; keep identity, resources and running work."""
+        from .files import FileReadError
+        if self.get_project_readonly(project_id) is None:
+            raise FileReadError("project_not_found", "未找到该项目。")
+        try:
+            with closing(self._connect()) as conn, conn:
+                conn.execute("UPDATE projects SET removed_at=? WHERE id=? AND removed_at IS NULL",
+                             (datetime.now(timezone.utc).isoformat(), project_id))
+        except sqlite3.Error as exc:
+            raise StorageError("移除项目失败，原项目文件和记录均已保留。") from exc
+        return {"project_id": project_id, "removed": True, "files_deleted": False, "records_preserved": True}
+
+    def list_projects_readonly(self, *, include_removed: bool = False) -> list[dict]:
         if not self.db_path.exists():
             return []
         if self.db_path.is_symlink():
@@ -191,8 +210,10 @@ class ProjectRegistry:
                 conn.row_factory = sqlite3.Row
                 if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
                     raise StorageError("本地项目状态版本不兼容。")
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}
+                visible = " WHERE removed_at IS NULL" if "removed_at" in columns and not include_removed else ""
                 return [self._record({"mode": "import", **dict(row)}) for row in
-                        conn.execute("SELECT * FROM projects ORDER BY created_at,id")]
+                        conn.execute("SELECT * FROM projects" + visible + " ORDER BY created_at,id")]
         except sqlite3.Error as exc:
             raise StorageError("只读项目状态失败。") from exc
 
@@ -201,7 +222,7 @@ class ProjectRegistry:
             return []
         try:
             with closing(self._connect()) as conn:
-                return [self._record(row) for row in conn.execute("SELECT * FROM projects ORDER BY created_at, id")]
+                return [self._record(row) for row in conn.execute("SELECT * FROM projects WHERE removed_at IS NULL ORDER BY created_at, id")]
         except sqlite3.Error as exc:
             raise StorageError("读取项目状态失败。") from exc
 

@@ -3,6 +3,79 @@
 from .cognition_contracts import POLICY, canonical
 
 
+def refresh_model_view(context, source_ids=None):
+    """Bound historical hints, preserving the full frozen context for validation.
+
+    Legacy requests keep their original body. No original-text proof is shortened
+    or promoted to knowledge; omitted hints have explicit coverage counts.
+    """
+    if context.get('model_view_version') != 1:
+        return context
+    focus = context.get('focus', [])
+    if source_ids is not None:
+        focus = [item for item in focus if item.get('source_id') in source_ids]
+    paths = {item['path'] for item in focus}
+    slim_changes = lambda items: [{'path': item['path'], 'change': item['change']} for item in items]
+    leads = sorted(context.get('historical_leads', []), key=lambda item: (
+        not any(proof.get('path') in paths for proof in item.get('evidence', [])),
+        item.get('original_status') != 'auto_reviewed', item.get('classification') != 'directly_affected'))
+    selected = []
+    for item in leads:
+        if source_ids is not None and not any(proof.get('path') in paths for proof in item.get('evidence', [])):
+            continue
+        hint = {key: item[key] for key in ('run_id', 'finding_id', 'finding_sha256', 'original_status', 'section', 'kind', 'statement', 'classification')}
+        hint['source_paths'] = list(dict.fromkeys(proof.get('path') for proof in item.get('evidence', []) if proof.get('path')))
+        if len(canonical([*selected, hint])) <= (4000 if source_ids is not None else 6000):
+            selected.append(hint)
+    changes = context.get('changes', [])
+    if source_ids is not None:
+        changes = [item for item in changes if item['path'] in paths]
+    return {key: context[key] for key in ('schema_version', 'model_view_version', 'project_id', 'target_commit', 'baseline', 'semantics', 'requires_discussion')} | {
+        'focus': focus, 'changes': slim_changes(changes),
+        'uncovered_changes': slim_changes([item for item in context.get('uncovered_changes', []) if item['path'] in paths]),
+        'historical_leads': selected, 'warnings': context.get('warnings', []),
+        'coverage': {'historical_leads_included': len(selected), 'historical_leads_total': len(leads),
+                     'change_files_included': len(changes), 'change_files_total': len(context.get('changes', [])),
+                     'full_context_retained_in_approved_envelope': True,
+                     'omitted_hints_are_not_resolved_or_verified': True}}
+
+
+def describe_context_request(authorization, envelope, spec=None):
+    """Readable metadata derived from the exact saved request, never model claims."""
+    import json
+    request = authorization['request']
+    purpose = request.get('purpose', '')
+    titles = {'project_plan': '规划项目调查', 'project_followup_plan': '规划补充调查',
+              'project_research': '阅读与分析项目资料', 'project_report': '整理模块调查结论',
+              'project_review': '核对结论与源码证据'}
+    sources = {item['id']: item['evidence']['path'] for item in envelope['files']}
+    paths = [sources[identity] for identity in (spec or {}).get('source_ids', []) if identity in sources]
+    topics = []
+    try:
+        body = json.loads(request['body_text'])
+        for message in body.get('messages', []):
+            if message.get('role') != 'user' or not isinstance(message.get('content'), str):
+                continue
+            payload = json.loads(message['content'])
+            for item in payload.get('findings', []):
+                if isinstance(item, dict) and isinstance(item.get('statement'), str):
+                    topics.append(item['statement'])
+            for proof in payload.get('evidence', {}).values():
+                path = proof.get('evidence', {}).get('path') if isinstance(proof, dict) else None
+                if isinstance(path, str):
+                    paths.append(path)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    paths = list(dict.fromkeys(paths))
+    return {'title': (spec or {}).get('title') or titles.get(purpose, '继续项目调查'),
+            'purpose': titles.get(purpose, '继续项目调查'),
+            'goal': (spec or {}).get('goal') or ('对照已读取的源码，检查这些结论是否可靠。' if purpose == 'project_review' else '整理本项目的目标、模块关系和待确认事项。'),
+            'reason': '完整请求包含已有资料与调查记录，超过单次默认长度；本次只增加请求长度。',
+            'source_paths': paths[:30], 'source_count': len(paths), 'topics': topics[:4],
+            'model': request.get('target', {}).get('model', envelope['target'].get('model')),
+            'additional_calls': 1, 'new_files_authorized': False}
+
+
 def material_catalog(envelope):
     """Show as many approved entries as the metadata budget fits, not 60 IDs."""
     budget = envelope.get("policy", {}).get("catalog_chars", POLICY["catalog_chars"])
@@ -22,6 +95,10 @@ def scope_review(envelope):
     count = len(envelope["files"])
     shown = len(material_catalog(envelope))
     complete = envelope.get("survey_coverage", {}).get("inventory_scan_finished")
+    if envelope.get('source_scope'):
+        return {'requires_discussion': False, 'source_count': count, 'catalog_count': shown,
+                'survey_complete': complete, 'reasons': [],
+                'message': '按项目固定版本自主检索与补读；目录分页和请求分批自动处理。'}
     reasons = []
     if count >= envelope["policy"]["large_scope_files"]:
         reasons.append("large_material_package")

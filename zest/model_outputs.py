@@ -416,7 +416,78 @@ class CognitionResolutionResponse(OutputModel):
     conflicts: list[ResolutionConflict] = Field(description="完整判断提供的冲突关系，无冲突时为空。")
 
 
+class DocumentPagePlan(OutputModel):
+    """One reader-oriented engineering page backed by reviewed findings."""
+
+    slug: str = Field(description="唯一英文短文件名，不含扩展名、路径或 index；小写字母、数字及连字符。")
+    title: str = Field(description="简短中文页面标题。")
+    description: str = Field(description="一句话说明页面的内容与阅读价值。")
+    goal: str = Field(description="这页为读者回答的具体问题。")
+    finding_ids: list[str] = Field(description="至少一个给定的已核对事实 ID，不得重复或虚构。")
+    related_pages: list[str] = Field(description="本计划中相关页面的 slug，不含本页或重复项。")
+
+
+class DocumentPlanResponse(OutputModel):
+    """Page organization; investigation sections are coverage checks only."""
+
+    pages: list[DocumentPagePlan] = Field(description="按撰写顺序排列的 1–6 页计划；快速上手页最后撰写。")
+    coverage_gaps: list[str] = Field(description="事实不能覆盖的工程主题，不与执行错误混合；无缺口时为空。")
+
+
+class IncrementalClaimChange(OutputModel):
+    """Explicit semantic relationship, never a retraction by omission."""
+
+    claim_id: str = Field(description="本次 problems 中的稳定旧事实 ID。")
+    decision: Literal['confirmed', 'replaced', 'retracted', 'unresolved'] = Field(description="明确确认、修正、撤回或仍无定论。")
+    finding_ids: list[str] = Field(description="支撑决定的本轮已核对事实 ID；unresolved 时为空。")
+    evidence_statement: str = Field(description="原样复制一条引用的新事实 statement；unresolved 时为空字符串。")
+    reason: str = Field(description="解释新旧断言主体、属性及条件的关系；不能以未提及或文件删除代替否定证据。")
+
+
+class DocumentUpdateResponse(OutputModel):
+    """Sparse fact decisions and the minimum page update plan."""
+
+    claim_changes: list[IncrementalClaimChange] = Field(description="对每个待复核旧事实恰好一个决定。")
+    pages: list[DocumentPagePlan] = Field(description="只安排受影响旧页及必要新页，使用稳定事实 ID。")
+    blocked_pages: list[str] = Field(description="因旧事实尚无定论不能完整更新的旧页 slug；保留旧正文。")
+    retired_pages: list[str] = Field(description="仅当页内旧事实全部明确撤回且没有新内容时列入；保留历史正文。")
+    coverage_gaps: list[str] = Field(description="当前尚未覆盖的新模块或知识问题，不包含模型或写盘错误。")
+
+
+class DocumentBlock(OutputModel):
+    """Continuous prose or a table/example and its supporting findings."""
+
+    markdown: str = Field(description="连贯中文正文，可含多个段落、二三级标题、表格及有依据的代码示例。")
+    finding_ids: list[str] = Field(description="支撑本块全部项目断言的给定事实 ID，至少一项且不重复。")
+
+
+class DocumentWriteResponse(OutputModel):
+    """Page content kept separate from program-owned metadata and navigation."""
+
+    blocks: list[DocumentBlock] = Field(description="按阅读顺序排列的 1–12 块正文，不能遗漏页面计划中的事实。")
+    limits: list[str] = Field(description="本页使用所需但缺少资料的知识限制，不含运行错误和历史执行待办。")
+
+
+class DocumentBlockCheck(OutputModel):
+    """Semantic check of every substantive assertion in one prose block."""
+
+    block_id: str = Field(description="给定的正文块身份 B1、B2 等；每块恰好检查一次。")
+    verdict: Literal['supported', 'insufficient_evidence'] = Field(description="全文论述受该块事实和原文支持才为 supported。")
+    reason: str = Field(description="具体说明全文断言是否受事实及原始证据支持。")
+
+
+class DocumentReviewResponse(OutputModel):
+    """Whole-page review including coherence and evidence boundaries."""
+
+    checks: list[DocumentBlockCheck] = Field(description="所有正文块的完整语义核对结果，不得遗漏或重复。")
+    issues: list[str] = Field(description="连贯性、重复、范围扩大、限制表述等问题；通过时为空。")
+
+
 OUTPUT_MODELS = {
+    'document_update': DocumentUpdateResponse,
+    'document_plan': DocumentPlanResponse,
+    'document_write': DocumentWriteResponse,
+    'document_review': DocumentReviewResponse,
     "qa": QAResponse,
     "repair_proposal": RepairProposalResponse,
     "project_plan": ProjectPlanResponse,
