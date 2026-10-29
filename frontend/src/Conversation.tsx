@@ -63,6 +63,7 @@ export function Turn({ turn, busy, onCommand, answering = false }: { connection:
           <div className="inline-actions"><button className="solid-button" disabled={busy || !turn.conversation_id || !turn.id} onClick={() => onCommand('conversation.answer', { id: turn.conversation_id, message_id: turn.id })}>继续回答</button>
             <button className="quiet-button" disabled={busy} onClick={() => onCommand('task.decide', { id: task.task_id, approved: false })}>取消本轮</button></div>
       </div> : <p className="muted">{task.status === 'rejected' ? '本轮已取消，你可以继续补充或换个问题。' : statusLabels[String(turn.status)] || String(turn.status)}</p>}
+      {Boolean(context.retrieval_path) && <p className="muted" role="status">检索路径：{context.retrieval_path === 'hybrid_rerank' ? '词法 + 语义 + 精排' : context.retrieval_path === 'hybrid_rrf' ? '词法 + 语义融合（精排不可用）' : context.retrieval_path === 'hybrid' ? '词法 + 语义融合（无候选）' : '词法检索（语义检索不可用）'}</p>}
       {Array.isArray(result.unknowns) && result.unknowns.length > 0 && <details className="message-evidence"><summary>待补充的信息</summary><ul>{result.unknowns.map((item, i) => <li key={i}>{String(item)}</li>)}</ul></details>}
       {Boolean(turn.error || task.error) && <p className="error" role="alert">{String(object(turn.error || task.error).message || '本轮处理失败。')}</p>}
       {Boolean(object(context.conversation_context).truncated) && <p className="muted">本轮使用最近的部分前文，更早消息仍保存在对话记录中。</p>}

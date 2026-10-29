@@ -6,7 +6,7 @@ A local project assistant that learns a Git repository, answers questions with s
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Releases](https://github.com/ZengYYoung/Zest/releases) · [Report an issue](https://github.com/ZengYYoung/Zest/issues)
 
-**First release: `v0.1.0-alpha.1` — local, single-user Alpha.** DeepSeek is the only supported model provider. This is a source release; desktop installers, a hosted service, and production multi-user support are not included.
+**`v1.0.1-beta.1` — testing release for local, single-user use.** Optional hybrid retrieval adds Alibaba Cloud Model Studio embedding and reranking with Qdrant; DeepSeek remains the answer model. This source release is not production-ready.
 
 ## Why Zest?
 
@@ -24,7 +24,7 @@ The Web workspace is the primary interface. Conversations stay central; settings
 | --- | --- |
 | Project workspace | Add local Git projects, browse conversations by project, and remove a project from the list without deleting its files. |
 | Automatic initialization | Create `.zest/`, organize existing documentation, index committed source, investigate the project, and generate topic-based engineering pages. |
-| Project Q&A | Ask in natural language using project knowledge, source excerpts, and previous turns; inspect the answer's sources. |
+| Project Q&A | Ask in natural language using project knowledge, source excerpts, and previous turns; inspect the answer's sources. Optional hybrid retrieval combines lexical and semantic results with reranking. |
 | Engineering documentation | Plan, write, review, and save individual pages; preserve human edits and offer generated candidates when they conflict. |
 | Incremental maintenance | Check local Git on project open/switch, task completion, or manual request; investigate changes and update affected knowledge and pages. |
 | Visible execution | Show activity, stages, elapsed time, page counts, and explicit completion or failure; retain receipts for recovery. |
@@ -59,7 +59,7 @@ macOS is the primary trial platform. The native folder picker requires macOS; ot
 ### 1. Get the release and install dependencies
 
 ```bash
-git clone --branch v0.1.0-alpha.1 https://github.com/ZengYYoung/Zest.git
+git clone --branch v1.0.1-beta.1 https://github.com/ZengYYoung/Zest.git
 cd Zest
 
 uv sync --locked --extra ai --extra web
@@ -88,6 +88,22 @@ Research and explicitly started document rounds are bounded to **32 physical mod
 
 The interface currently uses Chinese labels; this release provides documentation in both English and Chinese.
 
+### 4. Optional: enable hybrid retrieval (testing)
+
+Hybrid retrieval is off by default. Install its dependency with `uv sync --locked --extra ai --extra web --extra hybrid`; include the same `--extra hybrid` on `uv run` commands when using it. Set `DASHSCOPE_API_KEY` and `DASHSCOPE_BASE_URL` in the environment of both the CLI and Web service, or configure the explicit retrieval settings in [`.env.example`](.env.example). The Model Studio key and endpoint must match the same region. `DASHSCOPE_BASE_URL` must end in `/compatible-mode/v1` for automatic native endpoint derivation.
+
+To use local Docker Qdrant, run a Qdrant server bound to `127.0.0.1:6333` with persistent storage and set `ZEST_QDRANT_URL=http://127.0.0.1:6333` in `.env`. Leave it empty for embedded local Qdrant. Then, from the same working directory used to start Zest:
+
+```bash
+uv run --locked --extra ai --extra web --extra hybrid zest project list
+uv run --locked --extra ai --extra web --extra hybrid zest index build PROJECT_ID
+uv run --locked --extra ai --extra web --extra hybrid zest index build-semantic PROJECT_ID --allow-retrieval
+```
+
+Set `ZEST_HYBRID_ENABLED=true` in `.env`, then restart the Web service with `uv run --locked --extra ai --extra web --extra hybrid zest web serve --port 8000`. Normal automatic chat shows the retrieval path. Building the semantic index sends committed project chunks to Alibaba Cloud; a question sends its text to the embedding service and candidate excerpts to rerank, potentially incurring charges. Review authorization for your project before enabling it.
+
+Semantic indexes must currently be rebuilt manually for each selected Git version or changed embedding model/endpoint; there is no incremental build or Web build button. Uncommitted changes are excluded. Missing vector indexes or service failures are reported and fall back to lexical retrieval; a missing current lexical index is not replaced with an older version. Investigation and document generation do not use this new path. Hybrid retrieval is experimental and has not yet been evaluated against real services for answer quality, latency, or cost. See [hybrid retrieval details](docs/混合检索.md).
+
 ## How `.zest/` works
 
 Zest adds a resource directory to each connected project:
@@ -114,6 +130,7 @@ your-project/
 
 - **SQLite is file-based.** No separate database server is required. Application records are split across databases rather than stored in one universal file.
 - **Documents and state have different lifecycles.** Zest maintains project documents under `.zest/docs/`; existing README/docs can be read and imported while their originals remain. Generated documents are not automatically committed or pushed.
+- **Source version.** New project investigations and questions use the local working tree's current commit (HEAD) by default; an explicitly selected managed version takes precedence. Each task pins its chosen commit, uncommitted changes are excluded from source evidence, and remote updates must first be synchronized locally.
 - **Sharing is explicit.** Review and commit the intended documentation and ignore rules, then push and synchronize through Git. Teammates get committed documents, not your personal conversations or SQLite files. Existing custom ignore rules can still prevent documents from being tracked.
 - **Not everything is project-local yet.** The service's project catalog, Web-operation receipts, and model settings live in its selected state directory—by default `<directory-you-start-Zest-in>/.zest/`. Historical records may remain in their original storage locations, referenced by `workspace.json`.
 - **Human edits are preserved.** Conflicts produce candidates instead of silently replacing edited files. Completed pages can have a new candidate index while the original index remains unchanged.
@@ -131,14 +148,16 @@ This changes the catalog/configuration location; it does not automatically migra
 
 | Setting | This release |
 | --- | --- |
-| Supported provider | DeepSeek only |
+| Answer model provider | DeepSeek |
+| Optional retrieval models | Alibaba Cloud Model Studio `text-embedding-v4` and `qwen3-rerank` |
+| Vector index | Qdrant local mode or a local Qdrant server |
 | Web model preset | `deepseek-flash` |
 | Official base URL | `https://api.deepseek.com` |
 | Structured-output endpoint | `https://api.deepseek.com/beta/chat/completions` |
 | Recommended configuration | Enter the API key in Web settings |
 | Optional CLI configuration | Environment variables shown in [`.env.example`](.env.example); saved Web settings take precedence |
 
-Other providers, local models, and arbitrary OpenAI-compatible endpoints are **not supported by this release**. The preset is an application configuration, not a promise of account/model availability.
+Answer generation supports DeepSeek; other answer providers, local answer models, and arbitrary OpenAI-compatible answer endpoints are not supported. The preset is an application configuration, not a promise of account/model availability.
 
 Project source excerpts, documentation, and relevant conversation context leave your machine when model operations execute. API keys stay on the service side; Web settings store the key **unencrypted** in `model-settings.json` in the service state directory, with owner-only file permissions. They are not returned to the browser or put into shared project documents. Local operation and investigation records can contain project excerpts; treat those private state directories accordingly.
 
@@ -182,7 +201,7 @@ The development frontend runs at `http://127.0.0.1:5173`. Tests use temporary re
 
 Bug reports and focused pull requests are welcome. Include reproduction steps, platform/tool versions, and redacted logs; keep API keys, private source, local databases, and model request receipts out of issues and commits.
 
-- [Release notes](.zest/docs/releases/v0.1.0-alpha.1.md)
+- [Release notes](.zest/docs/releases/v1.0.1-beta.1.md)
 - [Current engineering documentation](.zest/docs/index.md)
 - [Project initialization](.zest/docs/initialization.md) · [Incremental maintenance](.zest/docs/maintenance.md)
 - [Engineering page generation](.zest/docs/engineering-documents.md)

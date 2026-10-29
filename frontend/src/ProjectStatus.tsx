@@ -16,6 +16,14 @@ function documentTitle(path: string) {
   return titles[relative] || relative.replace(/^imported\//, '原有资料 / ')
 }
 
+export function VersionSelection({ version }: { version: Row | null }) {
+  if (!version) return <p className="muted">项目理解版本暂时无法读取。</p>
+  if (!version.selected_commit) return <p className="muted">仓库尚无提交，提交后默认使用当前本地版本。</p>
+  const managed = Boolean(version.managed_commit)
+  return <p className="muted">项目理解使用{managed ? '已选择的管理版本' : '当前工作区提交（HEAD）'} {shortCommit(version.selected_commit)}。
+    {managed && ' 主动选择的版本保持有效；本地 HEAD 单独显示。'}{' '}未提交的修改不包含在项目理解中；远程更新需要先同步到本机。</p>
+}
+
 export function ProjectStatus({ connection, project, refresh, busy, onCommand, onCheck, checking, maintenance, checkError, commandError }: {
   connection: Connection; project: Project; refresh: number; busy: boolean; onCommand(action: string, p: Row): void
   onCheck?(): void; checking?: boolean
@@ -25,13 +33,16 @@ export function ProjectStatus({ connection, project, refresh, busy, onCommand, o
   const [path, setPath] = useState(''), [file, setFile] = useState<Row | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(true)
   const [readingMore, setReadingMore] = useState(false)
   const [initialization, setInitialization] = useState<Row | null>(null), [knowledgeOpen, setKnowledgeOpen] = useState(false)
+  const [version, setVersion] = useState<Row | null>(null)
   const activePath = useRef(path); activePath.current = path
   useEffect(() => {
-    const abort = new AbortController(); setLoading(true); setError('')
+    const abort = new AbortController(); setLoading(true); setError(''); setVersion(null)
     Promise.all([readApi<Row>(connection, `/api/projects/${project.id}/overview`, abort.signal), readApi<Row>(connection, `/api/projects/${project.id}/documents/workspace`, abort.signal),
-      readApi<Row>(connection, `/api/projects/${project.id}/initialization`, abort.signal).catch(() => null)])
-      .then(([state, catalog, initial]) => {
+      readApi<Row>(connection, `/api/projects/${project.id}/initialization`, abort.signal).catch(() => null),
+      readApi<Row>(connection, `/api/projects/${project.id}`, abort.signal).catch(() => null)])
+      .then(([state, catalog, initial, details]) => {
         setInitialization(initial)
+        setVersion((details?.version as Row | undefined) || null)
         setOverview(state); const docs = rows(catalog.documents); setDocuments(docs)
         setPath(previous => docs.some(d => d.path === previous) ? previous : String(docs.find(d => d.path === '.zest/docs/initialization/index.md')?.path || docs.find(d => d.path === '.zest/docs/index.md')?.path || docs[0]?.path || ''))
         if (rows(catalog.warnings).length) setError('文档目录达到当前显示容量，部分文档未列出。')
@@ -70,6 +81,7 @@ export function ProjectStatus({ connection, project, refresh, busy, onCommand, o
   }
   return <div className="project-status-view">
     <div className="project-status-summary"><strong>{loading ? '正在读取分支…' : String(git?.branch || '分支待核对')}</strong><span>{git ? shortCommit(git.head_commit) : '版本待核对'}</span><span>{loading ? '正在检查…' : !git ? '状态待核对' : git.dirty ? '有本地改动' : '工作区干净'}</span></div>
+    {!loading && <VersionSelection version={version} />}
     {onCheck && <button className="update-check-button" aria-busy={Boolean(checking)} disabled={busy || checking} onClick={onCheck}><Icon name="refresh" size={16} />{checking ? '正在检查更新…' : '检查更新'}</button>}
     {onCheck && <MaintenanceFeedback value={maintenance} checking={checking} error={checkError} />}
     <MaintenanceActions connection={connection} value={maintenance || null} busy={busy || Boolean(checking)} onCommand={onCommand} />

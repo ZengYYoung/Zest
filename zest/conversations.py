@@ -183,6 +183,9 @@ class ConversationStore:
                     try:
                         RetrievalIndex(self.state_dir).inventory(project, commit=commit)
                         retrieval = "lexical"
+                        from .hybrid import enabled as hybrid_enabled
+                        if automatic_answer and hybrid_enabled():
+                            retrieval = "hybrid"
                     except FileReadError as exc:
                         if exc.code not in ("index_missing", "index_stale"):
                             raise

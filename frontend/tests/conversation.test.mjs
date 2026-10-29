@@ -84,3 +84,10 @@ test('document navigation uses explicit local callbacks without executing link t
   assert.ok(!html.includes('href='))
   assert.ok(!html.includes('onclick='))
 })
+
+test('conversation reports the retrieval fallback', () => {
+  const html = render(Turn, { connection: { port: 8000 }, busy: false, onCommand() {}, turn: { question: 'question', task: {
+    task_id: 'task', status: 'completed', context: { retrieval_path: 'hybrid_rrf', sources: [] }, result: { answer: 'answer' }
+  } } })
+  assert.ok(html.includes('词法 + 语义融合（精排不可用）'))
+})

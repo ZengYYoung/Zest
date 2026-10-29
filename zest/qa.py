@@ -146,6 +146,10 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
             else:
                 result["warnings"].append({"code": "cognition_context_budget"})
 
+    deferred_notes = []
+    if retrieval == "hybrid":
+        deferred_notes, result["sources"], size = result["sources"], [], 0
+
     if not commit:
         result["warnings"].append({"code": "unborn_repository"})
         return result
@@ -179,22 +183,37 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
         result["sources"].append(source)
         size += added
 
-    if retrieval not in ("keyword", "lexical"):
+    if retrieval not in ("keyword", "lexical", "hybrid"):
         raise FileReadError("invalid_retrieval", "不支持的检索方式。")
     ranges = [(path, 1, 60) for path in files]
-    if retrieval == "lexical":
+    if retrieval in ("lexical", "hybrid"):
         if state_dir is None:
             raise FileReadError("index_missing", "词法检索需要指定索引状态目录。")
         from .index import RetrievalIndex
-        ranked = RetrievalIndex(state_dir).search(project, question, commit=commit, limit=5)
-        ranges.extend(_symbol_ranges(project, question, commit, result["warnings"]))
-        for item in ranked["matches"]:
+        if retrieval == "hybrid":
+            from .hybrid import search as hybrid_search
+            symbols = _symbol_ranges(project, question, commit, result["warnings"])
+            matches, result["retrieval_path"] = hybrid_search(project, question, state_dir, commit, result["warnings"], symbols=symbols)
+        else:
+            ranked = RetrievalIndex(state_dir).search(project, question, commit=commit, limit=5)
+            matches = ranked["matches"]
+        if retrieval == "lexical":
+            ranges.extend(_symbol_ranges(project, question, commit, result["warnings"]))
+        for item in matches:
             e = item["evidence"]
             ranges.append((e["path"], e["start_line"], e["end_line"]))
-        if ranked["metadata"]["skipped_counts"]:
+        if retrieval == "lexical" and ranked["metadata"]["skipped_counts"]:
             result["warnings"].append({"code": "index_skipped_sources"})
     for path, start, end in _merge_ranges(ranges):
         add(path, start, end)
+    for source in deferred_notes:
+        source["id"] = f"E{len(result['sources']) + 1}"
+        added = len(json.dumps(source, ensure_ascii=False))
+        if len(result["sources"]) < MAX_SOURCES and size + added <= budget:
+            result["sources"].append(source)
+            size += added
+        else:
+            result["warnings"].append({"code": "knowledge_context_budget"})
     from .documents import document_ranges
     for path, start, end in document_ranges(project, question, commit):
         add(path, start, end)
@@ -255,7 +274,8 @@ def answer_context(context: dict, *, allow_model: bool, model=None) -> dict:
     return {**answer, "commit": context["commit"], "model_called": True,
             "evidence": [known[item] for item in dict.fromkeys(answer["citations"])],
             "model": response_metadata(response),
-            "warnings": context["warnings"]}
+            "warnings": context["warnings"],
+            **({"retrieval_path": context["retrieval_path"]} if "retrieval_path" in context else {})}
 
 
 def model_payload(context: dict) -> dict:

@@ -80,7 +80,8 @@ def _parser() -> argparse.ArgumentParser:
     ask.add_argument("--file", action="append", default=[], help="优先读取指定文件，最多 5 个")
     ask.add_argument("--preview", action="store_true", help="只展示选定上下文，不调用模型")
     ask.add_argument("--allow-model", action="store_true", help="允许把问题和选定证据发送到配置的模型")
-    ask.add_argument("--retrieval", choices=("keyword", "lexical"), default="keyword")
+    ask.add_argument("--retrieval", choices=("keyword", "lexical", "hybrid"), default="keyword")
+    ask.add_argument("--allow-retrieval", action="store_true", help="允许向检索服务发送问题和候选源码")
     ask.add_argument("--strategy", choices=("single", "multi"), default="single")
     survey = commands.add_parser("survey", help="固定版本的本地项目摸底，不调用模型或执行项目")
     survey_actions = survey.add_subparsers(dest="action", required=True)
@@ -204,6 +205,9 @@ def _parser() -> argparse.ArgumentParser:
     index_actions = index.add_subparsers(dest="action", required=True)
     index_build = index_actions.add_parser("build")
     index_build.add_argument("project_id")
+    index_semantic = index_actions.add_parser("build-semantic", help="向 Embedding 服务发送已提交的索引片段并建立本地向量索引")
+    index_semantic.add_argument("project_id")
+    index_semantic.add_argument("--allow-retrieval", action="store_true")
     index_search = index_actions.add_parser("search")
     index_search.add_argument("project_id")
     index_search.add_argument("query")
@@ -511,8 +515,14 @@ def _main(args) -> int:
             if project is None:
                 raise FileReadError("project_not_found", "未找到该项目。")
             index = RetrievalIndex(args.state_dir)
-            result = (index.build(project) if args.action == "build" else
-                      index.search(project, args.query, commit=args.commit, limit=args.limit))
+            if args.action == "build-semantic":
+                if not args.allow_retrieval:
+                    raise FileReadError("retrieval_permission_required", "建立向量索引会发送源码，请明确使用 --allow-retrieval。")
+                from .hybrid import build
+                result = build(project, args.state_dir)
+            else:
+                result = (index.build(project) if args.action == "build" else
+                          index.search(project, args.query, commit=args.commit, limit=args.limit))
             print(json.dumps(result, ensure_ascii=True, indent=2))
             return 0
         if args.command == "knowledge":
@@ -600,6 +610,8 @@ def _main(args) -> int:
             elif args.action == "ask":
                 from .qa import answer_context, prepare_context
                 from .models import output_contract
+                if args.retrieval == "hybrid" and (not args.allow_retrieval or args.preview):
+                    raise FileReadError("retrieval_permission_required", "混合检索会发送问题和候选源码；请使用 --allow-retrieval，预览请使用本地检索。")
                 context = prepare_context(result, args.question, keywords=args.keyword, files=args.file,
                                           state_dir=args.state_dir, retrieval=args.retrieval)
                 context["execution_policy"] = {"strategy": args.strategy, "max_model_calls": 3 if args.strategy == "multi" else 1,

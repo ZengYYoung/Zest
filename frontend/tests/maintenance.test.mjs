@@ -4,7 +4,19 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ProjectCheckEvents } from '../src/projectCheckEvents.ts'
 import { MaintenanceNotice } from '../src/Maintenance.tsx'
-import { ProjectStatus } from '../src/ProjectStatus.tsx'
+import { ProjectStatus, VersionSelection } from '../src/ProjectStatus.tsx'
+
+test('version selection distinguishes following HEAD from an explicitly managed version', () => {
+  const render = version => renderToStaticMarkup(createElement(VersionSelection, { version }))
+  const following = render({ selected_commit: 'aaaaaaaaaaaa1111', managed_commit: null })
+  assert.ok(following.includes('当前工作区提交（HEAD） aaaaaaaaaaaa'))
+  assert.ok(following.includes('未提交的修改不包含'))
+  const pinned = render({ selected_commit: 'bbbbbbbbbbbb2222', managed_commit: 'bbbbbbbbbbbb2222', workspace_head: 'aaaaaaaaaaaa1111' })
+  assert.ok(pinned.includes('已选择的管理版本 bbbbbbbbbbbb'))
+  assert.ok(pinned.includes('主动选择的版本保持有效'))
+  assert.ok(render({ selected_commit: null }).includes('仓库尚无提交'))
+  assert.ok(render(null).includes('暂时无法读取'))
+})
 import { MaintenanceFeedback } from '../src/MaintenanceFeedback.tsx'
 
 test('opening and switching check once; ordinary renders and reselecting do not', async () => {

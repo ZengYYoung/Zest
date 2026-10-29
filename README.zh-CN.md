@@ -6,7 +6,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [发行版本](https://github.com/ZengYYoung/Zest/releases) · [反馈问题](https://github.com/ZengYYoung/Zest/issues)
 
-**首个发行版：`v0.1.0-alpha.1`，面向本机单人试用的 Alpha。** 当前仅支持 DeepSeek。本次为源码发行，不包含桌面安装包、托管服务或生产级多人协作。
+**`v1.0.1-beta.1`：面向本机单人使用的测试版。** 新增可选混合检索，支持阿里云百炼向量化与精排以及 Qdrant；最终回答仍使用 DeepSeek。本版为源码发行，尚未达到生产就绪状态。
 
 ## 为什么使用 Zest？
 
@@ -24,7 +24,7 @@ Web 是主要使用入口。主界面围绕连续对话展开，设置、项目�
 | --- | --- |
 | 项目工作区 | 接入本机 Git 项目，按项目浏览对话；从列表移除项目时保留磁盘文件。 |
 | 自动初始化 | 建立 `.zest/`、整理已有资料、索引已提交源码、调查项目，并生成按主题组织的工程文档。 |
-| 项目问答 | 结合项目知识、源码片段和前文用自然语言回答，支持查看来源。 |
+| 项目问答 | 结合项目知识、源码片段和前文用自然语言回答，支持查看来源；可选混合检索融合词法、语义与精排。 |
 | 工程文档生成 | 按页规划、撰写、复核和保存；保留人工修改，冲突时提供候选版本。 |
 | 增量维护 | 打开/切换项目、任务完成或手动操作时检查本地 Git，调查变化并更新相关知识与页面。 |
 | 可见的执行过程 | 展示活动动画、阶段、等待时间、页面计数及明确的结束或失败状态，保留回执以便恢复。 |
@@ -59,7 +59,7 @@ CLI 另外提供调查、修复建议、候选修改、Docker 容器验证和版
 ### 1. 获取版本并安装依赖
 
 ```bash
-git clone --branch v0.1.0-alpha.1 https://github.com/ZengYYoung/Zest.git
+git clone --branch v1.0.1-beta.1 https://github.com/ZengYYoung/Zest.git
 cd Zest
 
 uv sync --locked --extra ai --extra web
@@ -88,6 +88,22 @@ uv run --locked --extra ai --extra web zest web serve --port 8000
 
 当前界面文案为中文，本次发行提供中英文使用说明。
 
+### 4. 可选：启用混合检索（测试中）
+
+混合检索默认关闭。先运行 `uv sync --locked --extra ai --extra web --extra hybrid` 安装依赖；使用混合检索时，后续 `uv run` 命令也要包含 `--extra hybrid`。在启动 CLI 和 Web 服务的环境中设置 `DASHSCOPE_API_KEY` 与 `DASHSCOPE_BASE_URL`，或按 [`.env.example`](.env.example) 分别配置检索接口。密钥与接口须属于同一地域；自动推导接口要求 `DASHSCOPE_BASE_URL` 以 `/compatible-mode/v1` 结尾。
+
+如果使用本地 Docker Qdrant，请启动绑定 `127.0.0.1:6333` 且配置持久化存储的服务，并在 `.env` 中设置 `ZEST_QDRANT_URL=http://127.0.0.1:6333`。留空则使用进程内本地 Qdrant。随后在启动 Zest 的同一工作目录执行：
+
+```bash
+uv run --locked --extra ai --extra web --extra hybrid zest project list
+uv run --locked --extra ai --extra web --extra hybrid zest index build 项目ID
+uv run --locked --extra ai --extra web --extra hybrid zest index build-semantic 项目ID --allow-retrieval
+```
+
+在 `.env` 设置 `ZEST_HYBRID_ENABLED=true`，然后用 `uv run --locked --extra ai --extra web --extra hybrid zest web serve --port 8000` 重启网页服务。普通自动对话会显示实际检索路径。建立语义索引会把已提交源码片段发送到百炼；提问时会发送问题给向量化服务、发送候选片段给精排服务，可能产生费用。启用前请确认项目内容可以外发。
+
+当前需要为每个选定 Git 版本手动重建语义索引，切换 Embedding 模型或接口也须重建；尚无增量建索引和网页建索引按钮。未提交修改不进入检索证据。向量索引缺失或服务故障会提示并降级为词法检索；当前版本词法索引缺失时不会冒用旧版本索引。项目调查和文档生成尚未使用这条新路径。混合检索仍在测试中，尚未完成真实服务的质量、延迟和费用评测。详见[混合检索说明](docs/混合检索.md)。
+
 ## `.zest` 机制
 
 每个接入项目都会建立自己的资源目录：
@@ -114,6 +130,7 @@ your-project/
 
 - **SQLite 是磁盘文件**，不需要独立启动数据库服务。不同用途的记录分布在多个数据库中，并非只有一个总数据库。
 - **文档与个人状态分别管理**：Zest 维护 `.zest/docs/` 下的项目文档；既有 README/docs 可以读取、迁入，原文件保留。生成文档不会自动提交或推送。
+- **源码版本**：未主动选择管理版本时，新的项目理解和问答默认使用本地工作区的当前提交（HEAD）；主动选择的管理版本优先。单次任务固定所选提交，未提交修改不作为源码证据；远程更新需先同步到本机。
 - **团队共享需要 Git 操作**：检查并提交需要共享的文档和忽略规则，推送后由其他成员同步。共享的是已提交文档，不是个人对话或 SQLite 文件；项目自定义忽略规则仍可能阻止文档被跟踪。
 - **目前尚未全部收敛到各项目内部**：服务使用的项目列表、网页操作回执和模型设置，保存在所选服务状态目录中，默认是 `<启动 Zest 的目录>/.zest/`。旧记录可能保留在原位置，由 `workspace.json` 引用。
 - **人工修改保留**：发现冲突时输出候选，不静默覆盖原文。因此正文可以已经完成，而新目录仍作为候选等待查看。
@@ -131,14 +148,16 @@ uv run --locked --extra ai --extra web zest --state-dir /absolute/path/to/zest-s
 
 | 配置项 | 本版支持情况 |
 | --- | --- |
-| 模型提供商 | 仅 DeepSeek |
+| 回答模型提供商 | DeepSeek |
+| 可选检索模型 | 阿里云百炼 `text-embedding-v4` 和 `qwen3-rerank` |
+| 向量索引 | Qdrant 本地模式或本机 Qdrant 服务 |
 | Web 内置模型 | `deepseek-flash` |
 | 官方基础地址 | `https://api.deepseek.com` |
 | 结构化输出接口 | `https://api.deepseek.com/beta/chat/completions` |
 | 推荐配置方式 | 在 Web 设置中填写 API Key |
 | 可选 CLI 配置 | 参考 [`.env.example`](.env.example)；已保存的 Web 配置优先 |
 
-本版不支持其他提供商、本地模型或任意 OpenAI 兼容接口。内置模型只是应用预设，不代表已验证每个账号的模型权限与可用性。
+回答模型目前不支持其他提供商、本地模型或任意 OpenAI 兼容接口。内置模型只是应用预设，不代表已验证每个账号的模型权限与可用性。
 
 执行模型任务时，相关源码片段、项目文档及对话上下文会发送至 DeepSeek。API Key 仅留在服务端，Web 设置将其以**未加密明文**保存到服务状态目录的 `model-settings.json`，使用仅所有者可读写的文件权限；不会回传浏览器或放入共享文档。本地调查与操作记录也可能包含项目原文，应按私有资料管理这些状态目录。
 
@@ -182,7 +201,7 @@ npm --prefix frontend run dev
 
 欢迎反馈可复现问题与提交范围明确的 PR。请附复现步骤、平台与工具版本以及脱敏日志，不要在 Issue 或提交中包含密钥、私有源码、本地数据库或模型请求收据。
 
-- [发行说明](.zest/docs/releases/v0.1.0-alpha.1.md)
+- [发行说明](.zest/docs/releases/v1.0.1-beta.1.md)
 - [当前工程文档](.zest/docs/index.md)
 - [项目初始化](.zest/docs/initialization.md) · [增量维护](.zest/docs/maintenance.md)
 - [工程文档生成](.zest/docs/engineering-documents.md)
