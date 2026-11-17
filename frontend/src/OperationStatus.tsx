@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Row } from './api.ts'
 
 export const operationTitle = (action: unknown) => ({
+  'index.cleanup':'清理无引用索引', 'index.build':'更新词法索引', 'index.build-semantic':'增量更新语义索引',
   'project.import':'接入项目', 'project.choose-directory':'选择项目文件夹', 'initialization.prepare':'准备项目资料',
   'project.remove':'移除项目',
   'initialization.decide':'启动项目初始化', 'initialization.context-decide':'确认调查请求', 'initialization.context-decide-many':'确认本批调查请求',

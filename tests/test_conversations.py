@@ -7,7 +7,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from tests import test_projects as fixtures
-from tests.test_tasks import FixtureModel
+from tests.test_tasks import FixtureModel as TaskFixtureModel
 from zest.conversations import ConversationStore
 from zest.documents import initialize_documents, read_workspace_document, workspace_documents
 from zest.files import FileReadError
@@ -15,6 +15,13 @@ from zest.git import inspect_repository
 from zest.qa import model_payload
 from zest.storage import ProjectRegistry
 from zest.tasks import TaskRunner, approval_digest
+
+
+class FixtureModel(TaskFixtureModel):
+    def complete(self, payload, *, purpose="qa"):
+        if purpose == "router":
+            return {"structured_status": "valid", "text": json.dumps({"route": "qa", "optimized_prompt": payload["question"]})}
+        return super().complete(payload)
 
 
 class ConversationsTest(TestCase):
@@ -223,6 +230,22 @@ class ConversationsTest(TestCase):
         self.assertEqual(followup['task']['context']['conversation_context']['history'][0]['assistant'], first['task']['result']['answer'])
         self.assertEqual(approval_digest(first['task']['context'], first['task']['target']), first['task']['payload_sha256'])
 
+    def test_routed_modification_requires_explicit_task_approval(self):
+        _, conversation = self.conversation()
+        (self.repo / 'app.py').write_text('print("hello")\n')
+        self.commit('add app')
+        original = self.model.complete
+        def route_repair(payload, *, purpose="qa"):
+            if purpose == "router":
+                return {"structured_status": "valid", "text": json.dumps({"route": "modification", "optimized_prompt": "修改 app.py"})}
+            return original(payload, purpose=purpose)
+        with patch.object(self.model, 'complete', side_effect=route_repair):
+            turn = self.store.send(conversation['id'], '修改 app.py', message_id=str(uuid4()), automatic_answer=True)
+        self.assertEqual(turn['status'], 'awaiting_approval')
+        self.assertEqual(turn['task']['purpose'], 'repair_proposal')
+        self.assertEqual(turn['task']['context']['conversation_context']['routing']['original_question'], '修改 app.py')
+        self.assertEqual(self.model.calls, [])
+
     def test_older_prepared_message_can_be_continued_once_without_repreparing(self):
         _, conversation = self.conversation()
         message = str(uuid4())
@@ -249,7 +272,9 @@ class ConversationsTest(TestCase):
         _, conversation = self.conversation()
         message = str(uuid4())
         calls = []
-        def lost(payload):
+        def lost(payload, *, purpose="qa"):
+            if purpose == "router":
+                return {"structured_status": "valid", "text": json.dumps({"route": "qa", "optimized_prompt": payload["question"]})}
             calls.append(payload)
             raise FileReadError('model_request_failed', '离线模拟结果不明。')
         with patch.object(self.model, 'complete', side_effect=lost):
@@ -287,7 +312,7 @@ class ConversationsTest(TestCase):
         parameters = {'id': conversation['id'], 'question': '语言？', 'message_id': str(uuid4())}
         value = validate_command('conversation.send', parameters)
         self.assertTrue(value['automatic_answer'])
-        with patch('zest.tasks.ModelSettings.from_env', return_value=self.model.settings), patch('zest.tasks.DeepSeekModel', return_value=self.model):
+        with patch('zest.tasks.ModelSettings.from_env', return_value=self.model.settings), patch('zest.tasks.DeepSeekModel', return_value=self.model), patch('zest.router.DeepSeekModel', return_value=self.model):
             result = execute(self.state_dir, 'conversation.send', value)
         self.assertEqual(result['status'], 'completed')
         self.assertEqual(len(self.model.calls), 1)

@@ -172,3 +172,9 @@ test('exhausted document work offers a disclosed new round rather than a no-op r
   assert.ok(!unknown.includes('基于已有事实开始新一轮文档生成'))
   assert.ok(!unknown.includes('继续未完成文档页面'))
 })
+
+test('semantic indexing provides a preview and an explicit confirmation flow', () => {
+  const html = renderToStaticMarkup(createElement(ProjectStatus, { connection: { port: 8000 }, project: { id: 'p', git: {} }, refresh: 0, busy: false, onCommand() {} }))
+  for (const label of ['语义索引增量更新', '更新本地词法索引', '预览语义更新', '未提交代码不会发送']) assert.ok(html.includes(label), label)
+  assert.ok(!html.includes('确认并增量更新语义索引'))
+})

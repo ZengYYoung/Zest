@@ -189,8 +189,22 @@ class ConversationStore:
                     except FileReadError as exc:
                         if exc.code not in ("index_missing", "index_stale"):
                             raise
-                TaskRunner(self.state_dir, model=self.model).create(project, question, files=paths,
-                                                                  task_id=task_id, conversation_context=history, retrieval=retrieval)
+                def create_task(choice):
+                    routed_history = {**history, "routing": {"route": choice["route"],
+                                      "optimized_prompt": choice["optimized_prompt"], "original_question": question,
+                                      "instruction": "整理后的需求仅供参考；以原始消息为准，不增加事实、权限或约束。"}}
+                    TaskRunner(self.state_dir, model=self.model).create(
+                        project, question, files=choice["files"] if choice["purpose"] == "repair_proposal" else paths,
+                        task_id=task_id, conversation_context=routed_history,
+                        retrieval="keyword" if choice["purpose"] == "repair_proposal" else retrieval,
+                        purpose=choice["purpose"], strategy=choice["strategy"])
+                if automatic_answer:
+                    from .router import route_message
+                    report_progress('routing', '正在整理需求并选择处理方式')
+                    route_message(question, history, model=self.model, dispatch=create_task)
+                else:
+                    TaskRunner(self.state_dir, model=self.model).create(project, question, files=paths,
+                                                                      task_id=task_id, conversation_context=history, retrieval=retrieval)
                 status = "prepared"
             except FileReadError as exc:
                 status, error = "failed", {"code": exc.code, "message": str(exc)}
@@ -198,6 +212,9 @@ class ConversationStore:
                 conn.execute("UPDATE conversation_turns SET status=?,error=? WHERE id=?", (status, json.dumps(error) if error else None, message_id))
                 row = conn.execute("SELECT * FROM conversation_turns WHERE id=?", (message_id,)).fetchone()
             if automatic_answer and not error:
+                turn = self._turn(row)
+                if (turn.get('task') or {}).get('purpose') == 'repair_proposal':
+                    return turn
                 return self._answer_prepared(conversation, row)
             return self._turn(row)
 

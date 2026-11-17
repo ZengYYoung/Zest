@@ -119,3 +119,17 @@ test('auto reviewed knowledge is distinct from human confirmation and retains or
   const html = render('tasks', { context: { sources: [{ id: 'E1', title: '认知', body: '声明使用数据库', evidence: { kind: 'auto_reviewed_project_knowledge', run_id: 'run', finding_id: 'T1:F1', observed_commit: 'a'.repeat(40) }, provenance: [{ text: 'database=mysql', evidence: { path: 'config.toml', commit: 'a'.repeat(40), start_line: 1, end_line: 1 } }] }] } })
   for (const value of ['自动核对认知', '不等于人工确认', 'config.toml', 'database=mysql']) assert.ok(html.includes(value), value)
 })
+
+test('partial single-line evidence displays character boundaries', () => {
+  const source = { ...sourceRecord, evidence: { ...sourceRecord.evidence, start_line: 4, end_line: 4, start_col: 10, end_col: 25 } }
+  const html = render('tasks', { status: 'completed', context: { question: '问题', sources: [source] }, result: { answer: '回答', citations: ['E1'] } })
+  assert.ok(html.includes('行 4–4 · 字符 11–25'))
+})
+
+test('history evidence is presented as Git history instead of a source line', () => {
+  const source = { id: 'E1', title: 'Git 提交历史', body: '{"commits":[]}', evidence: { kind: 'git_history', content_sha256: 'c'.repeat(64), parameters: { commit: 'a'.repeat(40) } } }
+  const html = render('tasks', { status: 'completed', context: { question: '历史提交', sources: [source] }, result: { answer: '回答', citations: ['E1'] } })
+  assert.ok(html.includes('Git 历史证据'))
+  assert.ok(html.includes('历史记录 SHA-256'))
+  assert.ok(!html.includes('行 undefined'))
+})

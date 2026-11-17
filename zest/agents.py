@@ -18,6 +18,13 @@ async def verify_sources(context, state_dir):
     async with Client(create_server(context["project_id"], state_dir)) as client:
         for source in context["sources"]:
             e = source["evidence"]
+            if e.get("kind") in ("git_history", "git_changes", "git_diff"):
+                from .storage import ProjectRegistry
+                from .qa_history import recheck
+                project = ProjectRegistry(state_dir).get_project_readonly(context["project_id"])
+                if project is None or not recheck(project, source):
+                    raise FileReadError("source_changed", "历史来源核对失败，未调用模型。")
+                continue
             if e.get("kind") == "auto_reviewed_project_knowledge":
                 from .cognition_store import CognitionStore
                 note = CognitionStore(state_dir).reviewed_finding(e["run_id"], e["finding_id"])
@@ -43,7 +50,19 @@ async def verify_sources(context, state_dir):
             result = await client.call_tool("read_file", {"path": e["path"], "commit": e["commit"],
                                                           "start_line": e["start_line"], "end_line": e["end_line"]})
             record = result.data.get("data") if result.data.get("ok") else None
-            if (record is None or record["evidence"] != e or record["lines"] != source["lines"]
+            if record is None:
+                raise FileReadError("source_changed", "MCP 核对来源失败，未调用模型。")
+            if 'start_col' in e or 'end_col' in e:
+                from .chunking import slice_record
+                try:
+                    lines = slice_record(record, e)
+                except ValueError as exc:
+                    raise FileReadError("source_changed", "MCP 核对来源范围失败，未调用模型。") from exc
+                actual_evidence = {**record['evidence'], **{k: e[k] for k in ('start_col', 'end_col') if k in e}}
+            else:
+                lines = record['lines']
+                actual_evidence = record['evidence']
+            if (actual_evidence != e or lines != source["lines"]
                     or record["content_sha256"] != source["content_sha256"]
                     or ("content" in source and record["content"] != source["content"])):
                 raise FileReadError("source_changed", "MCP 核对来源失败，未调用模型。")

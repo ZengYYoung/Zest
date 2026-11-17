@@ -7,7 +7,7 @@ name = "zest-project-agent"
 version = "1.0.1b1"
 description = "A long-lived maintenance agent for a single project"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["tiktoken>=0.7,<1"]
 
 [project.scripts]
 zest = "zest.cli:main"
@@ -40,4 +40,4 @@ tui = [
 include = ["zest*"]
 
 [tool.setuptools.package-data]
-zest = ["skills/*/SKILL.md"]
+zest = ["skills/*/SKILL.md", "data/*.tiktoken"]

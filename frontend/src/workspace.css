@@ -187,3 +187,23 @@
 @media(max-width:700px){.workspace-body{grid-template-columns:minmax(0,1fr)}.workspace-sidebar{display:none}.zest-app .mobile-history-toggle{display:inline-flex;flex-shrink:0}.header-identity{gap:9px;width:auto}.header-project{justify-content:flex-start;font-size:11px}.brand-wordmark{font-size:20px}.zest-header{gap:14px}.zest-header .brand-mark{flex-shrink:0}.zest-header .header-actions{flex-shrink:0}.workspace-dialog .conversation-sidebar{height:min(60dvh,560px)}.workspace-dialog .sidebar-new{margin-bottom:12px}}
 @media(prefers-reduced-motion:reduce){.update-check-button[aria-busy=true] svg{animation:none}}
 @media(max-width:420px){.header-actions .quiet-button span{display:none}}
+
+/* Shared navigation for the project and settings workspaces. */
+.workspace-dialog.wide:has(.section-layout) .dialog-body{padding:0;min-height:min(62svh,600px)}
+.section-layout{display:grid;grid-template-columns:205px minmax(0,1fr);min-height:min(62svh,600px)}
+.section-navigation{padding:22px 13px;background:#f8f8f6;border-right:1px solid #ecece7;display:flex;flex-direction:column;gap:4px}
+.section-navigation button{width:100%;min-height:41px;justify-content:flex-start;text-align:left;border:0;border-radius:8px;background:transparent;box-shadow:none;padding:9px 12px;color:#686861;font-size:13px;font-weight:400}
+.section-navigation button:hover:not(:disabled){background:#eceee9;color:#343a31}
+.section-navigation button.selected{background:#e8ede5;color:#354b35;font-weight:600}
+.section-navigation button:focus-visible{outline:2px solid #82937c;outline-offset:-2px}
+.section-panels{min-width:0;padding:29px 34px 38px}
+.section-panel[hidden]{display:none}
+.section-panel-heading{margin-bottom:25px;padding-bottom:20px;border-bottom:1px solid #efefe9}
+.section-panel-heading h3{margin:0;color:#292d28;font-size:20px;letter-spacing:-.3px;font-weight:600}
+.section-panel-heading p{margin:8px 0 0;color:#888d83;font-size:12px;line-height:1.7}
+.section-panel .settings-section{border:0;margin:0;padding:0}
+.section-panel .settings-section>h3{display:none}
+.section-record{max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}
+.semantic-index-control{font-size:12px;line-height:1.8}
+.semantic-index-control>.inline-actions{margin:18px 0}
+@media(max-width:700px){.workspace-dialog.wide:has(.section-layout) .dialog-body{min-height:0}.section-layout{grid-template-columns:minmax(0,1fr);min-height:0}.section-navigation{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid #ecece7;padding:10px 12px}.section-navigation button{width:auto;white-space:nowrap;flex-shrink:0}.section-panels{padding:24px 20px 32px}}

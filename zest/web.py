@@ -117,6 +117,21 @@ def create_app(state_dir):
         from .releases import ReleaseStore
         return {"data": {"registration": project(project_id), "version": ReleaseStore(state_dir).active(str(project_id))}}
 
+    @router.get("/projects/{project_id}/semantic-index/status")
+    def semantic_index_status(project_id: UUID):
+        from .hybrid import index_status
+        return {"data": index_status(project(project_id), state_dir)}
+
+    @router.get("/projects/{project_id}/semantic-index/cleanup-preview")
+    def semantic_index_cleanup_preview(project_id: UUID):
+        from .retrieval_cleanup import plan
+        return {"data": plan(project(project_id), state_dir)}
+
+    @router.get("/projects/{project_id}/semantic-index/preview")
+    def semantic_index_preview(project_id: UUID):
+        from .hybrid import plan_build
+        return {"data": plan_build(project(project_id), state_dir)}
+
     @router.get("/projects/{project_id}/overview")
     def overview(project_id: UUID):
         from .overview import build_overview

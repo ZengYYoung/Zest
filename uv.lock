@@ -3030,6 +3030,9 @@ wheels = [
 name = "zest-project-agent"
 version = "1.0.1b1"
 source = { editable = "." }
+dependencies = [
+    { name = "tiktoken" },
+]
 
 [package.optional-dependencies]
 ai = [
@@ -3074,6 +3077,7 @@ requires-dist = [
     { name = "python-dotenv", marker = "extra == 'web'", specifier = ">=1.2.4" },
     { name = "qdrant-client", marker = "extra == 'hybrid'", specifier = ">=1.12,<2" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=8.2.8" },
+    { name = "tiktoken", specifier = ">=0.7,<1" },
     { name = "uvicorn", marker = "extra == 'web'", specifier = ">=0.54.0" },
 ]
 provides-extras = ["hybrid", "ai", "mcp", "web", "tui"]

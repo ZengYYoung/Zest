@@ -80,12 +80,20 @@ def _symbol_ranges(project, question, commit, warnings):
 def _merge_ranges(ranges):
     """Merge overlapping/adjacent windows while preserving first priority."""
     result = []
-    for path, start, end in ranges:
+    for item in ranges:
+        if len(item) == 5:
+            if item not in result:
+                result.append(item)
+            continue
+        path, start, end = item
         first = len(result)
         changed = True
         while changed:
             changed = False
-            for index, (previous, left, right) in enumerate(result):
+            for index, previous_range in enumerate(result):
+                if len(previous_range) != 3:
+                    continue
+                previous, left, right = previous_range
                 if (previous == path and max(start, left) <= min(end, right) + 1
                         and max(end, right) - min(start, left) < 200):
                     first = min(first, index)
@@ -113,6 +121,8 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
               "sources": [], "warnings": []}
     seen = set()
     size = 0
+    if state.dirty:
+        result["warnings"].append({"code": "working_tree_excluded", "message": "本轮依据已提交版本，未提交的工作区修改不在证据中。"})
     if commit != state.head_commit:
         result["warnings"].append({"code": "managed_version_selected"})
 
@@ -154,11 +164,23 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
         result["warnings"].append({"code": "unborn_repository"})
         return result
 
-    def add(path, start=1, end=60):
+    # Explicit history questions receive bounded local Git data before source
+    # selection; no model or project code is executed here.
+    from .qa_history import collect as collect_history
+    for source in collect_history(project, question, commit, result["warnings"]):
+        source["id"] = f"E{len(result['sources']) + 1}"
+        added = len(json.dumps(source, ensure_ascii=False))
+        if len(result["sources"]) < MAX_SOURCES and size + added <= budget:
+            result["sources"].append(source)
+            size += added
+        else:
+            result["warnings"].append({"code": "history_context_budget"})
+
+    def add(path, start=1, end=60, start_col=None, end_col=None):
         nonlocal size
         if len(result["sources"]) >= MAX_SOURCES:
             return
-        key = (path, start, end)
+        key = (path, start, end, start_col, end_col)
         if key in seen:
             return
         seen.add(key)
@@ -169,8 +191,19 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
             return
         if not record["lines"]:
             return
-        source = {"id": f"E{len(result['sources']) + 1}", "evidence": record["evidence"],
-                  "lines": record["lines"], "content_sha256": record["content_sha256"]}
+        evidence = dict(record["evidence"])
+        if start_col is not None or end_col is not None:
+            evidence.update(start_col=start_col, end_col=end_col)
+            from .chunking import slice_record
+            try:
+                lines = slice_record(record, evidence)
+            except ValueError:
+                result["warnings"].append({"code": "invalid_chunk_range", "path": path})
+                return
+        else:
+            lines = record["lines"]
+        source = {"id": f"E{len(result['sources']) + 1}", "evidence": evidence,
+                  "lines": lines, "content_sha256": record["content_sha256"]}
         from .document_layout import shared_document, legacy_document
         if shared_document(path):
             source["document_role"] = "shared_project_document_not_independent_runtime_proof"
@@ -185,6 +218,8 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
 
     if retrieval not in ("keyword", "lexical", "hybrid"):
         raise FileReadError("invalid_retrieval", "不支持的检索方式。")
+    if retrieval in ("keyword", "lexical"):
+        result["retrieval_path"] = retrieval
     ranges = [(path, 1, 60) for path in files]
     if retrieval in ("lexical", "hybrid"):
         if state_dir is None:
@@ -201,11 +236,12 @@ def prepare_context(project: dict, question: str, *, keywords=None, files=None, 
             ranges.extend(_symbol_ranges(project, question, commit, result["warnings"]))
         for item in matches:
             e = item["evidence"]
-            ranges.append((e["path"], e["start_line"], e["end_line"]))
+            ranges.append((e["path"], e["start_line"], e["end_line"], e["start_col"], e["end_col"])
+                          if "start_col" in e else (e["path"], e["start_line"], e["end_line"]))
         if retrieval == "lexical" and ranked["metadata"]["skipped_counts"]:
             result["warnings"].append({"code": "index_skipped_sources"})
-    for path, start, end in _merge_ranges(ranges):
-        add(path, start, end)
+    for source_range in _merge_ranges(ranges):
+        add(*source_range)
     for source in deferred_notes:
         source["id"] = f"E{len(result['sources']) + 1}"
         added = len(json.dumps(source, ensure_ascii=False))

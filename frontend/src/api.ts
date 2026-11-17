@@ -24,13 +24,16 @@ async function requestApi<T>(connection: Connection, path: string, options: Requ
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) throw new ApiError('无效的本地读取时限。', 0)
   const host = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'localhost' : '127.0.0.1'
   let response: Response
+  const timeout = AbortSignal.timeout(timeoutMs)
   try {
     response = await fetch(`http://${host}:${connection.port}${path}`, {
       ...options, credentials: 'omit', cache: 'no-store', redirect: 'error',
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
+    if (signal?.aborted) throw error
+    if (options.method === 'GET' && timeout.aborted) throw new ApiError('读取超时，请检查本地服务状态后重试。', 0)
+    if (options.method === 'GET' && error instanceof Error && error.name === 'AbortError') throw new ApiError('读取被中断，请重试。', 0)
     throw new ApiError(path === '/api/model/settings' && options.method === 'POST'
       ? '未收到保存结果，请重新打开设置核对；本次没有调用模型。'
       : options.method === 'POST'

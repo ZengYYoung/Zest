@@ -91,3 +91,11 @@ test('conversation reports the retrieval fallback', () => {
   } } })
   assert.ok(html.includes('词法 + 语义融合（精排不可用）'))
 })
+
+test('conversation reports that uncommitted changes are excluded', () => {
+  const html = render(Turn, { connection: { port: 8000 }, busy: false, onCommand() {}, turn: { question: 'question', task: {
+    task_id: 'task', status: 'completed', context: { retrieval_path: 'keyword', warnings: [{ code: 'working_tree_excluded' }], sources: [] }, result: { answer: 'answer' }
+  } } })
+  assert.ok(html.includes('关键词与文件定位'))
+  assert.ok(html.includes('未提交的工作区修改不包含在证据中'))
+})

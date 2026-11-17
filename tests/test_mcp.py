@@ -29,7 +29,7 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
     async def test_only_read_tools_are_discoverable(self):
         async with Client(self.server()) as client:
             tools = await client.list_tools()
-        self.assertEqual({t.name for t in tools}, {"project_overview", "project_management_context", "read_file", "keyword_search", "indexed_search", "confirmed_knowledge", "project_structure", "symbol_lookup"})
+        self.assertEqual({t.name for t in tools}, {"project_overview", "project_management_context", "read_file", "keyword_search", "indexed_search", "confirmed_knowledge", "project_structure", "symbol_lookup", "git_history", "git_changes", "git_diff"})
         self.assertTrue(all(t.annotations.read_only_hint for t in tools))
 
     async def test_management_inventory_is_read_only_and_does_not_create_stores(self):
@@ -94,6 +94,23 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(traversal.data["ok"])
         self.assertFalse(secret.data["ok"])
         self.assertEqual(revision.data["error"]["code"], "invalid_commit")
+
+    async def test_git_history_and_changes_are_available_as_read_only_tools(self):
+        server = self.server()
+        before = inspect_repository(self.repo).head_commit
+        (self.repo / "README.md").write_text("# Updated\nPython service\n")
+        self.commit("update documentation")
+        after = inspect_repository(self.repo).head_commit
+        async with Client(server) as client:
+            history = await client.call_tool("git_history", {"limit": 1})
+            changes = await client.call_tool("git_changes", {"before": before, "after": after})
+            difference = await client.call_tool("git_diff", {"before": before, "after": after, "path": "README.md"})
+            rejected = await client.call_tool("git_history", {"commit": "HEAD"})
+        self.assertTrue(history.data["ok"])
+        self.assertEqual(history.data["data"]["commits"][0]["commit"], after)
+        self.assertEqual(changes.data["data"]["changes"][0]["path"], "README.md")
+        self.assertIn("+Python service", difference.data["data"]["diff"])
+        self.assertEqual(rejected.data["error"]["code"], "invalid_commit")
 
     async def test_missing_index_is_a_structured_result(self):
         async with Client(self.server()) as client:

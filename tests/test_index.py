@@ -80,7 +80,7 @@ class IndexTest(unittest.TestCase):
         result = index.search(p, "retry", limit=20)
         ranges = {(m["evidence"]["start_line"], m["evidence"]["end_line"]) for m in result["matches"]}
         self.assertIn((1, 40), ranges)
-        self.assertIn((31, 70), ranges)
+        self.assertIn((38, 77), ranges)
 
     def test_build_budget_does_not_replace_existing_index(self):
         p = self.project()
@@ -131,6 +131,63 @@ class IndexTest(unittest.TestCase):
             with self.assertRaises(FileReadError) as exc:
                 RetrievalIndex(self.state_dir).build(p)
         self.assertEqual(exc.exception.code, "index_budget_exceeded")
+
+    def test_diff_reuses_unchanged_blob_and_updates_complete_snapshot(self):
+        from zest.files import load_text_blob
+        p = self.project()
+        index = RetrievalIndex(self.state_dir)
+        base = index.build(p)['commit']
+        (self.repo / 'retry.md').write_text('new payment processing\n')
+        (self.repo / 'added.py').write_text('def fresh():\n    return 42\n')
+        target = self.commit('modify and add')
+        reads = []
+        def read(root, entry):
+            reads.append(entry.path)
+            return load_text_blob(root, entry)
+        with patch('zest.index.load_text_blob', side_effect=read):
+            metadata = index.build(p)
+        self.assertEqual(metadata['diff_base_commit'], base)
+        self.assertNotIn('other.md', reads)
+        self.assertIn('retry.md', reads)
+        self.assertIn('added.py', reads)
+        self.assertGreaterEqual(metadata['files_diff_reused'], 1)
+        result = index.search(p, 'database backup')
+        self.assertEqual(result['matches'][0]['evidence']['commit'], target)
+        self.assertEqual(result['matches'][0]['evidence']['path'], 'other.md')
+
+    def test_diff_handles_deletion_rename_and_old_version(self):
+        p = self.project()
+        index = RetrievalIndex(self.state_dir)
+        old = index.build(p)['commit']
+        (self.repo / 'other.md').unlink()
+        (self.repo / 'retry.md').rename(self.repo / 'renamed.md')
+        new = self.commit('rename and delete')
+        index.build(p)
+        self.assertEqual(index.search(p, 'payment retry')['matches'][0]['evidence']['path'], 'renamed.md')
+        self.assertEqual(index.search(p, 'database backup')['matches'], [])
+        self.assertEqual(index.search(p, 'database backup', commit=old)['matches'][0]['evidence']['path'], 'other.md')
+        self.assertEqual(index.search(p, 'payment retry')['matches'][0]['evidence']['commit'], new)
+
+    def test_diff_failure_and_invalid_manifest_fall_back_to_verified_scan(self):
+        p = self.project()
+        index = RetrievalIndex(self.state_dir)
+        index.build(p)
+        self.git('commit', '--allow-empty', '-m', 'empty')
+        with patch('zest.index.compare_commits', side_effect=ValueError('invalid diff')):
+            result = index.build(p)
+        self.assertIsNone(result['diff_base_commit'])
+        self.assertEqual(result['files_diff_reused'], 0)
+        self.assertTrue(index.search(p, 'payment retry')['matches'])
+
+        with closing(sqlite3.connect(index.db_path)) as conn, conn:
+            row = conn.execute('SELECT metadata FROM indexes WHERE commit_id=?', (result['commit'],)).fetchone()
+            metadata = json.loads(row[0])
+            metadata['indexed_files']['retry.md']['bytes'] = 0
+            conn.execute('UPDATE indexes SET metadata=? WHERE commit_id=?', (json.dumps(metadata), result['commit']))
+        fallback = index.build(p)
+        self.assertIsNone(fallback['diff_base_commit'])
+        self.assertEqual(fallback['files_diff_reused'], 0)
+        self.assertTrue(index.search(p, 'payment retry')['matches'])
 
 
 if __name__ == "__main__":

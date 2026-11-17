@@ -6,6 +6,7 @@ import { Dialog } from './Dialog.tsx'
 import { Icon } from './Icons.tsx'
 import { ModelConnection } from './ModelConnection.tsx'
 import { ProjectStatus } from './ProjectStatus.tsx'
+import { SectionLayout } from './SectionLayout.tsx'
 import { ProjectImport } from './ProjectImport.tsx'
 import { OperationStatus, operationTitle } from './OperationStatus.tsx'
 import { Initialization } from './Initialization.tsx'
@@ -39,6 +40,8 @@ export function App() {
 type Panel = 'settings' | 'status' | 'project' | 'record' | 'remove-project' | null
 export function Workspace({ connection, initialProjects, onDisconnect }: { connection: Connection; initialProjects: Project[]; onDisconnect(): void }) {
   const [projects, setProjects] = useState(initialProjects)
+  const [statusSection, setStatusSection] = useState('overview')
+  const [settingsSection, setSettingsSection] = useState('model')
   const [projectId, setProjectId] = useState(() => {
     try { const saved = localStorage.getItem(`zest-project-${connection.port}`); if (initialProjects.some(p => p.id === saved)) return saved! } catch { /* Optional preferences. */ }
     return initialProjects[0]?.id || ''
@@ -199,7 +202,7 @@ export function Workspace({ connection, initialProjects, onDisconnect }: { conne
   return <div className="zest-app">
     <header className="zest-header"><div className="header-identity"><button ref={sidebarTrigger} className="icon-button mobile-history-toggle" aria-label="打开项目与对话" aria-haspopup="dialog" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Icon name="sidebar" size={19} /></button><span className="brand-wordmark">Zest</span></div>
       <div className="header-project" title={project?.root_path}>{project && <><Icon name="folder" size={16} /><span>{projectName(project)}</span></>}</div>
-      <div className="header-actions"><button className="quiet-button" aria-label="项目状态" title="项目状态" disabled={!project} onClick={() => setPanel('status')}><Icon name="knowledge" size={17} /><span>项目状态</span></button><button className="icon-button" aria-label="设置" title="设置" onClick={() => setPanel('settings')}><Icon name="settings" size={19} /></button></div>
+      <div className="header-actions"><button className="quiet-button" aria-label="项目状态" title="项目状态" disabled={!project} onClick={() => { setStatusSection('overview'); setPanel('status') }}><Icon name="knowledge" size={17} /><span>项目状态</span></button><button className="icon-button" aria-label="设置" title="设置" onClick={() => setPanel('settings')}><Icon name="settings" size={19} /></button></div>
     </header>
     <div className="workspace-body">
     <aside className="workspace-sidebar" aria-label="项目与对话">{conversationNavigation}</aside>
@@ -207,7 +210,7 @@ export function Workspace({ connection, initialProjects, onDisconnect }: { conne
       {project ? <Conversation connection={connection} value={conversation} busy={operation.blocked} answering={answering} loading={loading} onSend={send} onCommand={command} onOlder={older} draft={draft} draftScope={projectId} onDraft={setDraft}>
         {operationFeedback}
         <div className="conversation-toolbar"><h1 title={String(conversation?.title || '新对话')}>{String(conversation?.title || '新对话')}</h1></div>
-        <Initialization key={projectId} connection={connection} projectId={projectId} refresh={refresh} busy={operation.blocked} onCommand={command} onSettings={() => setPanel('settings')} onDocuments={() => setPanel('status')} onPublished={() => setRefresh(v => v + 1)} />
+        <Initialization key={projectId} connection={connection} projectId={projectId} refresh={refresh} busy={operation.blocked} onCommand={command} onSettings={() => setPanel('settings')} onDocuments={() => { setStatusSection('documents'); setPanel('status') }} onPublished={() => setRefresh(v => v + 1)} />
         <MaintenanceNotice connection={connection} value={maintenance.value} visible={maintenance.visible} error={maintenance.error} busy={operation.blocked || maintenance.checking} onDismiss={maintenance.dismiss} onCommand={command} />
         {(error || operation.error) && <div className="chat-error" role="alert">{operation.error && `${operationTitle(operation.operation?.action)}：`}{error || operation.error}</div>}
       </Conversation> : <>{operationFeedback}<section className="first-project"><div className="welcome-mark">Zest</div><h1>从你的项目开始。</h1><p>选择项目根目录，让 Zest 陪你理解和推进它。</p><button className="solid-button" onClick={() => setPanel('project')}><Icon name="folder" />选择项目</button></section></>}
@@ -231,14 +234,14 @@ export function Workspace({ connection, initialProjects, onDisconnect }: { conne
       error={String(operation.operation?.action || '').startsWith('project.') ? operation.error : ''} />
       {operation.recoveryId && <p className="chat-notice">有一条操作尚待核对。<button disabled={operation.busy} onClick={async () => { const recovered = await operation.recover(); if (recovered) await updateAfterCommand(recovered.action, recovered.result) }}>核对原操作</button></p>}
     </Dialog>}
-    {panel === 'status' && project && <Dialog title="项目状态" wide onClose={() => setPanel(null)}><ProjectStatus connection={connection} project={project} refresh={refresh} busy={operation.blocked} onCommand={command} checking={maintenance.checking} maintenance={maintenance.value} checkError={maintenance.error} commandError={operation.error} onCheck={() => { void maintenance.check().catch(() => {}) }} /></Dialog>}
-    {panel === 'settings' && <Dialog title="设置" onClose={() => setPanel(null)}><section className="settings-section"><h3>工作区连接</h3><p className="muted">本地服务 · 端口 {connection.port}</p><button className="quiet-button" disabled={operation.blocked} onClick={onDisconnect}>更换连接</button></section>
-      <ModelConnection connection={connection} disabled={operation.blocked} refresh={refresh} check={String(active?.action || '').startsWith('model.') ? active?.result as Row || null : null} onCommand={command} onConfigured={() => { setRefresh(v => v + 1); if (project) void command('initialization.initialize', { project_id: project.id, resume_setup: true }) }} />
-      {project && <UnderstandingSettings key={projectId} connection={connection} projectId={projectId} refresh={refresh} busy={operation.blocked} onCommand={command} />}
-      {operation.error && <p className="error" role="alert">{operation.error}</p>}
-      <details className="settings-advanced"><summary>历史工作记录</summary>{project && <LegacyRecords connection={connection} projectId={projectId} refresh={refresh} onOpen={openRecord} />}</details>
-      <details className="settings-advanced"><summary>本次操作记录</summary>{active ? <><p>{statusLabels[String(active.status)] || String(active.status)}</p>{active.status === 'queued' && <button onClick={operation.startQueued}>启动已保存的操作</button>}<pre>{JSON.stringify(active, null, 2)}</pre></> : <p className="muted">本次打开后尚无操作。</p>}</details>
-    </Dialog>}
+    {panel === 'status' && project && <Dialog title="项目状态" wide onClose={() => setPanel(null)}><ProjectStatus initialSection={statusSection} connection={connection} project={project} refresh={refresh} busy={operation.blocked} onCommand={command} checking={maintenance.checking} maintenance={maintenance.value} checkError={maintenance.error} commandError={operation.error} onCheck={() => { void maintenance.check().catch(() => {}) }} /></Dialog>}
+    {panel === 'settings' && <Dialog title="设置" wide onClose={() => setPanel(null)}><SectionLayout label="设置栏目" initialSection={settingsSection} onSectionChange={setSettingsSection} sections={[
+      { id: 'model', title: '模型连接', description: '配置对话使用的模型。', content: <ModelConnection connection={connection} disabled={operation.blocked} refresh={refresh} check={String(active?.action || '').startsWith('model.') ? active?.result as Row || null : null} onCommand={command} onConfigured={() => { setRefresh(v => v + 1); if (project) void command('initialization.initialize', { project_id: project.id, resume_setup: true }) }} /> },
+      ...(project ? [{ id: 'understanding', title: '项目理解', description: '管理当前项目的自动理解权限。', content: <UnderstandingSettings key={projectId} connection={connection} projectId={projectId} refresh={refresh} busy={operation.blocked} onCommand={command} /> }] : []),
+      { id: 'workspace', title: '工作区连接', description: '查看当前本地服务连接。', content: <section className="settings-section"><p className="muted">本地服务 · 端口 {connection.port}</p><button className="quiet-button" disabled={operation.blocked} onClick={onDisconnect}>更换连接</button></section> },
+      { id: 'history', title: '历史工作记录', description: '查看项目中保存的工作记录。', content: project ? <LegacyRecords connection={connection} projectId={projectId} refresh={refresh} onOpen={openRecord} /> : <p className="muted">请先选择项目。</p> },
+      { id: 'operations', title: '本次操作记录', description: '查看当前会话中的操作状态。', content: active ? <><p>{statusLabels[String(active.status)] || String(active.status)}</p>{active.status === 'queued' && <button onClick={operation.startQueued}>启动已保存的操作</button>}<pre className="section-record">{JSON.stringify(active, null, 2)}</pre></> : <p className="muted">本次打开后尚无操作。</p> },
+    ]} />{operation.error && <p className="error" role="alert">{operation.error}</p>}</Dialog>}
     {panel === 'record' && record && <Dialog title="工作记录" wide onClose={() => setPanel('settings')}>
       {record.kind === 'cognition' ? <CognitionDetail value={record.value} onClose={() => setPanel('settings')} /> : ['tasks', 'repairs', 'verifications', 'knowledge', 'releases'].includes(record.kind) ? <RecordDetail kind={record.kind as 'tasks'} value={record.value} onClose={() => setPanel('settings')} /> : <pre>{JSON.stringify(record.value, null, 2)}</pre>}
       <RecordActions connection={connection} tab={record.kind} record={record.value} disabled={operation.blocked} submit={command} />

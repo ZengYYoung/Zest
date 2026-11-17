@@ -114,6 +114,15 @@ class QATest(unittest.TestCase):
                 ModelSettings.from_env(self.root / "missing.env")
 
 
+    def test_dirty_working_tree_is_disclosed_and_excluded(self):
+        project = self.prepare()
+        (self.repo / 'README.md').write_text('uncommitted-new-content')
+        context = prepare_context(project, 'language')
+        self.assertIn('working_tree_excluded', {warning['code'] for warning in context['warnings']})
+        self.assertNotIn('uncommitted-new-content', json.dumps(context['sources']))
+        self.assertEqual(context['retrieval_path'], 'keyword')
+
+
 class ModelTransportTest(unittest.TestCase):
     def test_real_langchain_adapter_with_offline_http_transport(self):
         try:

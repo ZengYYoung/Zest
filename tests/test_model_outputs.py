@@ -18,6 +18,7 @@ from zest.model_outputs import (
 class ModelOutputContractTest(unittest.TestCase):
     def wire_examples(self):
         return {
+            'router': {'route': 'qa', 'optimized_prompt': '解释项目入口。'},
             'document_update': {'claim_changes':[], 'pages':[], 'blocked_pages':[], 'retired_pages':[], 'coverage_gaps':[]},
             'document_plan': {'pages': [{'slug':'architecture', 'title':'模块协作', 'description':'理解模块边界。',
                                         'goal':'解释协作方式。', 'finding_ids':['F1'], 'related_pages':[]}], 'coverage_gaps':[]},

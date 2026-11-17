@@ -73,6 +73,15 @@ def _parser() -> argparse.ArgumentParser:
     search.add_argument("--commit", help="完整 commit ID；省略时查询当前 HEAD")
     search.add_argument("--limit", type=int, default=20, help="最多返回 1—100 个匹配行")
     search.add_argument("--case-sensitive", action="store_true", help="区分大小写")
+    history = actions.add_parser("history", help="只读查询固定提交的 Git 历史摘要")
+    history.add_argument("project_id")
+    history.add_argument("--commit", help="从完整 commit ID 开始；默认所选管理版本")
+    history.add_argument("--path", help="可选项目相对路径")
+    history.add_argument("--limit", type=int, default=20)
+    changes = actions.add_parser("changes", help="只读比较两个完整 commit 的文件变化")
+    changes.add_argument("project_id")
+    changes.add_argument("before")
+    changes.add_argument("after")
     ask = actions.add_parser("ask", help="基于检索证据回答项目问题")
     ask.add_argument("project_id")
     ask.add_argument("question")
@@ -208,6 +217,13 @@ def _parser() -> argparse.ArgumentParser:
     index_semantic = index_actions.add_parser("build-semantic", help="向 Embedding 服务发送已提交的索引片段并建立本地向量索引")
     index_semantic.add_argument("project_id")
     index_semantic.add_argument("--allow-retrieval", action="store_true")
+    index_semantic.add_argument("--preview", action="store_true", help="只显示向量复用和待发送数量，不调用模型")
+    index_semantic.add_argument("--plan-sha256", help="仅在预览的版本、配置与片段未改变时执行")
+    index_cleanup = index_actions.add_parser("cleanup", help="预览并清理不再引用的本地索引")
+    index_cleanup.add_argument("project_id")
+    index_cleanup.add_argument("--preview", action="store_true")
+    index_cleanup.add_argument("--plan-sha256")
+    index_cleanup.add_argument("--allow-cleanup", action="store_true")
     index_search = index_actions.add_parser("search")
     index_search.add_argument("project_id")
     index_search.add_argument("query")
@@ -515,11 +531,22 @@ def _main(args) -> int:
             if project is None:
                 raise FileReadError("project_not_found", "未找到该项目。")
             index = RetrievalIndex(args.state_dir)
-            if args.action == "build-semantic":
-                if not args.allow_retrieval:
-                    raise FileReadError("retrieval_permission_required", "建立向量索引会发送源码，请明确使用 --allow-retrieval。")
-                from .hybrid import build
-                result = build(project, args.state_dir)
+            if args.action == "cleanup":
+                from .retrieval_cleanup import plan, execute
+                if args.preview:
+                    result = plan(project, args.state_dir)
+                else:
+                    if not args.allow_cleanup or not args.plan_sha256:
+                        raise FileReadError("cleanup_permission_required", "请先预览并提供 --allow-cleanup 和 --plan-sha256。")
+                    result = execute(project, args.state_dir, expected_plan_sha256=args.plan_sha256)
+            elif args.action == "build-semantic":
+                from .hybrid import build, plan_build
+                if args.preview:
+                    result = plan_build(project, args.state_dir)
+                else:
+                    if not args.allow_retrieval:
+                        raise FileReadError("retrieval_permission_required", "建立向量索引会发送源码，请明确使用 --allow-retrieval。")
+                    result = build(project, args.state_dir, expected_plan_sha256=args.plan_sha256)
             else:
                 result = (index.build(project) if args.action == "build" else
                           index.search(project, args.query, commit=args.commit, limit=args.limit))
@@ -607,6 +634,12 @@ def _main(args) -> int:
             elif args.action == "search":
                 result = search_project(result, args.query, commit=args.commit,
                                         limit=args.limit, case_sensitive=args.case_sensitive)
+            elif args.action == "history":
+                from .git_history import history
+                result = history(result, commit=args.commit, limit=args.limit, path=args.path)
+            elif args.action == "changes":
+                from .git_history import changes
+                result = changes(result, before=args.before, after=args.after)
             elif args.action == "ask":
                 from .qa import answer_context, prepare_context
                 from .models import output_contract

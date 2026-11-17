@@ -68,9 +68,9 @@ class WebOperationsTest(unittest.TestCase):
             self.assertTrue(self.client.get(url).json()['data']['documents'])
 
     def test_conversation_rounds_use_original_operation_and_task_approval_receipts(self):
-        from tests.test_tasks import FixtureModel
+        from tests.test_conversations import FixtureModel
         model = FixtureModel()
-        with patch('zest.tasks.ModelSettings.from_env', return_value=model.settings), patch('zest.tasks.DeepSeekModel', return_value=model):
+        with patch('zest.tasks.ModelSettings.from_env', return_value=model.settings), patch('zest.tasks.DeepSeekModel', return_value=model), patch('zest.router.DeepSeekModel', return_value=model):
             conversation = self.finish(self.submit('conversation.create', {'project_id': self.project['id']}))
             pending = self.submit('conversation.send', {'id': conversation['id'], 'question': '项目语言？', 'message_id': str(uuid4())})
             turn = self.finish(pending)
@@ -291,3 +291,40 @@ class WebOperationsTest(unittest.TestCase):
             adopted = dispatch('resolution.adopt', {'id': proposed['id'], 'sha256': proposed['proposal_sha256']})
             self.assertTrue(adopted['adoption'])
             self.assertEqual(len(resolver.scorer.calls), 1)
+
+    def test_semantic_update_preview_and_explicit_receipt(self):
+        from zest.index import RetrievalIndex
+        RetrievalIndex(self.state_dir).build(self.project)
+        settings = {'embedding_url': 'https://example.test/embed', 'embedding_key': 'test', 'embedding_model': 'fixture',
+                    'rerank_url': '', 'rerank_key': '', 'rerank_model': 'fixture', 'hybrid_enabled': 'true'}
+        with patch('zest.hybrid._settings', return_value=settings), patch('zest.hybrid._embed', side_effect=lambda texts, settings, kind: [[1., 0.] for _ in texts]) as embed:
+            status_url = '/api/projects/' + self.project['id'] + '/semantic-index/status'
+            status = self.client.get(status_url).json()['data']
+            self.assertEqual(status['lexical'], 'ready')
+            self.assertEqual(status['semantic'], 'missing')
+            self.assertFalse(status['qdrant_checked'])
+            response = self.client.get('/api/projects/' + self.project['id'] + '/semantic-index/preview')
+            self.assertEqual(response.status_code, 200, response.text)
+            plan = response.json()['data']
+            self.assertEqual(plan['new_vectors'], 2)
+            self.assertTrue(plan['pending_sources'])
+            self.assertFalse(plan['model_called'])
+            self.assertEqual(embed.call_count, 0)
+            operation = self.submit('index.build-semantic', {'project_id': self.project['id'], 'plan_sha256': plan['plan_sha256']})
+            result = self.finish(operation)
+            self.assertEqual(result['new_vectors'], 2)
+            self.assertEqual(self.client.get(status_url).json()['data']['semantic'], 'published_unverified')
+            self.assertEqual(embed.call_count, 1)
+            self.assertEqual(self.finish(operation), result)
+            self.assertEqual(embed.call_count, 1)
+            next_plan = self.client.get('/api/projects/' + self.project['id'] + '/semantic-index/preview').json()['data']
+            self.assertEqual(next_plan['new_vectors'], 0)
+            self.assertEqual(next_plan['reused_chunks'], 2)
+            cleanup_url = '/api/projects/' + self.project['id'] + '/semantic-index/cleanup-preview'
+            cleanup_plan = self.client.get(cleanup_url).json()['data']
+            self.assertEqual(cleanup_plan['pool_remove_keys'], [])
+            cleanup_op = self.submit('index.cleanup', {'project_id': self.project['id'], 'plan_sha256': cleanup_plan['plan_sha256']})
+            cleaned = self.finish(cleanup_op)
+            self.assertTrue(cleaned['git_and_documents_unchanged'])
+            self.assertEqual(self.finish(cleanup_op), cleaned)
+            self.assertEqual(embed.call_count, 1)

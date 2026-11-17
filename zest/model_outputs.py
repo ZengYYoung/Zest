@@ -45,6 +45,12 @@ class QAResponse(OutputModel):
     unknowns: list[str] = Field(description="尚未查清或缺少证据的问题；没有缺口时返回空数组。")
 
 
+class RouterResponse(OutputModel):
+    """Route a request and preserve its intent in a bounded normalized prompt."""
+    route: Literal["qa", "investigation", "modification"] = Field(description="选择问答、只读项目调查或项目修改建议。")
+    optimized_prompt: str = Field(description="忠实整理用户需求，保留限制和不确定性，不添加事实或授权。")
+
+
 class CompleteFileChange(OutputModel):
     """Full replacement content for an approved full-file or new-file source."""
 
@@ -484,6 +490,7 @@ class DocumentReviewResponse(OutputModel):
 
 
 OUTPUT_MODELS = {
+    "router": RouterResponse,
     'document_update': DocumentUpdateResponse,
     'document_plan': DocumentPlanResponse,
     'document_write': DocumentWriteResponse,

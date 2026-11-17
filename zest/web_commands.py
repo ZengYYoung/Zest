@@ -16,6 +16,10 @@ class ProjectInput(Input):
     project_id: UUID
 
 
+class SemanticBuildInput(ProjectInput):
+    plan_sha256: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")
+
+
 class DocumentRoundInput(ProjectInput):
     source_run_id: UUID
     source_sha256: str = Field(min_length=64, max_length=64, pattern='^[0-9a-f]{64}$')
@@ -188,7 +192,7 @@ COMMANDS = {
     "release.decide": DecisionInput, "release.recover": RecordInput,
     "knowledge.add": KnowledgeInput, "knowledge.confirm": RecordInput,
     "knowledge.invalidate": InvalidateInput, "release.capture": RecordInput,
-    "index.build": ProjectInput, "survey.build": ProjectInput,
+    "index.build": ProjectInput, "index.build-semantic": SemanticBuildInput, "index.cleanup": SemanticBuildInput, "survey.build": ProjectInput,
     "evaluation.create": EvaluationInput, "evaluation.decide": ExtendedDecision,
     "evaluation.run": RecordInput, "evaluation.recover": RecordInput,
     "resolution.create": RecordInput, "resolution.decide": ExtendedDecision,
@@ -399,4 +403,10 @@ def _execute(state_dir, action, p):
     if action == "index.build":
         from .index import RetrievalIndex
         return RetrievalIndex(state_dir).build(project())
+    if action == "index.cleanup":
+        from .retrieval_cleanup import execute as cleanup
+        return cleanup(project(), state_dir, expected_plan_sha256=p["plan_sha256"])
+    if action == "index.build-semantic":
+        from .hybrid import build
+        return build(project(), state_dir, expected_plan_sha256=p["plan_sha256"])
     raise FileReadError("invalid_web_command", "不支持的操作。")

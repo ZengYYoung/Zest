@@ -94,12 +94,11 @@ class HybridTest(unittest.TestCase):
             matches = semantic_search(p, 'credential', self.state_dir, built['commit'], settings)
             self.assertEqual(matches[0]['evidence']['path'], 'issue.py')
             self.assertEqual(matches[0]['evidence']['commit'], built['commit'])
-            with patch('zest.hybrid._embed', side_effect=FileReadError('retrieval_service_error', 'failed')):
+            with patch('zest.embedding_cache.load_vectors', return_value={}), patch('zest.hybrid._embed', side_effect=FileReadError('retrieval_service_error', 'failed')):
                 with self.assertRaises(FileReadError):
                     build(p, self.state_dir)
-            with self.assertRaises(FileReadError) as exc:
-                semantic_search(p, 'credential', self.state_dir, built['commit'], settings)
-            self.assertEqual(exc.exception.code, 'semantic_index_missing')
+            # A failed rebuild of the same immutable commit retains its last complete snapshot.
+            self.assertTrue(semantic_search(p, 'credential', self.state_dir, built['commit'], settings))
 
     def test_dashscope_environment_defaults_and_overrides(self):
         from zest.hybrid import _settings

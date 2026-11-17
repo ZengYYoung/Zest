@@ -54,16 +54,20 @@ export function Conversation({ connection, value, busy, onSend, onCommand, onOld
 export function Turn({ turn, busy, onCommand, answering = false }: { connection: Connection; turn: Row; busy: boolean; onCommand(action: string, p: Row): void; answering?: boolean }) {
   const task = object(turn.task), result = object(task.result), context = object(task.context), target = object(task.target)
   const awaiting = task.status === 'awaiting_approval', sources = rows(context.sources)
+  const repair = task.purpose === 'repair_proposal'
+  const routing = object(object(context.conversation_context).routing)
   return <article className="conversation-turn">
     <div className="user-message"><TextContent text={String(turn.question || '')} /></div>
     <div className="assistant-message"><span className="assistant-mark" aria-hidden="true">z</span><div className="assistant-body">
-      {typeof result.answer === 'string' ? <TextContent text={result.answer} /> : answering ? <p className="assistant-thinking" role="status"><span className="initialization-spinner" />正在结合项目资料回答…</p> : awaiting ? <div className="answer-permission">
-        <p>这条消息尚未回答。点击继续，后续提问会在发送后直接回答。</p>
+      {typeof result.answer === 'string' ? <TextContent text={result.answer} /> : repair && typeof result.summary === 'string' ? <><TextContent text={result.summary} />{Boolean(result.repair_id) && <p className="muted">候选修改已生成，可在下方记录中查看方案编号；应用修改仍需单独审阅和批准。</p>}</> : answering ? <p className="assistant-thinking" role="status"><span className="initialization-spinner" />正在结合项目资料回答…</p> : awaiting ? <div className="answer-permission">
+        <p>{repair ? '已准备修改建议的资料，请核对范围并批准生成候选方案。生成后仍需单独审阅和批准修改。' : '这条消息尚未回答。点击继续，后续提问会在发送后直接回答。'}</p>
         <details className="request-preview"><summary>查看本次资料 · {sources.length} 份 · {shortCommit(context.commit)}</summary><RecordDetail kind="tasks" value={task} onClose={() => {}} /><details className="json-details"><summary>完整请求与对话上下文</summary><pre>{JSON.stringify({ target, context, payload_sha256: task.payload_sha256 }, null, 2)}</pre></details></details>
-          <div className="inline-actions"><button className="solid-button" disabled={busy || !turn.conversation_id || !turn.id} onClick={() => onCommand('conversation.answer', { id: turn.conversation_id, message_id: turn.id })}>继续回答</button>
+          <div className="inline-actions"><button className="solid-button" disabled={busy || !turn.conversation_id || !turn.id} onClick={() => repair ? onCommand('task.decide', { id: task.task_id, approved: true, sha256: task.payload_sha256 }) : onCommand('conversation.answer', { id: turn.conversation_id, message_id: turn.id })}>{repair ? '批准生成候选方案' : '继续回答'}</button>
             <button className="quiet-button" disabled={busy} onClick={() => onCommand('task.decide', { id: task.task_id, approved: false })}>取消本轮</button></div>
       </div> : <p className="muted">{task.status === 'rejected' ? '本轮已取消，你可以继续补充或换个问题。' : statusLabels[String(turn.status)] || String(turn.status)}</p>}
-      {Boolean(context.retrieval_path) && <p className="muted" role="status">检索路径：{context.retrieval_path === 'hybrid_rerank' ? '词法 + 语义 + 精排' : context.retrieval_path === 'hybrid_rrf' ? '词法 + 语义融合（精排不可用）' : context.retrieval_path === 'hybrid' ? '词法 + 语义融合（无候选）' : '词法检索（语义检索不可用）'}</p>}
+      {Boolean(routing.route) && <details className="message-evidence"><summary>处理方式：{routing.route === 'qa' ? '项目问答' : routing.route === 'investigation' ? '项目调查' : '修改建议'}</summary><TextContent text={String(routing.optimized_prompt || '')} /></details>}
+      {Boolean(context.retrieval_path) && <p className="muted" role="status">检索路径：{context.retrieval_path === 'hybrid_rerank' ? '词法 + 语义 + 精排' : context.retrieval_path === 'hybrid_rrf' ? '词法 + 语义融合（精排不可用）' : context.retrieval_path === 'hybrid' ? '词法 + 语义融合（无候选）' : context.retrieval_path === 'keyword' ? '关键词与文件定位' : rows(context.warnings).some(warning => warning.retrieval_path === 'lexical') ? '词法检索（语义检索不可用）' : '词法检索'}</p>}
+      {rows(context.warnings).some(warning => warning.code === 'working_tree_excluded') && <p className="muted" role="status">本轮依据已提交版本，未提交的工作区修改不包含在证据中。</p>}
       {Array.isArray(result.unknowns) && result.unknowns.length > 0 && <details className="message-evidence"><summary>待补充的信息</summary><ul>{result.unknowns.map((item, i) => <li key={i}>{String(item)}</li>)}</ul></details>}
       {Boolean(turn.error || task.error) && <p className="error" role="alert">{String(object(turn.error || task.error).message || '本轮处理失败。')}</p>}
       {Boolean(object(context.conversation_context).truncated) && <p className="muted">本轮使用最近的部分前文，更早消息仍保存在对话记录中。</p>}

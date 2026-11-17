@@ -39,9 +39,18 @@ test('validation errors do not expose raw response inputs', async () => {
   await assert.rejects(readApi({ port: 8000 }, '/api/projects'), error => error.status === 422 && !error.message.includes('private input'))
 })
 
-test('abort remains cancellation rather than a stale UI error', async () => {
-  globalThis.fetch = async () => { throw new DOMException('cancelled', 'AbortError') }
-  await assert.rejects(readApi({ port: 8000 }, '/api/projects'), error => error.name === 'AbortError')
+test('caller cancellation remains distinct from a visible interrupted request', async () => {
+  globalThis.fetch = async () => { throw new DOMException('Fetch is aborted', 'AbortError') }
+  const controller = new AbortController(); controller.abort()
+  await assert.rejects(readApi({ port: 8000 }, '/api/projects', controller.signal), error => error.name === 'AbortError')
+  await assert.rejects(readApi({ port: 8000 }, '/api/projects'), /读取被中断，请重试/)
+})
+
+test('a read timeout gives a clear local message', async () => {
+  globalThis.fetch = async (_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(new DOMException('Fetch is aborted', 'AbortError')), { once: true })
+  })
+  await assert.rejects(readApi({ port: 8000 }, '/api/projects', undefined, 5), /读取超时/)
 })
 
 test('lost key-save responses lead to configuration readback instead of operation replay', async () => {
